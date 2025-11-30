@@ -1,0 +1,9 @@
+google-generativeai
+feedparser
+scikit-learn
+numpy
+python-dotenv
+beautifulsoup4
+spacy
+fastembed
+ddgs

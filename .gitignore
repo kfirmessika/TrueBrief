@@ -1,0 +1,35 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Fact history (contains user data)
+fact_history.txt
+
+# Data directory (runtime data, ledgers, timestamps)
+data/
+
+# Model files (too large for git)
+models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+
