@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrueBrief | Delta Engine Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Outfit:wght@700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0c;
+            --surface: #16161a;
+            --accent: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.3);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --alpha-gold: #fbbf24;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        header {
+            padding: 2rem;
+            text-align: center;
+            border-bottom: 1px solid #222;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            margin: 0;
+            background: linear-gradient(to right, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        main {
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .stats {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            padding: 1.5rem;
+            border-radius: 12px;
+            flex: 1;
+            border: 1px solid #333;
+            text-align: center;
+        }
+
+        .stat-val {
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .alpha-list {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .alpha-card {
+            background: var(--surface);
+            padding: 1.5rem;
+            border-radius: 16px;
+            border: 1px solid #333;
+            position: relative;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+
+        .alpha-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px var(--accent-glow);
+            border-color: var(--accent);
+        }
+
+        .alpha-tag {
+            background: rgba(251, 191, 36, 0.1);
+            color: var(--alpha-gold);
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 1rem;
+        }
+
+        .alpha-text {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .alpha-meta {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .source-link {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .loader {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.5;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.5;
+            }
+        }
+
+        .loading-text {
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>TRUEBRIEF</h1>
+        <div class="subtitle"> MANUFACTURING SILENCE | ALFA STREAM</div>
+    </header>
+
+    <main>
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-val" id="count-val">0</div>
+                <div class="stat-label">Verified Alphas</div>
+            </div>
+            <div class="stat-card">
+                <button id="scan-btn"
+                    style="background: var(--accent); color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%;">
+                    SCAN FEEDS NOW
+                </button>
+            </div>
+        </div>
+
+        <div id="alpha-container" class="alpha-list">
+            <div class="loader">
+                <div class="loading-text">Extracting novelty from the noise...</div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        async function fetchAlphas() {
+            try {
+                const response = await fetch('http://localhost:8000/alphas');
+                const data = await response.json();
+
+                const container = document.getElementById('alpha-container');
+                const countVal = document.getElementById('count-val');
+
+                countVal.innerText = data.count;
+                container.innerHTML = '';
+
+                if (data.alphas.length === 0) {
+                    container.innerHTML = '<div class="loader">No Alphas found yet. Ingesting feeds...</div>';
+                    return;
+                }
+
+                data.alphas.forEach(alpha => {
+                    const card = document.createElement('div');
+                    card.className = 'alpha-card';
+                    card.innerHTML = `
+                        <span class="alpha-tag">VERIFIED ALPHA</span>
+                        <div class="alpha-text">${alpha.text}</div>
+                        <div class="alpha-meta">
+                            <span>Ingested from <a href="${alpha.source}" target="_blank" class="source-link">Source</a></span>
+                            <span>PERSISTENT FACT ID: ${Math.floor(Math.random() * 10000)}</span>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+
+            } catch (error) {
+                console.error('Error fetching alphas:', error);
+                document.getElementById('alpha-container').innerHTML = '<div class="loader">API unreachable. Is the Delta Engine running?</div>';
+            }
+        }
+
+        // Initial fetch
+        fetchAlphas();
+        // Poll every 10 seconds
+        setInterval(fetchAlphas, 10000);
+
+        document.getElementById('scan-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('scan-btn');
+            const originalText = btn.innerText;
+            btn.innerText = 'HUNTING IN PROGRESS...';
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+
+            try {
+                const response = await fetch('http://localhost:8000/scan', { method: 'POST' });
+                const result = await response.json();
+                alert(`Scan complete! Discovered ${result.new_alphas_discovered} new verified Alphas.`);
+                fetchAlphas();
+            } catch (err) {
+                alert('Scan failed. Check terminal for server status.');
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+        });
+    </script>
+</body>
+
+</html>

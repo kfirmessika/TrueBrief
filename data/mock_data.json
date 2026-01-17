@@ -1,0 +1,32 @@
+{
+  "topics": [
+    {
+      "name": "Nvidia Stock",
+      "old_facts": [
+        "Nvidia stock rose 5% on Monday.",
+        "Jensen Huang announced a new Blackwell chip.",
+        "Analysts predict high demand for AI GPUs."
+      ],
+      "new_articles": [
+        {
+            "id": "nv_article_1",
+            "text": "Nvidia stock rose 5% on Monday after Jensen Huang announced a new Blackwell chip. However, supply chain issues were reported today causing a distinct 2% drop in after-hours trading."
+        }
+      ]
+    },
+    {
+      "name": "Local Election",
+      "old_facts": [
+        "Mayor Smith is running for re-election.",
+        "The polling stations opened at 7 AM.",
+        "Voter turnout is expected to be high."
+      ],
+      "new_articles": [
+        {
+            "id": "el_article_1",
+            "text": "The polling stations opened at 7 AM and Mayor Smith is running for re-election. In a surprising turn, preliminary exit polls showing Smith trailing by 15 points were released just now."
+        }
+      ]
+    }
+  ]
+}

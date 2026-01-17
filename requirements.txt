@@ -1,0 +1,9 @@
+spacy
+fastembed
+scikit-learn
+numpy
+feedparser
+crawl4ai
+xgboost
+qdrant-client
+google-generativeai
