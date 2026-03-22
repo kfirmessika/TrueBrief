@@ -1,0 +1,28 @@
+[
+  {
+    "name": "SpaceX",
+    "sources": {
+      "rss": [],
+      "static": [
+        "https://forum.nasaspaceflight.com/index.php?board=45.0",
+        "https://forum.nasaspaceflight.com/index.php?topic=62129.0",
+        "https://space.stackexchange.com/questions/67155/what-is-the-advantage-of-catching-a-rocket-booster-with-a-tower"
+      ]
+    },
+    "active": true,
+    "last_scan": null
+  },
+  {
+    "name": "TSMC Arizona fab 4nm production yield rate delay union negotiations",
+    "sources": {
+      "rss": [],
+      "static": [
+        "https://www.tomshardware.com/tech-industry/tsmc-arizona-achieves-production-yields-similar-to-those-at-its-fabs-in-taiwan-says-report",
+        "https://www.electronicsweekly.com/news/business/tsmcs-arizona-yield-4-better-than-in-taiwan-2024-10/",
+        "https://markets.financialcontent.com/stocks/article/tokenring-2025-12-31-the-tale-of-two-fabs-tsmc-arizona-hits-profitability-while-intel-ohio-faces-decade-long-delay"
+      ]
+    },
+    "active": true,
+    "last_scan": null
+  }
+]

@@ -95,10 +95,11 @@ class NoveltyFilter:
         Returns: (is_alpha, reason)
         """
         # 1. Semantic Novelty Check (Vector Search)
-        is_novel, score, match = self.memory.is_novel(fact)
+        is_novel, score, match_payload = self.memory.is_novel(fact)
         
         if not is_novel:
-            return False, f"Duplicate of: '{match[:50]}...'"
+            match_text = match_payload.get("text", "") if match_payload else ""
+            return False, f"Duplicate of: '{match_text[:50]}...'"
 
         # 2. Verification Check (LLM Grounding)
         is_true = self.verifier.verify(fact, source_text)
@@ -108,6 +109,49 @@ class NoveltyFilter:
 
         return True, "Alpha Found"
 
-    def commit(self, fact: str, source_url: str):
+    def commit(self, fact: str, source_url: str, published_date: str = ""):
         """Saves a verified alpha to memory."""
-        self.memory.add_fact(fact, source_url)
+        self.memory.add_fact(fact, source_url, published_date)
+
+    def process_extracted_alpha(self, alpha_text: str, source_url: str, published_date: str = "") -> Tuple[bool, str]:
+        """
+        Processes an extracted alpha through the Time Detective if it collides in Memory.
+        Returns (is_saved, final_fact_text)
+        """
+        is_novel, score, match_payload = self.memory.is_novel(alpha_text)
+        
+        if is_novel:
+            self.commit(alpha_text, source_url, published_date)
+            return True, alpha_text
+            
+        # Collision! Invoke Time Detective
+        if not hasattr(self, 'time_detective'):
+            from .context_verifier import TimeDetective
+            self.time_detective = TimeDetective()
+            
+        decision, hist_box, new_box, delta_alpha = self.time_detective.evaluate(alpha_text, published_date, match_payload)
+        
+        # Mathematical date overlap logic
+        if decision in ["UPDATE", "NEW_EVENT"] and delta_alpha and delta_alpha.lower() != "none":
+            hist_start = hist_box.get("start_date")
+            hist_end = hist_box.get("end_date")
+            new_start = new_box.get("start_date")
+            new_end = new_box.get("end_date")
+
+            if hist_start and hist_end and new_start and new_end:
+                print(f"   [Math Engine] Evaluating Overlap:")
+                print(f"      History Box: {hist_start} to {hist_end}")
+                print(f"      New Box    : {new_start} to {new_end}")
+                
+                # Basic string comparison works for YYYY-MM-DD
+                if new_start <= hist_end and new_end >= hist_start:
+                    print("⚠️ Mathematical Overlap Detected. Overruling LLM UPDATE -> DUPLICATE.")
+                    return False, alpha_text
+
+            # Save the new delta alpha using the extracted human readable date
+            human_readable_date = new_box.get("human_readable", published_date)
+            # Memory expects published_date as a string, we pass human_readable
+            self.commit(delta_alpha, source_url, human_readable_date)
+            return True, delta_alpha
+            
+        return False, alpha_text

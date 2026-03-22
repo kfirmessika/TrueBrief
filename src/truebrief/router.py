@@ -33,8 +33,13 @@ async def get_alphas():
     facts = ledger.get_all_facts()
     return {"count": len(facts), "alphas": facts}
 
+from pydantic import BaseModel
+
+class ScanRequest(BaseModel):
+    feed_url: str = "https://techcrunch.com/feed/"
+
 @app.post("/scan")
-async def trigger_scan():
+async def trigger_scan(request: ScanRequest):
     """
     Triggers a manual scan of the configured feeds.
     """
@@ -47,30 +52,134 @@ async def trigger_scan():
     atomizer = Atomizer()
     engine = NoveltyFilter(memory=ledger) # Use shared ledger to avoid Qdrant lock
     
-    targets = radar.scan_feed("https://techcrunch.com/feed/")
-    targets = targets[:1] # Limit to 1 for high-quality extraction without 429 limits
-
+    # Check if input is a Topic or a URL
+    targets = []
+    
+    if request.feed_url.startswith("http"):
+        # Direct Mode (URL)
+        print(f"📡 Radar locked on direct target: {request.feed_url}")
+        targets = radar.scan_feed(request.feed_url)
+    else:
+        # Librarian Mode (Topic)
+        print(f"🧙‍♂️ Librarian Activate! Researching topic: {request.feed_url}")
+        from .librarian import Librarian
+        lib = Librarian()
+        sources = lib.search_sources(request.feed_url)
+        
+        # 1. Harvest RSS Feeds (Commodity Context)
+        for rss in sources['rss']:
+            print(f"   📡 Scanning found feed: {rss}")
+            t = radar.scan_feed(rss)
+            targets.extend(t)
+            
+        # 2. Harvest Static Targets (High Value Alpha)
+        for static_url in sources['static']:
+            print(f"   🎯 Locking onto Static Target: {static_url}")
+            # Mock a target object so Sniper accepts it
+            targets.append({
+                'url': static_url,
+                'title': f"Static Target: {static_url}",
+                'published': "Today"
+            })
     
     new_alphas = 0
     from .verifier import TruthAgent
     verifier = TruthAgent()
 
-    for t in targets:
-        content = await sniper._shoot_async(t['url'])
-        if not content: continue
+    # 1. Collect Content (The Hunter)
+    contents = []
+    valid_targets = []
+    
+    # Process up to 5 articles in a batch
+    batch_targets = targets[:5]
+    
+    print(f"🎯 Sniper targeting {len(batch_targets)} articles for batch analysis...")
+    
+    for t in batch_targets:
+        sniper_result = await sniper._shoot_async(t['url'])
+        if sniper_result and sniper_result.get("text"):
+            contents.append(sniper_result["text"])
+            if sniper_result.get("published_date"):
+                t['published'] = sniper_result["published_date"]
+            valid_targets.append(t)
+    
+    # Track precise failure metrics
+    sources_found = len(valid_targets)
+    scraped_successfully = len(contents)
+    total_alphas_extracted = 0
+    
+    # 2. Batch Verification (The Brain)
+    if contents:
+        print(f"🧠 Batch Analyzing {len(contents)} articles for '{request.feed_url}'...")
+        # Use the input query as the topic name (even if it's a URL, though usually it's a Topic Search)
+        topic_name = request.feed_url
+        batch_results = verifier.extract_alphas_batch(contents, topic_name=topic_name)
         
-        # Cluster Extraction: Process the whole text at once for best Alphas
-        potential_alphas = verifier.extract_alphas(content)
+        total_alphas_extracted = len(batch_results)
         
-        for alpha in potential_alphas:
-            # Check novelty against the ledger
-            is_novel, score, match = engine.memory.is_novel(alpha)
-            if is_novel:
-                engine.commit(alpha, t['url'])
-                new_alphas += 1
-
+        for item in batch_results:
+            alpha_text = item.get('text')
+            src_idx = item.get('source_index')
+            
+            if alpha_text and src_idx is not None and 0 <= src_idx < len(valid_targets):
+                source_url = valid_targets[src_idx]['url']
+                published_date = valid_targets[src_idx].get('published', '')
                 
-    return {"status": "success", "new_alphas_discovered": new_alphas}
+                is_saved, final_fact = engine.process_extracted_alpha(alpha_text, source_url, published_date)
+                if is_saved:
+                    new_alphas += 1
+
+    rejected_by_verifier = total_alphas_extracted - new_alphas
+
+    return {
+        "status": "success", 
+        "new_alphas_discovered": new_alphas,
+        "metrics": {
+            "sources_found": sources_found,
+            "scraped_successfully": scraped_successfully,
+            "extracted_by_llm": total_alphas_extracted,
+            "rejected_by_engine": rejected_by_verifier
+        }
+    }
+
+# --- Topic Manager API ---
+from .topics import TopicManager
+topic_manager = TopicManager()
+
+@app.get("/topics")
+async def get_topics():
+    return {"topics": topic_manager.get_all_topics()}
+
+class TopicRequest(BaseModel):
+    name: str
+
+from fastapi import BackgroundTasks
+
+@app.post("/topics")
+async def add_topic(request: TopicRequest, background_tasks: BackgroundTasks):
+    """
+    Adds a new topic. Uses Librarian to find sources automatically.
+    Triggers an immediate background scan.
+    """
+    from .librarian import Librarian
+    lib = Librarian()
+    
+    # Auto-Discover Sources
+    print(f"🧙‍♂️ Librarian Scouting sources for new topic: {request.name}")
+    sources = lib.search_sources(request.name)
+    
+    # Save to Persistence
+    new_topic = topic_manager.add_topic(request.name, sources)
+    
+    # Trigger Immediate Scan
+    from .manager import SurveillanceManager
+    # Pass the global ledger to avoid locking the DB
+    mgr = SurveillanceManager(ledger=ledger)
+    print(f"⚡ Triggering Immediate Scan for {request.name}...")
+    background_tasks.add_task(mgr.scan_topic, new_topic)
+    
+    return {"status": "success", "topic": new_topic}
+
 
 
 if __name__ == "__main__":

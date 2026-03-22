@@ -35,7 +35,7 @@ class FactLedger:
         # Embed returns a generator, convert to list
         return list(self.embedding_model.embed([text]))[0]
 
-    def add_fact(self, text: str, source_url: str):
+    def add_fact(self, text: str, source_url: str, published_date: str = ""):
         """
         Stores a fact in the ledger.
         """
@@ -48,15 +48,15 @@ class FactLedger:
                 PointStruct(
                     id=point_id,
                     vector=vector,
-                    payload={"text": text, "source": source_url}
+                    payload={"text": text, "source": source_url, "published_date": published_date}
                 )
             ]
         )
 
-    def is_novel(self, text: str) -> Tuple[bool, float, str]:
+    def is_novel(self, text: str) -> Tuple[bool, float, dict]:
         """
         Checks if the fact exists in memory.
-        Returns: (is_novel, max_similarity, closest_match_text)
+        Returns: (is_novel, max_similarity, closest_match_payload)
         """
         vector = self._vectorize(text)
         
@@ -73,12 +73,12 @@ class FactLedger:
 
         best_match = results[0]
         similarity = best_match.score
-        match_text = best_match.payload.get("text", "")
+        match_payload = best_match.payload or {}
 
         if similarity > SIMILARITY_THRESHOLD:
-            return False, similarity, match_text # Old News
+            return False, similarity, match_payload # Old News
         
-        return True, similarity, match_text # Novel
+        return True, similarity, match_payload # Novel
 
     def get_all_facts(self) -> List[dict]:
         """
