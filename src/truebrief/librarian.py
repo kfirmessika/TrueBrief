@@ -19,6 +19,35 @@ class Librarian:
     Responsible for discovering data sources (RSS + Static Pages) from a simple topic.
     """
     
+    def _pre_flight_check(self, topic: str) -> bool:
+        """Uses a blazing fast LLM call to reject garbage inputs before scraping."""
+        try:
+            import google.generativeai as genai
+            import os
+            from dotenv import load_dotenv
+            load_dotenv()
+            genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+            
+            prompt = f"""You are the TrueBrief Librarian Pre-Flight System.
+Your job is to REJECT inputs that are complete nonsense, literal garbage bytes, or completely unrelated to news, finance, science, geopolitics, or actionable intelligence.
+If the input is valid intelligence or news gathering (even vague ones like 'inflation' or 'apple'), reply 'YES'.
+If the input is completely useless (like 'test test 123', 'best chocolate chip cookie recipe', or random keyboard smashing), reply 'NO'.
+
+Input: {topic}
+Decision (YES/NO):"""
+            
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            response = model.generate_content(prompt)
+            decision = response.text.strip().upper()
+            
+            if "YES" in decision:
+                return True
+            else:
+                return False
+        except Exception as e:
+            print(f"   ⚠️ Pre-Flight Check Error, defaulting to Pass: {e}")
+            return True
+
     def search_sources(self, topic: str) -> Dict[str, List[str]]:
         """
         Dual-Mode Discovery:
@@ -30,6 +59,11 @@ class Librarian:
             "rss": [],
             "static": []
         }
+        
+        # 0. Pre-Flight Check
+        if not self._pre_flight_check(topic):
+            print(f"   🛑 PRE-FLIGHT REJECTION: '{topic}' is not a valid intelligence target. Aborting Search.")
+            return results
         
         try:
             with DDGS() as ddgs:
