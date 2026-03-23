@@ -359,19 +359,33 @@
 
             // Reverse to show newest first
             [...alphas].reverse().forEach(item => {
-                const text = item.payload.text;
+                const text = item.payload.text || "";
                 let source = item.payload.source || "#";
+                
+                // Temporal Meta
+                const start_date = item.payload.start_date || "";
+                const end_date = item.payload.end_date || "";
+                const human_time = item.payload.human_readable || item.payload.published_date || "Live Data";
+                const isTemporal = (start_date && end_date) ? `Active: ${start_date} to ${end_date}` : "";
 
                 // Truncate Source for display
                 let displaySource = source.replace(/https?:\/\/(www\.)?/, '').split('/')[0];
                 if (displaySource.length > 30) displaySource = displaySource.substring(0, 30) + '...';
+                
+                // Tier 1 Trust Badge Logic
+                const tier1Domains = ["reuters.com", "bloomberg.com", "wsj.com", "ft.com", "sec.gov", "apnews.com"];
+                const isTier1 = tier1Domains.some(d => source.includes(d));
+                const trustBadge = isTier1 
+                    ? `<span class="badget" style="background:rgba(0, 206, 201, 0.15); color: #00cec9; border: 1px solid rgba(0,206,201,0.3);">✓ verified tier-1</span>` 
+                    : `<span class="badget" style="background:rgba(255, 165, 0, 0.1); color: orange;">! Unverified Source</span>`;
 
                 const card = document.createElement('div');
                 card.className = 'alpha-card';
                 card.innerHTML = `
-                    <div class="card-header">
+                    <div class="card-header" style="flex-wrap: wrap; gap: 8px;">
                         <span class="badget">Verified Alpha</span>
-                        <span class="badget" style="background:rgba(255,255,255,0.05); color: #888;">${new Date().toLocaleDateString()}</span>
+                        ${trustBadge}
+                        <span class="badget" title="${isTemporal}" style="background:rgba(255,255,255,0.05); color: #888; border: 1px dashed rgba(255,255,255,0.2);">🕒 ${human_time}</span>
                     </div>
                     <div class="fact-text">${text}</div>
                     <a href="${source}" target="_blank" class="source-link">

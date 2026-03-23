@@ -14,17 +14,19 @@
 6. **Router/Server (`router.py`)**: FastAPI backend.
 7. **Scheduler (`manager.py`, `scheduler.py`)**: Infinite loop for real-time monitoring.
 
-## Current State: v3.0 (The Time Detective) COMPLETE
-The pipeline successfully extracted hard metrics, detected Source Conflicts, and deployed "The Time Detective" to manage Semantic Collisions based on Time Context. The engine successfully discriminates between a Duplicate Recitation and a New Update.
+## Current State: v4.0 (Temporal Normalization) & v5.0 (Master Benchmark) COMPLETE
+The system successfully enforces mathematical date bounding (`start_date`, `end_date`) to prevent timeline hallucinations. We created the Master Assessment Suite (`tests/master_benchmark.py`), consisting of 21 highly-diverse test prompts. The Engine profoundly outperformed standard LLMs by actively rejecting noise and accurately scraping SEC and FT Tier-1 sources for hard metrics.
 
-## Current Mission: v4.0 (Temporal Normalization)
-We found two edge-case flaws in v3.0:
-1. **Flaw 1: Vague Dates**: The LLM struggles to mathematically compare vague implicit dates (e.g., "Late Summer" vs "Q3").
-2. **Flaw 2: Tier-1 Bot Blocks**: The `Librarian` directs the `Sniper` to Tier-1 domains (`reuters.com`, `bloomberg.com`), but `Crawl4AI` is increasingly blocked by Cloudflare/DataDome on these premium domains.
+## Current State: v6.0 (Scale & Polish) COMPLETE
+To address edge-cases found in the Benchmark, the pipeline received three major architectural upgrades:
+1. **The Pre-Flight Garbage Filter**: `librarian.py` now uses a blazing-fast `Gemini-Flash` call to instantaneously *reject* useless prompts (e.g. "test test 123", "how to tie a tie") BEFORE wasting DuckDuckGo search queries or scraper bandwidth.
+2. **The Stealth Proxy Waterfall**: `sniper.py` was structurally upgraded. If `Crawl4AI` hits a Cloudflare bot-block (e.g., Bloomberg), the system automatically hot-swaps to a premium residential proxy via `os.getenv("RESIDENTIAL_PROXY_URL")`.
+3. **The "Visual Proof" Dashboard**: `index.html` was heavily overhauled. It now explicitly renders Glowing Trust Badges ("Verified Tier-1") and Temporal Bounding Boxes ("Active: Start -> End") directly onto the Intelligence Cards.
 
-**The Execution Plan:**
-1. **Temporal Normalization (Mission 4.1)**: Upgrade the `TimeDetective` LLM Prompt. Instead of extracting a simple string for the date, force it to output a JSON Bounding Box: `{"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "human_readable": "Q3 2025"}`. This forces vague human text into mathematical constants.
-2. **The Stealth Waterfall (Mission 4.2 - Future)**: Upgrade the `Sniper` to use a Residential Proxy Network API (e.g., ScrapingBee, BrightData). It will attempt the free `Crawl4AI` scrape first, and if it detects a block, it will failover to the premium proxy.
+## Current Mission: v7.0 (The Scale Up - FUTURE ROADMAP)
+With the backend completely stable, the next iteration phase involves User scaling.
+1. **User Portfolios**: Converting the static index into user-specific profiles (Database transition).
+2. **Alerting Hooks**: Attaching Twilio/SMTP APIs so users get live emails/SMS when their specific surveillance topics trigger a TrueBrief Alpha extraction.
 
 ## Developer Instructions
 - Code resides in `src/truebrief/`.
