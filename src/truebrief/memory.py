@@ -35,7 +35,7 @@ class FactLedger:
         # Embed returns a generator, convert to list
         return list(self.embedding_model.embed([text]))[0]
 
-    def add_fact(self, text: str, source_url: str, published_date: str = ""):
+    def add_fact(self, text: str, source_url: str, published_date: str = "", topic_name: str = ""):
         """
         Stores a fact in the ledger.
         """
@@ -48,23 +48,37 @@ class FactLedger:
                 PointStruct(
                     id=point_id,
                     vector=vector,
-                    payload={"text": text, "source": source_url, "published_date": published_date}
+                    payload={"text": text, "source": source_url, "published_date": published_date, "topic_name": topic_name}
                 )
             ]
         )
 
-    def is_novel(self, text: str) -> Tuple[bool, float, dict]:
+    def is_novel(self, text: str, topic_name: str = None) -> Tuple[bool, float, dict]:
         """
         Checks if the fact exists in memory.
         Returns: (is_novel, max_similarity, closest_match_payload)
         """
         vector = self._vectorize(text)
         
+        # --- MISSION 7.3: Hybrid Filter ---
+        from qdrant_client.http import models
+        query_filter = None
+        if topic_name:
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="topic_name",
+                        match=models.MatchValue(value=topic_name)
+                    )
+                ]
+            )
+        
         # Search Qdrant
         results = self.client.query_points(
             collection_name=COLLECTION_NAME,
             query=vector,
             limit=1,
+            query_filter=query_filter,
             score_threshold=0.0
         ).points
         
@@ -80,18 +94,39 @@ class FactLedger:
         
         return True, similarity, match_payload # Novel
 
-    def get_all_facts(self) -> List[dict]:
+    def get_all_facts(self, topic_filter: str = None) -> List[dict]:
         """
-        Retrieves all stored facts from Qdrant.
+        Retrieves all stored facts from Qdrant, optionally filtered by topic_name.
         """
         # scroll returns all points in the collection
         results, _ = self.client.scroll(
             collection_name=COLLECTION_NAME,
-            limit=100,
+            limit=500,
             with_payload=True,
             with_vectors=False
         )
-        return [r.payload for r in results]
+        all_payloads = [r.payload for r in results]
+        if topic_filter:
+            # Safely get topic_name, defaulting to empty string if old schema
+            return [p for p in all_payloads if p.get("topic_name", "") == topic_filter]
+        return all_payloads
+
+    def delete_facts_by_topic(self, topic_name: str):
+        """
+        Deletes all facts matching the specific topic name.
+        """
+        results, _ = self.client.scroll(
+            collection_name=COLLECTION_NAME,
+            limit=500,
+            with_payload=True,
+            with_vectors=False
+        )
+        to_delete = [r.id for r in results if r.payload and r.payload.get("topic_name", "") == topic_name]
+        if to_delete:
+            self.client.delete(
+                collection_name=COLLECTION_NAME,
+                points_selector=to_delete
+            )
 
 if __name__ == "__main__":
     # Builder's Manual Test

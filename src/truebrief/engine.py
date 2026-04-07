@@ -109,19 +109,19 @@ class NoveltyFilter:
 
         return True, "Alpha Found"
 
-    def commit(self, fact: str, source_url: str, published_date: str = ""):
+    def commit(self, fact: str, source_url: str, published_date: str = "", topic_name: str = ""):
         """Saves a verified alpha to memory."""
-        self.memory.add_fact(fact, source_url, published_date)
+        self.memory.add_fact(fact, source_url, published_date, topic_name)
 
-    def process_extracted_alpha(self, alpha_text: str, source_url: str, published_date: str = "") -> Tuple[bool, str]:
+    def process_extracted_alpha(self, alpha_text: str, source_url: str, published_date: str = "", topic_name: str = "") -> Tuple[bool, str]:
         """
         Processes an extracted alpha through the Time Detective if it collides in Memory.
         Returns (is_saved, final_fact_text)
         """
-        is_novel, score, match_payload = self.memory.is_novel(alpha_text)
+        is_novel, score, match_payload = self.memory.is_novel(alpha_text, topic_name=topic_name)
         
         if is_novel:
-            self.commit(alpha_text, source_url, published_date)
+            self.commit(alpha_text, source_url, published_date, topic_name)
             return True, alpha_text
             
         # Collision! Invoke Time Detective
@@ -133,25 +133,44 @@ class NoveltyFilter:
         
         # Mathematical date overlap logic
         if decision in ["UPDATE", "NEW_EVENT"] and delta_alpha and delta_alpha.lower() != "none":
-            hist_start = hist_box.get("start_date")
-            hist_end = hist_box.get("end_date")
-            new_start = new_box.get("start_date")
-            new_end = new_box.get("end_date")
-
-            if hist_start and hist_end and new_start and new_end:
-                print(f"   [Math Engine] Evaluating Overlap:")
-                print(f"      History Box: {hist_start} to {hist_end}")
-                print(f"      New Box    : {new_start} to {new_end}")
+         # 3. Safe Parsing and Temporal Math
+            try:
+                old_start = datetime.strptime(match_payload.get('start_date', '1970-01-01'), "%Y-%m-%d")
+                old_end = datetime.strptime(match_payload.get('end_date', '1970-01-01'), "%Y-%m-%d")
                 
-                # Basic string comparison works for YYYY-MM-DD
-                if new_start <= hist_end and new_end >= hist_start:
-                    print("⚠️ Mathematical Overlap Detected. Overruling LLM UPDATE -> DUPLICATE.")
-                    return False, alpha_text
+                new_start = datetime.strptime(new_box['start_date'], "%Y-%m-%d")
+                new_end = datetime.strptime(new_box['end_date'], "%Y-%m-%d")
+                
+                print(f"   [Math Engine] Evaluating Overlap:")
+                print(f"      History Box: {old_start.strftime('%Y-%m-%d')} to {old_end.strftime('%Y-%m-%d')}")
+                print(f"      New Box    : {new_start.strftime('%Y-%m-%d')} to {new_end.strftime('%Y-%m-%d')}")
+                
+                # --- MISSION 7.2 FIX: Breaking News Safety ---
+                # If the new fact advances the temporal horizon into the future, 
+                # it is inherently an UPDATE, regardless of how much historical overlap exists.
+                if new_end > old_end:
+                    print(f"   ✅ Temporal Horizon Advanced. Approving LLM UPDATE.")
+                else:
+                    # Calculate Intersection
+                    latest_start = max(old_start, new_start)
+                    earliest_end = min(old_end, new_end)
+                    delta = (earliest_end - latest_start).days
+                    
+                    if delta > 0:
+                        overlap_ratio = delta / max(1, (new_end - new_start).days)
+                        if overlap_ratio >= 0.8:
+                            print(f"   ⚠️ Mathematical Overlap Detected. Overruling LLM UPDATE -> DUPLICATE.")
+                            decision = "DUPLICATE" # Update decision variable to reflect math engine override
+                
+            except Exception as e:
+                print(f"   ⚠️ Math Engine failed to parse dates: {e}")
+            
+            if decision == "DUPLICATE": # Check the updated decision after math engine
+                return False, alpha_text
 
-            # Save the new delta alpha using the extracted human readable date
             human_readable_date = new_box.get("human_readable", published_date)
             # Memory expects published_date as a string, we pass human_readable
-            self.commit(delta_alpha, source_url, human_readable_date)
+            self.commit(delta_alpha, source_url, human_readable_date, topic_name)
             return True, delta_alpha
             
         return False, alpha_text

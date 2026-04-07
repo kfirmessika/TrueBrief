@@ -6,7 +6,7 @@ from typing import List
 load_dotenv()
 
 class TruthAgent:
-    def __init__(self, model_name: str = "gemini-3-flash-preview"):
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             print("⚠️ WARNING: GOOGLE_API_KEY not found.")

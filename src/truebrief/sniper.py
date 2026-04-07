@@ -27,12 +27,13 @@ class Sniper:
         
         async def _attempt(proxy: str = None):
             try:
-                # Setup kwargs for arun
+                # Setup kwargs for arun with stealth mode
                 kwargs = {
                     "url": url,
                     "ignore_https_errors": True,
                     "js_code": "window.scrollTo(0, document.body.scrollHeight);",
                     "delay_before_return_html": 2.0,
+                    "magic": True, # Aggressive anti-bot/Cloudflare bypass
                 }
                 if proxy:
                     print(f"   🕵️ Engaging Stealth Proxy: {proxy.split('@')[-1] if '@' in proxy else 'Hidden'}")

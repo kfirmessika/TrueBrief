@@ -26,11 +26,11 @@ async def root():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 @app.get("/alphas")
-async def get_alphas():
+async def get_alphas(topic: str = None):
     """
     Returns all verified facts found so far.
     """
-    facts = ledger.get_all_facts()
+    facts = ledger.get_all_facts(topic_filter=topic)
     return {"count": len(facts), "alphas": facts}
 
 from pydantic import BaseModel
@@ -64,16 +64,25 @@ async def trigger_scan(request: ScanRequest):
         print(f"🧙‍♂️ Librarian Activate! Researching topic: {request.feed_url}")
         from .librarian import Librarian
         lib = Librarian()
-        sources = lib.search_sources(request.feed_url)
+        lib_res = lib.search_sources(request.feed_url)
+        
+        if not lib_res.get("official_name"):
+            return {
+                "status": "failed",
+                "reason": "Topic was rejected by Intent Analyzer as gibberish."
+            }
+            
+        sources_dict = lib_res.get("sources", {"rss": [], "static": []})
+        official_name = lib_res["official_name"]
         
         # 1. Harvest RSS Feeds (Commodity Context)
-        for rss in sources['rss']:
+        for rss in sources_dict['rss']:
             print(f"   📡 Scanning found feed: {rss}")
             t = radar.scan_feed(rss)
             targets.extend(t)
             
         # 2. Harvest Static Targets (High Value Alpha)
-        for static_url in sources['static']:
+        for static_url in sources_dict['static']:
             print(f"   🎯 Locking onto Static Target: {static_url}")
             # Mock a target object so Sniper accepts it
             targets.append({
@@ -111,8 +120,8 @@ async def trigger_scan(request: ScanRequest):
     # 2. Batch Verification (The Brain)
     if contents:
         print(f"🧠 Batch Analyzing {len(contents)} articles for '{request.feed_url}'...")
-        # Use the input query as the topic name (even if it's a URL, though usually it's a Topic Search)
-        topic_name = request.feed_url
+        # Use the finalized official name
+        topic_name = official_name if not request.feed_url.startswith("http") else request.feed_url
         batch_results = verifier.extract_alphas_batch(contents, topic_name=topic_name)
         
         total_alphas_extracted = len(batch_results)
@@ -125,7 +134,7 @@ async def trigger_scan(request: ScanRequest):
                 source_url = valid_targets[src_idx]['url']
                 published_date = valid_targets[src_idx].get('published', '')
                 
-                is_saved, final_fact = engine.process_extracted_alpha(alpha_text, source_url, published_date)
+                is_saved, final_fact = engine.process_extracted_alpha(alpha_text, source_url, published_date, topic_name=topic_name)
                 if is_saved:
                     new_alphas += 1
 
@@ -154,6 +163,7 @@ class TopicRequest(BaseModel):
     name: str
 
 from fastapi import BackgroundTasks
+from fastapi import HTTPException
 
 @app.post("/topics")
 async def add_topic(request: TopicRequest, background_tasks: BackgroundTasks):
@@ -166,19 +176,34 @@ async def add_topic(request: TopicRequest, background_tasks: BackgroundTasks):
     
     # Auto-Discover Sources
     print(f"🧙‍♂️ Librarian Scouting sources for new topic: {request.name}")
-    sources = lib.search_sources(request.name)
+    lib_res = lib.search_sources(request.name)
+    official_name = lib_res.get("official_name")
     
-    # Save to Persistence
-    new_topic = topic_manager.add_topic(request.name, sources)
+    if not official_name:
+        raise HTTPException(status_code=400, detail="Topic rejected as invalid or gibberish by TrueBrief Intent Analyzer.")
+        
+    sources_dict = lib_res.get("sources", {"rss": [], "static": []})
+    
+    # Save to Persistence (Using Official Name)
+    new_topic = topic_manager.add_topic(official_name, sources_dict)
     
     # Trigger Immediate Scan
     from .manager import SurveillanceManager
     # Pass the global ledger to avoid locking the DB
     mgr = SurveillanceManager(ledger=ledger)
-    print(f"⚡ Triggering Immediate Scan for {request.name}...")
+    print(f"⚡ Triggering Immediate Scan for {official_name}...")
     background_tasks.add_task(mgr.scan_topic, new_topic)
     
     return {"status": "success", "topic": new_topic}
+
+@app.delete("/topics/{topic_name}")
+async def delete_topic(topic_name: str):
+    """
+    Deletes a topic from the manager and erases all associated intelligence from Qdrant.
+    """
+    topic_manager.delete_topic(topic_name)
+    ledger.delete_facts_by_topic(topic_name)
+    return {"status": "deleted", "topic": topic_name}
 
 
 
