@@ -1,7 +1,7 @@
 @echo off
-TITLE TrueBrief Delta Engine | Autonomous Mode
+TITLE TrueBrief Delta Engine - Autonomous Mode
 ECHO ===================================================
-ECHO    TRUEBRIEF INTELLIGENCE SYSTEM | ONLINE
+ECHO    TRUEBRIEF INTELLIGENCE SYSTEM - ONLINE
 ECHO ===================================================
 ECHO.
 ECHO [STATUS] Waking up Scheduler...
