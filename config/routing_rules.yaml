@@ -1,0 +1,9 @@
+# routing_rules.yaml
+defaults:
+  layers: [rss_layer, tavily_layer]   # Phase 1 defaults
+
+overrides:
+  - domain: finance
+    add_layers: [sec_edgar_layer]
+  - domain: tech
+    add_layers: [github_layer]

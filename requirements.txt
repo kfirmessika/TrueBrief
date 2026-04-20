@@ -1,9 +1,27 @@
-spacy
-fastembed
-scikit-learn
-numpy
-feedparser
-crawl4ai
-xgboost
-qdrant-client
-google-generativeai
+# Core
+fastapi>=0.115.0
+uvicorn>=0.34.0
+pydantic>=2.10.0
+python-dotenv>=1.0.0
+pyyaml>=6.0.0
+
+# LLM — Gemini (primary for prototype)
+google-generativeai>=0.8.0
+
+# Collector
+trafilatura>=2.0.0
+feedparser>=6.0.0
+httpx>=0.28.0
+tavily-python>=0.5.0
+
+# Ledger (Supabase/PostgreSQL)
+supabase>=2.0.0
+pgvector>=0.3.0
+
+# Scheduler (Phase 2)
+# celery>=5.4.0
+# redis>=5.2.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.25.0
