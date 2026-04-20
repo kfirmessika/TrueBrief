@@ -1,8 +1,8 @@
-# TrueBrief — The Definitive System Design
+# TrueBrief — Architecture (Definitive System Design)
 
-> Merged from two prior plans. Business clarity meets architectural depth.
-> For a solo developer building a profitable product.
-> **Updated 2026-04-18:** ADR-1 (LLM), ADR-2 (Database), ADR-3 (News Sources) applied.
+> Full theoretical picture. Business logic, data models, algorithms, and design decisions.  
+> **Updated 2026-04-18:** ADR-1 (LLM), ADR-2 (Database), ADR-3 (News Sources) applied.  
+> 📌 Read: [AI Rules](file:///d:/projects/Apps/TrueBrief/docs/ai_rules.md) → [Roadmap](file:///d:/projects/Apps/TrueBrief/docs/roadmap.md) → [Implementation Plan](file:///d:/projects/Apps/TrueBrief/docs/implementation_plan.md) → **this file** (theory)
 
 ---
 
