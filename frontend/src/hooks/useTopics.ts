@@ -1,0 +1,98 @@
+'use client';
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useApi } from '@/lib/useApi';
+import { Topic } from '@/lib/api';
+
+/**
+ * Hook to list all topics the current user is subscribed to.
+ */
+export function useTopics() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['topics'],
+    queryFn: async () => {
+      const { data } = await api.get<Topic[]>('/topics');
+      return data;
+    },
+  });
+}
+
+/**
+ * Hook to create a new topic or subscribe to an existing one.
+ */
+export function useCreateTopic() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (raw_query: string) => {
+      const { data } = await api.post<Topic>('/topics', { 
+        raw_query, 
+        poll_interval_seconds: 3600 
+      });
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['topics'] });
+    },
+  });
+}
+
+/**
+ * Hook to delete a topic.
+ */
+export function useDeleteTopic() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      await api.delete(`/topics/${topicId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['topics'] });
+    },
+  });
+}
+
+/**
+ * Hook to trigger a manual scan for a topic.
+ */
+export function useTriggerScan() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      const { data } = await api.post<{ task_id: string; topic_id: string; status: string }>(
+        `/topics/${topicId}/scan`
+      );
+      return data;
+    },
+  });
+}
+
+/**
+ * Hook to poll the status of a background scan task.
+ */
+export function useScanStatus(taskId: string | null) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useQuery({
+    queryKey: ['scan-status', taskId],
+    queryFn: async () => {
+      const { data } = await api.get(`/scan-status/${taskId}`);
+      return data;
+    },
+    enabled: !!taskId,
+    refetchInterval: (query) => {
+      const data = query.state.data as any;
+      if (data?.state === 'SUCCESS' || data?.state === 'FAILURE') {
+        // If finished, refresh the topics list to get updated last_scan_at
+        queryClient.invalidateQueries({ queryKey: ['topics'] });
+        return false;
+      }
+      return 2000; // Poll every 2 seconds
+    },
+  });
+}

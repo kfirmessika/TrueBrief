@@ -1,0 +1,171 @@
+2026-04-28 18:29:14,445 - INFO - ================================================
+2026-04-28 18:29:14,445 - INFO - TRUEBRIEF V2: MASTER ASSESSMENT SUITE
+2026-04-28 18:29:14,445 - INFO - ================================================
+
+2026-04-28 18:29:14,811 - INFO - 
+CATEGORY: TIER-1 FINANCE (STRICT METRICS)
+2026-04-28 18:29:14,811 - INFO - --------------------------------------------------
+2026-04-28 18:29:14,811 - INFO - [1/21] Testing: JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes
+2026-04-28 18:29:16,807 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:31:54,979 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/0257f0a9-638b-414b-b588-f2289e0cc416/scan "HTTP/1.1 200 OK"
+2026-04-28 18:31:54,981 - INFO -       SUCCESS: Brief generated (158.2s)
+2026-04-28 18:31:55,301 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/0257f0a9-638b-414b-b588-f2289e0cc416 "HTTP/1.1 200 OK"
+2026-04-28 18:32:00,303 - INFO - [2/21] Testing: Nvidia Blackwell GB200 chip delay revenue impact Q4 2025
+2026-04-28 18:32:00,704 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:32:34,339 - INFO - ================================================
+2026-04-28 18:32:34,339 - INFO - TRUEBRIEF V2: MASTER ASSESSMENT SUITE
+2026-04-28 18:32:34,339 - INFO - ================================================
+
+2026-04-28 18:32:34,752 - INFO - 
+CATEGORY: TIER-1 FINANCE (STRICT METRICS)
+2026-04-28 18:32:34,752 - INFO - --------------------------------------------------
+2026-04-28 18:32:34,752 - INFO - [1/21] Testing: JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes
+2026-04-28 18:32:35,097 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/b401ce48-f0b6-4df3-98b7-b97868636be7/scan "HTTP/1.1 500 Internal Server Error"
+2026-04-28 18:32:35,098 - ERROR -       ERROR during scan: {"detail":"list index out of range"}
+2026-04-28 18:32:36,038 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:32:36,039 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/b401ce48-f0b6-4df3-98b7-b97868636be7 "HTTP/1.1 200 OK"
+2026-04-28 18:32:41,041 - INFO - [3/21] Testing: European Central Bank interest rate cut lagarde inflation target
+2026-04-28 18:32:41,449 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:33:06,261 - INFO - ================================================
+2026-04-28 18:33:06,261 - INFO - TRUEBRIEF V2: MASTER ASSESSMENT SUITE
+2026-04-28 18:33:06,261 - INFO - ================================================
+
+2026-04-28 18:33:06,621 - INFO - 
+CATEGORY: TIER-1 FINANCE (STRICT METRICS)
+2026-04-28 18:33:06,621 - INFO - --------------------------------------------------
+2026-04-28 18:33:06,621 - INFO - [1/21] Testing: JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes
+2026-04-28 18:33:07,368 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:33:16,088 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/c5370239-b14a-4b3f-8101-b4eab214f540/scan "HTTP/1.1 500 Internal Server Error"
+2026-04-28 18:33:16,089 - ERROR -       ERROR during scan: {"detail":"list index out of range"}
+2026-04-28 18:33:16,645 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/c5370239-b14a-4b3f-8101-b4eab214f540 "HTTP/1.1 200 OK"
+2026-04-28 18:33:21,647 - INFO - 
+CATEGORY: GEOPOLITICS & DEFENSE (VAGUE TIMELINES)
+2026-04-28 18:33:21,647 - INFO - --------------------------------------------------
+2026-04-28 18:33:21,647 - INFO - [4/21] Testing: Taiwan semiconductor manufacturing US subsidies CHIPS act timeline
+2026-04-28 18:33:21,997 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:33:50,279 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/d9bd98d3-0ba6-4075-9b21-cb14333fb9a8/scan "HTTP/1.1 500 Internal Server Error"
+2026-04-28 18:33:50,279 - ERROR -       ERROR during scan: {"detail":"list index out of range"}
+2026-04-28 18:33:50,726 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/d9bd98d3-0ba6-4075-9b21-cb14333fb9a8 "HTTP/1.1 200 OK"
+2026-04-28 18:33:55,728 - INFO - [5/21] Testing: Red sea shipping attacks Maersk route diversion financial cost
+2026-04-28 18:33:55,731 - ERROR -       EXCEPTION: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-04-28 18:34:00,732 - INFO - [6/21] Testing: US Space Force budget allocation space debris clearing initiative
+2026-04-28 18:34:01,334 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:34:04,388 - INFO - ================================================
+2026-04-28 18:34:04,388 - INFO - TRUEBRIEF V2: MASTER ASSESSMENT SUITE
+2026-04-28 18:34:04,388 - INFO - ================================================
+
+2026-04-28 18:34:04,720 - INFO - 
+CATEGORY: TIER-1 FINANCE (STRICT METRICS)
+2026-04-28 18:34:04,720 - INFO - --------------------------------------------------
+2026-04-28 18:34:04,720 - INFO - [1/21] Testing: JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes
+2026-04-28 18:34:05,040 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:34:28,154 - ERROR -       EXCEPTION: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-04-28 18:34:28,156 - ERROR -       EXCEPTION: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-04-28 18:34:28,158 - ERROR -       EXCEPTION: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-04-28 18:34:37,164 - INFO - ================================================
+2026-04-28 18:34:37,164 - INFO - TRUEBRIEF V2: MASTER ASSESSMENT SUITE
+2026-04-28 18:34:37,164 - INFO - ================================================
+
+2026-04-28 18:34:37,504 - INFO - 
+CATEGORY: TIER-1 FINANCE (STRICT METRICS)
+2026-04-28 18:34:37,506 - INFO - --------------------------------------------------
+2026-04-28 18:34:37,506 - INFO - [1/21] Testing: JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes
+2026-04-28 18:34:40,228 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:37:49,110 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/7c819391-040d-4078-8cd8-c17afe7f4949/scan "HTTP/1.1 200 OK"
+2026-04-28 18:37:49,111 - INFO -       SUCCESS: Brief generated (188.9s)
+2026-04-28 18:37:49,516 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/7c819391-040d-4078-8cd8-c17afe7f4949 "HTTP/1.1 200 OK"
+2026-04-28 18:37:54,518 - INFO - [2/21] Testing: Nvidia Blackwell GB200 chip delay revenue impact Q4 2025
+2026-04-28 18:37:54,830 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:41:00,567 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/06ef20d2-e79e-4a71-a664-6c347a0e521f/scan "HTTP/1.1 200 OK"
+2026-04-28 18:41:00,569 - INFO -       SUCCESS: Brief generated (185.7s)
+2026-04-28 18:41:00,868 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/06ef20d2-e79e-4a71-a664-6c347a0e521f "HTTP/1.1 200 OK"
+2026-04-28 18:41:05,870 - INFO - [3/21] Testing: European Central Bank interest rate cut lagarde inflation target
+2026-04-28 18:41:06,270 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:43:34,875 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/ee54d020-79a7-46e1-985e-71627b287834/scan "HTTP/1.1 200 OK"
+2026-04-28 18:43:34,876 - INFO -       SUCCESS: Brief generated (148.6s)
+2026-04-28 18:43:35,185 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/ee54d020-79a7-46e1-985e-71627b287834 "HTTP/1.1 200 OK"
+2026-04-28 18:43:40,186 - INFO - 
+CATEGORY: GEOPOLITICS & DEFENSE (VAGUE TIMELINES)
+2026-04-28 18:43:40,186 - INFO - --------------------------------------------------
+2026-04-28 18:43:40,186 - INFO - [4/21] Testing: Taiwan semiconductor manufacturing US subsidies CHIPS act timeline
+2026-04-28 18:43:40,641 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:46:34,074 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/42a31e26-f843-4d1a-8902-e8b986c68fd8/scan "HTTP/1.1 200 OK"
+2026-04-28 18:46:34,075 - INFO -       SUCCESS: Brief generated (173.4s)
+2026-04-28 18:46:34,377 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/42a31e26-f843-4d1a-8902-e8b986c68fd8 "HTTP/1.1 200 OK"
+2026-04-28 18:46:39,380 - INFO - [5/21] Testing: Red sea shipping attacks Maersk route diversion financial cost
+2026-04-28 18:46:39,383 - ERROR -       EXCEPTION: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-04-28 18:46:44,383 - INFO - [6/21] Testing: US Space Force budget allocation space debris clearing initiative
+2026-04-28 18:46:44,799 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:49:45,028 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/ee748cd2-c292-4e3b-87d1-937409dcb71b/scan "HTTP/1.1 200 OK"
+2026-04-28 18:49:45,031 - INFO -       SUCCESS: Brief generated (180.2s)
+2026-04-28 18:49:45,430 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/ee748cd2-c292-4e3b-87d1-937409dcb71b "HTTP/1.1 200 OK"
+2026-04-28 18:49:50,432 - INFO - 
+CATEGORY: SCIENCE & MEDICINE (RESEARCH DATA)
+2026-04-28 18:49:50,432 - INFO - --------------------------------------------------
+2026-04-28 18:49:50,432 - INFO - [7/21] Testing: CRISPR sickle cell gene therapy FDA approval patient outcome statistics
+2026-04-28 18:49:50,796 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:52:16,569 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/d1097d98-2c9a-4b6e-8102-bda1ece83e0f/scan "HTTP/1.1 200 OK"
+2026-04-28 18:52:16,570 - INFO -       SUCCESS: Brief generated (145.8s)
+2026-04-28 18:52:16,936 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/d1097d98-2c9a-4b6e-8102-bda1ece83e0f "HTTP/1.1 200 OK"
+2026-04-28 18:52:21,938 - INFO - [8/21] Testing: Eli Lilly tirzepatide weight loss phase 3 trial side effects
+2026-04-28 18:52:22,351 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:54:43,342 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/f7b83de5-86fe-45b2-8bd8-84f4b549cfeb/scan "HTTP/1.1 200 OK"
+2026-04-28 18:54:43,345 - INFO -       SUCCESS: Brief generated (141.0s)
+2026-04-28 18:54:43,658 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/f7b83de5-86fe-45b2-8bd8-84f4b549cfeb "HTTP/1.1 200 OK"
+2026-04-28 18:54:48,660 - INFO - [9/21] Testing: Solid state battery commercialization timeline Toyota patent release
+2026-04-28 18:54:49,046 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 18:58:57,651 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/2eaa3b17-7c65-4161-8328-24c5f1ce1fed/scan "HTTP/1.1 200 OK"
+2026-04-28 18:58:57,653 - INFO -       SUCCESS: Brief generated (248.6s)
+2026-04-28 18:58:58,073 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/2eaa3b17-7c65-4161-8328-24c5f1ce1fed "HTTP/1.1 200 OK"
+2026-04-28 18:59:03,075 - INFO - 
+CATEGORY: MENTAL HEALTH & SOCIAL (QUALITATIVE NUANCE)
+2026-04-28 18:59:03,075 - INFO - --------------------------------------------------
+2026-04-28 18:59:03,075 - INFO - [10/21] Testing: Surgeon general warning social media teenage anxiety statistics
+2026-04-28 18:59:03,464 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:01:27,018 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/8e1b76a9-ba1b-47f4-a97f-489e9adea8b6/scan "HTTP/1.1 200 OK"
+2026-04-28 19:01:27,019 - INFO -       SUCCESS: Brief generated (143.6s)
+2026-04-28 19:01:27,352 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/8e1b76a9-ba1b-47f4-a97f-489e9adea8b6 "HTTP/1.1 200 OK"
+2026-04-28 19:01:32,354 - INFO - [11/21] Testing: Corporate return to office mandates employee retention survey data
+2026-04-28 19:01:32,845 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:04:13,942 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/6210d00f-c659-49cd-bb7b-37d7ec92f019/scan "HTTP/1.1 200 OK"
+2026-04-28 19:04:13,944 - INFO -       SUCCESS: Brief generated (161.1s)
+2026-04-28 19:04:14,340 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/6210d00f-c659-49cd-bb7b-37d7ec92f019 "HTTP/1.1 200 OK"
+2026-04-28 19:04:19,342 - INFO - [12/21] Testing: Telehealth therapy platform startup funding Series B valuation
+2026-04-28 19:04:19,767 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:07:32,630 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/9ffc5c14-b346-44ae-9571-63b7e7cdc3d8/scan "HTTP/1.1 200 OK"
+2026-04-28 19:07:32,632 - INFO -       SUCCESS: Brief generated (192.9s)
+2026-04-28 19:07:32,983 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/9ffc5c14-b346-44ae-9571-63b7e7cdc3d8 "HTTP/1.1 200 OK"
+2026-04-28 19:07:37,985 - INFO - 
+CATEGORY: EXTREME EDGE CASES (NOISE & AMBIGUITY)
+2026-04-28 19:07:37,985 - INFO - --------------------------------------------------
+2026-04-28 19:07:37,985 - INFO - [13/21] Testing: Breaking news unidentified anomalous phenomena pentagon report release date
+2026-04-28 19:07:38,407 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:10:33,274 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/a88e7eb2-2122-42a1-b897-48baa3b8adea/scan "HTTP/1.1 200 OK"
+2026-04-28 19:10:33,276 - INFO -       SUCCESS: Brief generated (174.9s)
+2026-04-28 19:10:33,583 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/a88e7eb2-2122-42a1-b897-48baa3b8adea "HTTP/1.1 200 OK"
+2026-04-28 19:10:38,584 - INFO - [14/21] Testing: Latest major earthquake fault line shift structural damage reports
+2026-04-28 19:10:38,979 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:13:21,249 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/74ac8901-7c63-4f0e-82f5-b0763e7c3309/scan "HTTP/1.1 200 OK"
+2026-04-28 19:13:21,250 - INFO -       SUCCESS: Brief generated (162.3s)
+2026-04-28 19:13:21,745 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/74ac8901-7c63-4f0e-82f5-b0763e7c3309 "HTTP/1.1 200 OK"
+2026-04-28 19:13:26,746 - INFO - [15/21] Testing: Sam Altman cryptic tweet agi timeline speculation
+2026-04-28 19:13:27,177 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:16:38,474 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/10897165-d1eb-45b7-94c3-b6cc307c81e4/scan "HTTP/1.1 200 OK"
+2026-04-28 19:16:38,475 - INFO -       SUCCESS: Brief generated (191.3s)
+2026-04-28 19:16:38,789 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/10897165-d1eb-45b7-94c3-b6cc307c81e4 "HTTP/1.1 200 OK"
+2026-04-28 19:16:43,791 - INFO - 
+CATEGORY: THE 'LAZY USER' TEST (EXTREME BREADTH)
+2026-04-28 19:16:43,791 - INFO - --------------------------------------------------
+2026-04-28 19:16:43,791 - INFO - [16/21] Testing: Apple
+2026-04-28 19:16:44,192 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:19:40,346 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/51303ad2-047c-484d-8a22-aa93cfd23a67/scan "HTTP/1.1 200 OK"
+2026-04-28 19:19:40,347 - INFO -       SUCCESS: Brief generated (176.1s)
+2026-04-28 19:19:40,650 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/51303ad2-047c-484d-8a22-aa93cfd23a67 "HTTP/1.1 200 OK"
+2026-04-28 19:19:45,652 - INFO - [17/21] Testing: AI
+2026-04-28 19:19:46,008 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:22:45,513 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics/97941007-c4d8-4b79-a7bd-6d9252e193d5/scan "HTTP/1.1 200 OK"
+2026-04-28 19:22:45,514 - INFO -       SUCCESS: Brief generated (179.5s)
+2026-04-28 19:22:45,871 - INFO - HTTP Request: DELETE http://127.0.0.1:8000/api/v1/topics/97941007-c4d8-4b79-a7bd-6d9252e193d5 "HTTP/1.1 200 OK"
+2026-04-28 19:22:50,872 - INFO - [18/21] Testing: Economy
+2026-04-28 19:22:51,341 - INFO - HTTP Request: POST http://127.0.0.1:8000/api/v1/topics "HTTP/1.1 200 OK"
+2026-04-28 19:24:04,379 - ERROR -       EXCEPTION: [WinError 10054] An existing connection was forcibly closed by the remote host

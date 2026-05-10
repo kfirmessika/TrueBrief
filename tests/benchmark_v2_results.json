@@ -1,0 +1,125 @@
+[
+  {
+    "category": "TIER-1 FINANCE (STRICT METRICS)",
+    "topic": "JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes",
+    "status": "SUCCESS",
+    "duration": 158.2,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "TIER-1 FINANCE (STRICT METRICS)",
+    "topic": "JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes",
+    "status": "ERROR",
+    "error": "{\"detail\":\"list index out of range\"}"
+  },
+  {
+    "category": "TIER-1 FINANCE (STRICT METRICS)",
+    "topic": "JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes",
+    "status": "ERROR",
+    "error": "{\"detail\":\"list index out of range\"}"
+  },
+  {
+    "category": "GEOPOLITICS & DEFENSE (VAGUE TIMELINES)",
+    "topic": "Taiwan semiconductor manufacturing US subsidies CHIPS act timeline",
+    "status": "ERROR",
+    "error": "{\"detail\":\"list index out of range\"}"
+  },
+  {
+    "category": "TIER-1 FINANCE (STRICT METRICS)",
+    "topic": "JPMorgan Chase upcoming dividend increase CEO Jamie Dimon quotes",
+    "status": "SUCCESS",
+    "duration": 188.9,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "TIER-1 FINANCE (STRICT METRICS)",
+    "topic": "Nvidia Blackwell GB200 chip delay revenue impact Q4 2025",
+    "status": "SUCCESS",
+    "duration": 185.7,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "TIER-1 FINANCE (STRICT METRICS)",
+    "topic": "European Central Bank interest rate cut lagarde inflation target",
+    "status": "SUCCESS",
+    "duration": 148.6,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "GEOPOLITICS & DEFENSE (VAGUE TIMELINES)",
+    "topic": "Taiwan semiconductor manufacturing US subsidies CHIPS act timeline",
+    "status": "SUCCESS",
+    "duration": 173.4,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "GEOPOLITICS & DEFENSE (VAGUE TIMELINES)",
+    "topic": "US Space Force budget allocation space debris clearing initiative",
+    "status": "SUCCESS",
+    "duration": 180.2,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "SCIENCE & MEDICINE (RESEARCH DATA)",
+    "topic": "CRISPR sickle cell gene therapy FDA approval patient outcome statistics",
+    "status": "SUCCESS",
+    "duration": 145.8,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "SCIENCE & MEDICINE (RESEARCH DATA)",
+    "topic": "Eli Lilly tirzepatide weight loss phase 3 trial side effects",
+    "status": "SUCCESS",
+    "duration": 141.0,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "SCIENCE & MEDICINE (RESEARCH DATA)",
+    "topic": "Solid state battery commercialization timeline Toyota patent release",
+    "status": "SUCCESS",
+    "duration": 248.6,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "MENTAL HEALTH & SOCIAL (QUALITATIVE NUANCE)",
+    "topic": "Surgeon general warning social media teenage anxiety statistics",
+    "status": "SUCCESS",
+    "duration": 143.6,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "MENTAL HEALTH & SOCIAL (QUALITATIVE NUANCE)",
+    "topic": "Corporate return to office mandates employee retention survey data",
+    "status": "SUCCESS",
+    "duration": 161.1,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "MENTAL HEALTH & SOCIAL (QUALITATIVE NUANCE)",
+    "topic": "Telehealth therapy platform startup funding Series B valuation",
+    "status": "SUCCESS",
+    "duration": 192.9,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "EXTREME EDGE CASES (NOISE & AMBIGUITY)",
+    "topic": "Breaking news unidentified anomalous phenomena pentagon report release date",
+    "status": "SUCCESS",
+    "duration": 174.9,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "EXTREME EDGE CASES (NOISE & AMBIGUITY)",
+    "topic": "Latest major earthquake fault line shift structural damage reports",
+    "status": "SUCCESS",
+    "duration": 162.3,
+    "content_snippet": "See logs for details"
+  },
+  {
+    "category": "EXTREME EDGE CASES (NOISE & AMBIGUITY)",
+    "topic": "Sam Altman cryptic tweet agi timeline speculation",
+    "status": "SUCCESS",
+    "duration": 191.3,
+    "content_snippet": "See logs for details"
+  }
+]

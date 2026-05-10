@@ -1,4 +1,4 @@
-# TrueBrief — Architecture (Definitive System Design)
+# TrueBrief - Architecture (Definitive System Design)
 
 > Full theoretical picture. Business logic, data models, algorithms, and design decisions.  
 > **Updated 2026-04-18:** ADR-1 (LLM), ADR-2 (Database), ADR-3 (News Sources) applied.  
@@ -10,18 +10,18 @@
 
 Today when something happens in the world and you want to stay informed, your options are broken:
 
-- **TV / News Sites** — They decide what you see. Repetitive. Clickbait. Algorithmic noise.
-- **Google News** — 50 articles saying the same thing. You click, read, hunt for the one new sentence.
-- **Social Media** — Opinions dressed as news. Entertainment, not information.
+- **TV / News Sites** - They decide what you see. Repetitive. Clickbait. Algorithmic noise.
+- **Google News** - 50 articles saying the same thing. You click, read, hunt for the one new sentence.
+- **Social Media** - Opinions dressed as news. Entertainment, not information.
 
 The pattern: **someone else controls what you see**, and they're incentivized to waste your time.
 
 **TrueBrief flips this:**
 
-1. You write what you care about in free text — *"EU AI regulation updates"*
+1. You write what you care about in free text - *"EU AI regulation updates"*
 2. The system monitors the internet, reads every relevant article, extracts facts
 3. It remembers what it already told you
-4. You get ONLY what's genuinely new — no repetition, no clickbait, no noise
+4. You get ONLY what's genuinely new - no repetition, no clickbait, no noise
 
 **The analogy:** Google Search → GPT happened for information lookup. TrueBrief does the same for staying informed. Traditional news is the old Google (10 blue links, do the work yourself). TrueBrief is the GPT (just give me what I need).
 
@@ -78,7 +78,7 @@ class SourceLayer(ABC):
         ...
 ```
 
-**Phase 1 sources (MVP — $0 cost):**
+**Phase 1 sources (MVP - $0 cost):**
 
 | Layer | API | Cost | Good For |
 |-------|-----|------|----------|
@@ -122,7 +122,7 @@ overrides:
   - domain: tech
     add_layers: [github_layer]
 
-# config/rss_feeds.yaml — Curated feed database
+# config/rss_feeds.yaml - Curated feed database
 general:
   - url: https://feeds.reuters.com/reuters/topNews
     name: Reuters Top News
@@ -149,9 +149,9 @@ geopolitics:
 
 Many APIs return just headlines/snippets. TrueBrief needs the FULL article.
 
-- Use `trafilatura` (Python library) — extracts clean text, strips ads/nav/boilerplate
-- **Tavily results skip this step** — Tavily already returns clean full text
-- Cache every article by URL hash — **never fetch or process the same article twice**
+- Use `trafilatura` (Python library) - extracts clean text, strips ads/nav/boilerplate
+- **Tavily results skip this step** - Tavily already returns clean full text
+- Cache every article by URL hash - **never fetch or process the same article twice**
 - Respect rate limits and robots.txt
 
 ### Output Structure
@@ -191,14 +191,14 @@ For each fact extract:
 3. event_date: When this HAPPENED (not when it was published).
    Convert relative dates ("yesterday", "last quarter") to YYYY-MM-DD
    using the article's published_date as anchor. If unknown: "unknown".
-4. context: 20-40 words — why does this fact matter? What story does it belong to?
+4. context: 20-40 words - why does this fact matter? What story does it belong to?
 5. confidence: How verifiable is this? (0.0-1.0)
 
 Rules:
 - NEVER extract opinions, predictions, or editorial commentary.
 - NEVER extract meta-information about the article itself.
 - Drop anything with confidence < 0.6.
-- Each fact must stand alone — a reader with no other context should understand it.
+- Each fact must stand alone - a reader with no other context should understand it.
 
 Output ONLY valid JSON.
 ```
@@ -252,7 +252,7 @@ The LLM handles relative dates using the article's publish date:
 ### What It Does
 Stores everything the system has ever learned, per topic. Enables searching for "have I seen this fact before?"
 
-### Phase 1 Data Model (Simple — Start Here)
+### Phase 1 Data Model (Simple - Start Here)
 
 **4 core tables:**
 
@@ -274,11 +274,13 @@ BRIEFS
 ├── delivered_at, is_read
 ```
 
-### Phase 2 Evolution: Story Nodes (Build This After MVP Works)
+### Pillar 3: The Ledger (Memory)
 
-Flat facts are fine for MVP, but they don't capture **story evolution**. When a story develops over weeks, you need a higher-level structure.
+### Story Nodes (Phase 3 Implementation)
 
-**Story Nodes** group related facts into a living, evolving story:
+Flat facts were used for the MVP, but Story Nodes now capture **story evolution**. When a story develops over weeks, facts are grouped into a living narrative thread.
+
+**Story Nodes** group related facts into a cohesive unit:
 
 ```json
 {
@@ -308,15 +310,16 @@ Flat facts are fine for MVP, but they don't capture **story evolution**. When a 
 
 ### Vector Storage
 
-**Phase 1:** `pgvector` extension in PostgreSQL via **Supabase** (already provisioned). Single vector per fact. Simple cosine similarity search. Zero additional infrastructure.
+**Dual-Vector Search:** We use `pgvector` in Supabase with two separate vector columns per fact/story pair:
+- **alpha_embedding (in `known_facts`):** "Is this the exact same fact?" (fact-level matching, identity detection).
+- **summary_embedding (in `story_nodes`):** "Is this part of the same story?" (story-level matching, narrative clustering).
 
-**Phase 3 upgrade:** Add a second vector per fact — the **summary vector** (embedding of the parent node's recursive_summary). This enables:
-- **Alpha vector:** "Is this the exact same fact?" (fact-level matching)
-- **Summary vector:** "Is this part of the same story?" (story-level matching)
+The **Arbiter** uses the alpha vector to detect duplicates, while the **StoryManager** uses the summary vector to decide which Story Node a new Alpha belongs to.
 
-Without dual vectors, you can't distinguish between "same fact restated" and "new development in same story." But you don't need this distinction on day 1 — single vector catches 80% of duplicates.
-
-> **Phase 1: pgvector (one vector).** Phase 3: pgvector (dual vectors). Only move to Qdrant if you hit performance limits with 500K+ vectors, which won't happen for months.
+**Recursive Summarization (Task 3.3):**
+To keep story summaries fresh without re-reading all facts, we use a recursive LLM pattern:
+`new_summary = LLM(previous_summary + new_fact)`
+This maintains narrative continuity at O(1) LLM cost per update.
 
 ---
 
@@ -341,9 +344,9 @@ matches = pgvector_search(
 
 | Cosine Similarity | Label | Meaning |
 |-------------------|-------|---------|
-| 0.95 — 1.00 | `IDENTICAL` | Almost certainly the same fact |
-| 0.85 — 0.94 | `STRONG_MATCH` | Same topic, possibly different details |
-| 0.75 — 0.84 | `RELATED` | Same story area, needs judgment |
+| 0.95 - 1.00 | `IDENTICAL` | Almost certainly the same fact |
+| 0.85 - 0.94 | `STRONG_MATCH` | Same topic, possibly different details |
+| 0.75 - 0.84 | `RELATED` | Same story area, needs judgment |
 | < 0.75 | `NO_MATCH` | Not related to anything known |
 
 ### Step 3: Fast Path (Skip LLM When Obvious)
@@ -371,13 +374,13 @@ LABELS:
 
 Choose exactly ONE decision:
 
-MERGE — Duplicate or trivial restatement. No new information.
+MERGE - Duplicate or trivial restatement. No new information.
   Output: { "decision": "MERGE" }
 
-UPDATE — Genuinely new information that updates or extends a known fact/story.
-  Output: { "decision": "UPDATE", "delta": "one sentence — what specifically is new" }
+UPDATE - Genuinely new information that updates or extends a known fact/story.
+  Output: { "decision": "UPDATE", "delta": "one sentence - what specifically is new" }
 
-NEW — No existing knowledge matches. Brand new information.
+NEW - No existing knowledge matches. Brand new information.
   Output: { "decision": "NEW" }
 
 Rules:
@@ -450,10 +453,10 @@ cumulative revenue up 18% YoY.
 ```
 
 Key design choices:
-- **NEW vs UPDATE** separation — user instantly knows the structure
-- **"WHAT'S NEW" + "FULL CONTEXT"** — the delta AND the story so far
-- **"No changes" footer** — confirms the system is watching, nothing happened
-- **Source attribution** — always linked, builds trust, mitigates hallucination risk
+- **NEW vs UPDATE** separation - user instantly knows the structure
+- **"WHAT'S NEW" + "FULL CONTEXT"** - the delta AND the story so far
+- **"No changes" footer** - confirms the system is watching, nothing happened
+- **Source attribution** - always linked, builds trust, mitigates hallucination risk
 
 ### Delivery Channels
 
@@ -504,7 +507,7 @@ If 500 users track "AI regulation" → you run the pipeline ONCE → serve perso
 | `medium` | 6-12 hours | Market updates, political developments |
 | `slow` | 24-48 hours | Scientific research, regulations, long-form trends |
 
-### AYR: Alpha Yield Rate (Source Quality Tracking — Phase 2)
+### AYR: Alpha Yield Rate (Source Quality Tracking - Phase 2)
 
 Not all sources are equal. Some produce 90% new information; others repeat what you already know. AYR tracks this dynamically and adjusts how often you check each source.
 
@@ -517,7 +520,7 @@ After each scrape, you know:
 ```
 Density   = (A + D) / T          # How relevant is this source to this topic?
 Freshness = A / (A + D)          # Of relevant facts, how many are new?
-Utility   = (0.4 × Density) + (0.6 × Freshness)    # Weighted — freshness matters more
+Utility   = (0.4 × Density) + (0.6 × Freshness)    # Weighted - freshness matters more
 ```
 
 **Smooth with exponential moving average:**
@@ -573,8 +576,8 @@ Interval = T_base / max(AYR, 0.1)
 | Database | **Supabase** (PostgreSQL cloud) | Zero-maintenance, pgvector built-in, free 500MB tier for prototype |
 | Vector Search | **pgvector** via Supabase | No extra service. Lives in Supabase Postgres |
 | Cache | **Redis** | Already running for Celery. Article cache, rate limiting |
-| LLM — Prototype | **Gemini API** (Google AI Studio) | Free tier: ~1,500 req/day. No credit card. Fast to start. |
-| LLM — Production | **Multi-provider** (Gemini / OpenAI / Claude) | Config-driven abstraction layer. Swap per step via `settings.py`. |
+| LLM - Prototype | **Gemini API** (Google AI Studio) | Free tier: ~1,500 req/day. No credit card. Fast to start. |
+| LLM - Production | **Multi-provider** (Gemini / OpenAI / Claude) | Config-driven abstraction layer. Swap per step via `settings.py`. |
 | LLM per step | Query Builder, Garbage Filter, Arbiter, Briefer → `gemini-2.5-flash` | Simple structured tasks. Fast, cheap, free in prototype. |
 | LLM per step | Harvester → `gemini-2.5-flash` (prototype) / `gemini-2.5-pro` or `gpt-4o` (prod) | Most accuracy-critical call. Upgrade when moving to production. |
 | Content Extraction | **trafilatura** | Best Python lib for clean article text. No browser needed for most sites. |
@@ -596,10 +599,10 @@ Interval = T_base / max(AYR, 0.1)
 | Frontend hosting | Vercel | $0-20 |
 | PostgreSQL + pgvector | **Supabase** (free → Pro $25/mo) | $0 prototype / $25 production |
 | Redis | Managed (Railway/Upstash) | $0-10 |
-| LLM — Prototype | Gemini API free tier | **$0** |
-| LLM — Production | Gemini / OpenAI pay-per-use | $10-50 |
-| News APIs — Phase 1 | Direct RSS (free) + Tavily (1K free/mo) | **$0** |
-| News APIs — Phase 3+ | Tavily / Brave / Exa pay-per-use | $5-30 |
+| LLM - Prototype | Gemini API free tier | **$0** |
+| LLM - Production | Gemini / OpenAI pay-per-use | $10-50 |
+| News APIs - Phase 1 | Direct RSS (free) + Tavily (1K free/mo) | **$0** |
+| News APIs - Phase 3+ | Tavily / Brave / Exa pay-per-use | $5-30 |
 | Domain + CDN | Cloudflare | ~$1/mo |
 | Payments | Stripe | 2.9% + $0.30/txn |
 | Error tracking | Sentry (free tier) | $0 |
@@ -639,7 +642,7 @@ Free news costs hours of scrolling, clicking, reading, filtering. TrueBrief cost
 | **Pro** | $8/mo | 15 topics (shared + private) | Hourly (real-time) | All sources | Email digest, push notifications, brief history |
 | **Power** | $20/mo | Unlimited topics | 15-minute | All + priority | API access, data export, priority processing |
 
-**Free tier must be genuinely useful** — not crippled. 2 topics with daily updates is enough to demonstrate real value. The 24-hour delay creates natural upgrade pressure (news is time-sensitive).
+**Free tier must be genuinely useful** - not crippled. 2 topics with daily updates is enough to demonstrate real value. The 24-hour delay creates natural upgrade pressure (news is time-sensitive).
 
 ### Conversion Levers
 
@@ -657,14 +660,14 @@ Free news costs hours of scrolling, clicking, reading, filtering. TrueBrief cost
 |----------|-------|----------------|
 | **API Access** | $0.01-0.05 per brief | Developers embedding news intel in their apps |
 | **White-Label** | $500-2,000/mo | Agencies, media companies |
-| **Enterprise** | Custom ($1K-5K/mo) | Large orgs — PR, risk, competitive intel |
+| **Enterprise** | Custom ($1K-5K/mo) | Large orgs - PR, risk, competitive intel |
 
 **Target B2B use cases:**
-- **PR/Comms** — monitor brand/client coverage
-- **Investment firms** — track portfolio companies, sectors
-- **Competitive intelligence** — watch competitor moves
-- **Risk/Compliance** — regulatory change monitoring
-- **Research** — academic, policy, industry trends
+- **PR/Comms** - monitor brand/client coverage
+- **Investment firms** - track portfolio companies, sectors
+- **Competitive intelligence** - watch competitor moves
+- **Risk/Compliance** - regulatory change monitoring
+- **Research** - academic, policy, industry trends
 
 > Even 5 enterprise clients at $2K/mo = $120K/year. That's a sustainable solo-dev business.
 
@@ -678,21 +681,21 @@ Free news costs hours of scrolling, clicking, reading, filtering. TrueBrief cost
 
 ---
 
-## Build Phases — What to Build When
+## Build Phases - What to Build When
 
 ### Phase 1: Core MVP (Weeks 1-4)
 
 **Goal:** One user can enter a topic and receive a useful brief.
 
 **Build:**
-- [ ] LLM abstraction layer: `llm/client.py` — config-driven, supports Gemini / OpenAI / others via `settings.py`
+- [ ] LLM abstraction layer: `llm/client.py` - config-driven, supports Gemini / OpenAI / others via `settings.py`
 - [ ] FastAPI backend: `POST /api/v1/topics`, `GET /api/v1/topics`, `GET /api/v1/briefs/{topic_id}`
 - [ ] Query Builder: topic → Gemini Flash → search queries + RSS category matching
-- [ ] Collector — `RSSLayer`: scan curated RSS feeds from `config/rss_feeds.yaml` (direct, original URLs)
-- [ ] Collector — `TavilyLayer`: search Tavily API for topic-specific articles (returns clean text, no scraping needed)
+- [ ] Collector - `RSSLayer`: scan curated RSS feeds from `config/rss_feeds.yaml` (direct, original URLs)
+- [ ] Collector - `TavilyLayer`: search Tavily API for topic-specific articles (returns clean text, no scraping needed)
 - [ ] Article extractor (trafilatura): for RSS articles that provide URLs but not full text
-- [ ] Harvester: Gemini Flash extracts atomic facts (Alphas) — JSON output with alpha_text, entities, event_date, context, confidence
-- [ ] Ledger: Supabase PostgreSQL schema — users, topics, known_facts (with pgvector column), briefs
+- [ ] Harvester: Gemini Flash extracts atomic facts (Alphas) - JSON output with alpha_text, entities, event_date, context, confidence
+- [ ] Ledger: Supabase PostgreSQL schema - users, topics, known_facts (with pgvector column), briefs
 - [ ] Simple Arbiter: pgvector cosine similarity, >0.90 = DUPLICATE, else = NEW
 - [ ] Brief generation: Gemini Flash formats new/updated facts into clean brief
 - [ ] Deploy backend to Railway, connect to Supabase cloud DB
@@ -756,11 +759,11 @@ Free news costs hours of scrolling, clicking, reading, filtering. TrueBrief cost
 - [ ] Public REST API with API key auth
 - [ ] API documentation (auto-generated from FastAPI + polished)
 - [ ] Core endpoints:
-  - `GET /api/v1/topics/{id}/delta?since={timestamp}` — new facts since timestamp
-  - `GET /api/v1/topics/{id}/nodes` — full story graph
-  - `POST /api/v1/topics` — create private topic
-  - `GET /api/v1/briefs/{id}` — retrieve formatted brief
-  - `POST /api/v1/webhooks` — register delivery endpoint
+  - `GET /api/v1/topics/{id}/delta?since={timestamp}` - new facts since timestamp
+  - `GET /api/v1/topics/{id}/nodes` - full story graph
+  - `POST /api/v1/topics` - create private topic
+  - `GET /api/v1/briefs/{id}` - retrieve formatted brief
+  - `POST /api/v1/webhooks` - register delivery endpoint
 - [ ] Usage tracking and per-call billing
 - [ ] Webhook delivery (push briefs to client systems)
 - [ ] Admin dashboard for B2B accounts
@@ -801,7 +804,7 @@ USER PROMPT → ROUTER (which domains?) → Run matching pipelines → Merge Alp
 **The Router evolves:**
 1. **V1 (now):** LLM classifies prompt into domains (~$0.001 per call)
 2. **V2 (6 months):** Fine-tuned small classifier trained on YOUR routing data (near-zero cost, <10ms)
-3. **V3 (12 months):** Feedback loop — user says "missed finance context" → router adjusts
+3. **V3 (12 months):** Feedback loop - user says "missed finance context" → router adjusts
 
 **Planned domain catalog:**
 
@@ -833,21 +836,21 @@ USER PROMPT → ROUTER (which domains?) → Run matching pipelines → Merge Alp
 ## Success Metrics
 
 ### Product
-- **Brief quality** — % rated useful by users (target: >80%)
-- **Delta accuracy** — % of updates that are genuinely new (target: >90%)
-- **Topics per user** — engagement depth (target: 3+ for actives)
+- **Brief quality** - % rated useful by users (target: >80%)
+- **Delta accuracy** - % of updates that are genuinely new (target: >90%)
+- **Topics per user** - engagement depth (target: 3+ for actives)
 
 ### Business
-- **MRR** — Monthly Recurring Revenue
-- **Free → Pro conversion** — target: 5-8%
-- **Churn** — target: <5% monthly
-- **LTV:CAC** — target: >3:1
-- **Cost per brief** — target: <$0.02 at scale
+- **MRR** - Monthly Recurring Revenue
+- **Free → Pro conversion** - target: 5-8%
+- **Churn** - target: <5% monthly
+- **LTV:CAC** - target: >3:1
+- **Cost per brief** - target: <$0.02 at scale
 
 ### Growth
-- **WAU** — Weekly Active Users
-- **Organic sign-ups** — from shared briefs, SEO
-- **B2B pipeline** — leads → demos → contracts
+- **WAU** - Weekly Active Users
+- **Organic sign-ups** - from shared briefs, SEO
+- **B2B pipeline** - leads → demos → contracts
 
 ---
 
@@ -858,11 +861,11 @@ TrueBrief is not a news app. It's an **attention efficiency engine** that uses n
 **The architecture in one sentence:** Collect articles → Extract atomic facts → Compare against what's known → Only deliver the delta → Remember everything → Get smarter over time.
 
 **The moat that compounds:**
-1. **Knowledge graph** — longer usage → better delta detection → more trust
-2. **Source quality data (AYR)** — system learns which sources are reliable
-3. **Shared intelligence** — more users → more topics → more efficient for everyone
-4. **Domain pipelines** — 12+ months of domain-specific training data can't be replicated quickly
-5. **Habit** — once someone replaces their news routine, switching cost is high
+1. **Knowledge graph** - longer usage → better delta detection → more trust
+2. **Source quality data (AYR)** - system learns which sources are reliable
+3. **Shared intelligence** - more users → more topics → more efficient for everyone
+4. **Domain pipelines** - 12+ months of domain-specific training data can't be replicated quickly
+5. **Habit** - once someone replaces their news routine, switching cost is high
 
 **The timeline:**
 - Week 4: Working MVP

@@ -55,4 +55,5 @@ class AlphaDecision:
     decision: DecisionType
     similarity_score: float = 0.0           # Cosine similarity to nearest known fact
     matched_alpha_id: Optional[str] = None  # ID of the fact this duplicates/updates
-    reasoning: Optional[str] = None        # LLM explanation (Phase 2 Judge only)
+    reasoning: Optional[str] = None         # Explanation (fast-path reason or Judge LLM)
+    delta: Optional[str] = None             # UPDATE only: one sentence - what is new

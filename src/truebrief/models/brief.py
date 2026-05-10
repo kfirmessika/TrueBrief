@@ -2,7 +2,7 @@
 Brief data models.
 
 BriefSection: a labelled group of Alphas (e.g. "NEW", "UPDATE").
-Brief: the final deliverable — a structured intelligence report for a Topic + scan.
+Brief: the final deliverable - a structured intelligence report for a Topic + scan.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class Brief:
 
     @property
     def is_empty(self) -> bool:
-        """True if no new or updated facts — suppressed in Phase 2."""
+        """True if no new or updated facts - suppressed in Phase 2."""
         return self.alphas_new == 0 and self.alphas_update == 0
 
     def add_section(self, section_type: BriefSectionType, alphas: list[Alpha]) -> None:

@@ -14,3 +14,4 @@ TrueBrief consists of 5 core pillars:
 
 For full architectural details, refer to `docs/architecture.md`.
 For the development roadmap, refer to `docs/roadmap.md`.
+

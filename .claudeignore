@@ -1,0 +1,26 @@
+# Block noise to save context tokens
+node_modules/
+dist/
+.next/
+build/
+out/
+coverage/
+
+# Block lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Block system and git
+.git/
+.DS_Store
+Thumbs.db
+
+# Block environment
+.env
+.env.local
+
+# Block large logs/artifacts
+*.log
+*.zip
+*.mp4

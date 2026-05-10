@@ -21,7 +21,7 @@ class ArticleSource(str, Enum):
 
 @dataclass
 class RawArticle:
-    """An article as returned by a collector layer — URL + metadata, text may be present."""
+    """An article as returned by a collector layer - URL + metadata, text may be present."""
 
     url: str
     title: str
