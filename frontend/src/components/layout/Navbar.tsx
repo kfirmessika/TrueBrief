@@ -21,6 +21,9 @@ export default function Navbar() {
             <Link href="/dashboard" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">
               Dashboard
             </Link>
+            <Link href="/history" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">
+              History
+            </Link>
             <Link href="/pricing" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">
               Pricing
             </Link>

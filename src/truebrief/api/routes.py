@@ -255,6 +255,51 @@ def list_topic_briefs(topic_id: str):
     res = db.table("briefs").select("*").eq("topic_id", topic_id).order("delivered_at", desc=True).execute()
     return res.data
 
+class BriefHistoryResponse(BaseModel):
+    topic_id: str
+    topic_name: str
+    brief_id: str
+    created_at: str
+    summary_preview: str
+
+@router.get("/briefs/history", response_model=List[BriefHistoryResponse])
+def get_briefs_history(user: User = Depends(get_current_user)):
+    """Get all briefs for the current user across all topics, sorted newest-first."""
+    db = get_supabase()
+    val_uuid = user.id
+
+    # Get all topic IDs the user is subscribed to
+    subs = db.table("topic_subscriptions").select("topic_id").eq("user_id", val_uuid).execute()
+    if not subs.data:
+        return []
+
+    topic_ids = [sub["topic_id"] for sub in subs.data]
+
+    briefs = (
+        db.table("briefs")
+        .select("id, topic_id, content, delivered_at")
+        .in_("topic_id", topic_ids)
+        .order("delivered_at", desc=True)
+        .limit(50)
+        .execute()
+    )
+
+    topics_res = db.table("topics").select("id, raw_query").in_("id", topic_ids).execute()
+    topic_map = {t["id"]: t["raw_query"] for t in topics_res.data}
+
+    result = []
+    for brief in briefs.data:
+        preview = brief["content"].replace("#", "").replace("*", "").replace("`", "").replace("_", "").replace("\n", " ").strip()[:200]
+        result.append({
+            "topic_id": brief["topic_id"],
+            "topic_name": topic_map.get(brief["topic_id"], "Unknown"),
+            "brief_id": brief["id"],
+            "created_at": brief["delivered_at"],
+            "summary_preview": preview
+        })
+
+    return result
+
 @router.get("/briefs/{brief_id}", response_model=BriefResponse)
 def get_brief(brief_id: str):
     """Get a specific brief."""
