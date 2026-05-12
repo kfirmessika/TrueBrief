@@ -30,8 +30,8 @@
 - [x] 3.9 Brief Display Page
 - [x] **3.10 Brief History Page** (C: 5 | M: **FLASH**)
 - [x] 3.11 Landing Page (C: 5 | M: **FLASH**)
-- [ ] 3.12 Onboarding Flow (C: 12 | M: **SONNET**) ← NEXT
-- [ ] 3.13 "Time Saved" Metric (C: 5 | M: **FLASH**)
+- [x] 3.12 Onboarding Flow (C: 12 | M: **SONNET**)
+- [ ] 3.13 "Time Saved" Metric (C: 5 | M: **FLASH**) ← NEXT
 - [ ] 3.14 Public Sharing Pages (C: 10 | M: **SONNET**)
 - [ ] 3.15 Email Digest (C: 15 | M: **SONNET**)
 - [ ] 3.16 Web Push Notifications (C: 15 | M: **SONNET**)
