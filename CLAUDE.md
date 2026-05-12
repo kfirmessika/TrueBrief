@@ -5,7 +5,7 @@ A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 14 (
 
 ## Current Status
 - **Done:** Phases 0–2 complete. Phase 3 steps 3.4–3.9 complete.
-- **Next task:** Step 3.11 — Landing Page
+- **Next task:** Step 3.12 — Onboarding Flow
 - **Full task list & status:** `docs/roadmap.md`
 
 ---
