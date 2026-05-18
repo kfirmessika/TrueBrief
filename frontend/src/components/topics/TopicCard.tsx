@@ -46,16 +46,16 @@ export function TopicCard({ topic, onScan, onDelete }: TopicCardProps) {
         </div>
         
         <div className="flex items-center gap-1">
-          <button 
+          <button
             aria-label="Settings"
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"
           >
             <Settings className="h-4 w-4" />
           </button>
-          <button 
+          <button
             aria-label="Delete Topic"
             onClick={() => onDelete(topic.id)}
-            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -88,9 +88,9 @@ export function TopicCard({ topic, onScan, onDelete }: TopicCardProps) {
         />
       </div>
 
-      <Link 
+      <Link
         href={`/topics/${topic.id}`}
-        className="absolute top-4 right-4 p-2 text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-4 right-4 p-2 text-slate-300 hover:text-indigo-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
       >
         <ExternalLink className="h-4 w-4" />
       </Link>

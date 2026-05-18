@@ -112,7 +112,7 @@ export default function LandingPage() {
           <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full text-sm font-bold mb-8 border border-indigo-100">
             <Zap className="h-3.5 w-3.5" /> AI-powered delta intelligence
           </div>
-          <h1 className="text-5xl md:text-7xl font-black tracking-tight text-slate-900 mb-6 leading-tight">
+          <h1 className="text-3xl sm:text-5xl md:text-7xl font-black tracking-tight text-slate-900 mb-6 leading-tight">
             Stop reading the news.
             <br />
             <span className="text-indigo-600">Get the delta.</span>
@@ -219,7 +219,7 @@ export default function LandingPage() {
                 key={plan.name}
                 className={`rounded-3xl p-8 border transition-all ${
                   plan.highlight
-                    ? "bg-indigo-600 border-indigo-600 shadow-2xl shadow-indigo-200 scale-105"
+                    ? "bg-indigo-600 border-indigo-600 shadow-2xl shadow-indigo-200 sm:scale-105"
                     : "bg-white border-slate-100 shadow-sm"
                 }`}
               >

@@ -42,7 +42,7 @@ export default async function HistoryPage() {
       </header>
 
       {briefs.length === 0 ? (
-        <div className="bg-white rounded-[2.5rem] p-16 text-center border border-slate-100 shadow-sm">
+        <div className="bg-white rounded-[2.5rem] p-6 sm:p-12 md:p-16 text-center border border-slate-100 shadow-sm">
           <div className="bg-slate-50 p-6 rounded-[2rem] w-fit mx-auto mb-8">
             <Inbox className="h-12 w-12 text-slate-300" />
           </div>

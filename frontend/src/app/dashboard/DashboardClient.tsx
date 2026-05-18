@@ -106,7 +106,7 @@ export default function DashboardClient({ initialTopics, initialBilling }: Dashb
       </div>
 
       {!hasTopics ? (
-        <div className="bg-white rounded-[2rem] border-2 border-dashed border-slate-200 p-20 text-center shadow-inner">
+        <div className="bg-white rounded-[2rem] border-2 border-dashed border-slate-200 p-6 sm:p-12 md:p-20 text-center shadow-inner">
           <div className="bg-slate-50 p-6 rounded-[1.5rem] w-fit mx-auto mb-8 shadow-sm">
             <Search className="h-10 w-10 text-slate-400" />
           </div>

@@ -11,7 +11,7 @@ interface UpgradeBannerProps {
 export function UpgradeBanner({ currentCount, maxTopics }: UpgradeBannerProps) {
   return (
     <div className="bg-gradient-to-r from-indigo-600 to-violet-700 rounded-3xl p-8 text-white shadow-xl shadow-indigo-200 flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden relative group">
-      <div className="absolute -right-8 -top-8 bg-white/10 rounded-full w-48 h-48 blur-3xl group-hover:bg-white/20 transition-all duration-700" />
+      <div className="absolute -right-8 -top-8 bg-white/10 rounded-full w-32 h-32 sm:w-48 sm:h-48 blur-3xl group-hover:bg-white/20 transition-all duration-700" />
       
       <div className="relative z-10">
         <div className="flex items-center gap-2 bg-white/20 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest w-fit mb-4">
