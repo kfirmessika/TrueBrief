@@ -42,6 +42,36 @@
 
 ---
 
+## Phase 3.5: Pre-Deployment (A→B→C before 3.20)
+
+### Phase A · Backend Validation
+
+- [x] A.1 Cost & Latency Telemetry — pipeline_run + llm_call_log tables, LLMClient instrumentation, /admin/cost-summary (C: 25 | M: **SONNET**)
+- [ ] A.2 Accuracy Test Harness — 6 reproducible harnesses (grounding, arbiter P/R, story assign, summary stability, briefer faithfulness, confidence floor) (C: 18 | M: **SONNET**)
+- [ ] A.3 Longitudinal Stress Tests — 30-day fast-news sim, slow-burn, topic-overlap (C: 15 | M: **SONNET**)
+- [ ] A.4 Failure-Mode Tests — 8 edge-case tests (auto-merge, merge creep, orphan, batch mismatch, race, hallucination, starvation, zero alphas) (C: 12 | M: **SONNET**)
+- [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**)
+- [ ] A.6 Admin Metrics Dashboard — /admin/metrics endpoint + UI (C: 8 | M: **FLASH**)
+
+### Phase B · Premium UI/UX
+
+- [x] B.0 Design System Foundation — OKLCH tokens, dark mode (next-themes), Framer Motion primitives, Radix UI, EmptyState/Skeleton/ErrorBoundary (C: 15 | M: **SONNET**)
+- [ ] B.1 Critical Gaps — Topic Detail (3-tab), Settings (full), Per-brief sources panel (C: 18 | M: **SONNET**)
+- [ ] B.2 New Surfaces — Story Node timeline, AYR insight, Query variants panel, Real-time scan progress, Command palette, Notification inbox (C: 20 | M: **SONNET**)
+- [ ] B.3 Polish Layer — Skeletons, optimistic mutations, page transitions, confetti, OG images (C: 10 | M: **FLASH**)
+- [ ] B.4 Copy & Brand — Empty states, onboarding interstitial, landing rewrite (C: 5 | M: **FLASH**)
+- [ ] B.5 Accessibility & Mobile — axe-core, ARIA, focus traps, reduced-motion, touch targets (C: 8 | M: **FLASH**)
+
+### Phase C · Integration & E2E Testing
+
+- [ ] C.1 Playwright E2E Suite — 8 critical user journeys (C: 15 | M: **SONNET**)
+- [ ] C.2 API Contract Tests — openapi-typescript generated types, no `any` (C: 8 | M: **FLASH**)
+- [ ] C.3 Performance Budget — LCP, TTFB, bundle size, cold scan p95 (C: 5 | M: **FLASH**)
+- [ ] C.4 Load & Stress — k6 concurrent users + Celery, Redis outage drill (C: 10 | M: **SONNET**)
+- [ ] C.5 Pre-Production Smoke Script — preflight.sh gating deployment (C: 5 | M: **FLASH**)
+
+---
+
 ## Phase 4: B2B API
 
 - [ ] 4.1 Public REST API + Auth (C: 15 | M: **SONNET**)
