@@ -470,3 +470,76 @@ def get_query_variants(topic_id: str):
         .execute()
     )
     return res.data or []
+
+
+# ---------------------------------------------------------------------------
+# Admin: Cost & Latency Telemetry (A.1.4)
+# ---------------------------------------------------------------------------
+
+class CostSummaryResponse(BaseModel):
+    period_days: int
+    total_runs: int
+    total_cost_usd: float
+    avg_cost_per_run_usd: float
+    total_input_tokens: int
+    total_output_tokens: int
+    by_stage: List[dict]
+    by_day: List[dict]
+
+
+@router.get("/admin/cost-summary", response_model=CostSummaryResponse)
+def get_cost_summary(
+    days: int = 30,
+    _user: User = Depends(get_current_user),
+):
+    """
+    Admin endpoint: aggregated LLM cost & latency for the last N days.
+    Returns totals, per-stage breakdown, and per-day cost series.
+    Accessible to any authenticated user (founder-only enforcement via Clerk roles is future work).
+    """
+    db = get_supabase()
+
+    # -- Per-stage aggregation from llm_call_log --
+    try:
+        stage_res = db.rpc(
+            "llm_cost_by_stage",
+            {"days_back": days},
+        ).execute()
+        by_stage = stage_res.data or []
+    except Exception:
+        # RPC may not exist yet (before migration runs); fall back to empty
+        by_stage = []
+
+    # -- Per-day aggregation --
+    try:
+        day_res = db.rpc(
+            "llm_cost_by_day",
+            {"days_back": days},
+        ).execute()
+        by_day = day_res.data or []
+    except Exception:
+        by_day = []
+
+    # -- Totals from pipeline_run --
+    try:
+        run_res = db.rpc("pipeline_run_summary", {"days_back": days}).execute()
+        totals = run_res.data[0] if run_res.data else {}
+    except Exception:
+        totals = {}
+
+    total_cost = sum(float(r.get("total_cost_usd", 0)) for r in by_stage)
+    total_in = sum(int(r.get("total_input_tokens", 0)) for r in by_stage)
+    total_out = sum(int(r.get("total_output_tokens", 0)) for r in by_stage)
+    total_runs = int(totals.get("total_runs", 0))
+    avg_cost = (total_cost / total_runs) if total_runs > 0 else 0.0
+
+    return {
+        "period_days": days,
+        "total_runs": total_runs,
+        "total_cost_usd": round(total_cost, 6),
+        "avg_cost_per_run_usd": round(avg_cost, 6),
+        "total_input_tokens": total_in,
+        "total_output_tokens": total_out,
+        "by_stage": by_stage,
+        "by_day": by_day,
+    }

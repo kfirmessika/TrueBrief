@@ -154,3 +154,115 @@ create policy "Users can manage their own push subscriptions"
     on push_subscriptions for all
     using (auth.role() in ('anon', 'authenticated'));
 
+-- Pipeline Run Log (Step A.1.1 — Cost & Latency Telemetry)
+-- One row per full pipeline execution, whether successful or not.
+create table if not exists pipeline_run (
+    id uuid primary key default gen_random_uuid(),
+    topic_id uuid references topics(id) on delete set null,
+    started_at timestamptz not null,
+    duration_ms int,
+    articles_collected int default 0,
+    articles_selected int default 0,
+    alphas_extracted int default 0,
+    decisions_new int default 0,
+    decisions_update int default 0,
+    decisions_duplicate int default 0,
+    brief_length int default 0,
+    exit_status text default 'success',  -- 'success' | 'no_update' | 'rejected' | 'error'
+    error_message text,
+    created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+create index pipeline_run_topic_idx on pipeline_run(topic_id);
+create index pipeline_run_started_idx on pipeline_run(started_at desc);
+
+alter table pipeline_run enable row level security;
+create policy "Allow read access to pipeline_run"
+    on pipeline_run for select using (true);
+create policy "Allow write access to pipeline_run"
+    on pipeline_run for all using (auth.role() in ('anon', 'authenticated'));
+
+-- LLM Call Log (Step A.1.2 — Per-call instrumentation)
+-- One row per LLM API call; linked to the parent pipeline_run.
+create table if not exists llm_call_log (
+    id uuid primary key default gen_random_uuid(),
+    pipeline_run_id uuid references pipeline_run(id) on delete cascade,
+    stage text not null,        -- 'query_builder' | 'harvester' | 'arbiter' | 'summarizer' | 'briefer'
+    model text not null,
+    input_tokens int default 0,
+    output_tokens int default 0,
+    cost_usd numeric(10, 6) default 0,
+    duration_ms int default 0,
+    created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+create index llm_call_log_run_idx on llm_call_log(pipeline_run_id);
+create index llm_call_log_stage_idx on llm_call_log(stage);
+create index llm_call_log_created_idx on llm_call_log(created_at desc);
+
+alter table llm_call_log enable row level security;
+create policy "Allow read access to llm_call_log"
+    on llm_call_log for select using (true);
+create policy "Allow write access to llm_call_log"
+    on llm_call_log for all using (auth.role() in ('anon', 'authenticated'));
+
+-- RPC: cost aggregated by pipeline stage (last N days)
+create or replace function llm_cost_by_stage(days_back int default 30)
+returns table (
+    stage text,
+    calls bigint,
+    total_input_tokens bigint,
+    total_output_tokens bigint,
+    total_cost_usd numeric,
+    avg_duration_ms numeric
+)
+language sql set search_path = public, extensions as $$
+    select
+        stage,
+        count(*)                    as calls,
+        sum(input_tokens)           as total_input_tokens,
+        sum(output_tokens)          as total_output_tokens,
+        sum(cost_usd)               as total_cost_usd,
+        avg(duration_ms)            as avg_duration_ms
+    from llm_call_log
+    where created_at >= now() - (days_back || ' days')::interval
+    group by stage
+    order by total_cost_usd desc;
+$$;
+
+-- RPC: daily cost series (last N days)
+create or replace function llm_cost_by_day(days_back int default 30)
+returns table (
+    day date,
+    calls bigint,
+    total_cost_usd numeric
+)
+language sql set search_path = public, extensions as $$
+    select
+        created_at::date            as day,
+        count(*)                    as calls,
+        sum(cost_usd)               as total_cost_usd
+    from llm_call_log
+    where created_at >= now() - (days_back || ' days')::interval
+    group by created_at::date
+    order by day;
+$$;
+
+-- RPC: pipeline run summary (last N days)
+create or replace function pipeline_run_summary(days_back int default 30)
+returns table (
+    total_runs bigint,
+    successful_runs bigint,
+    avg_duration_ms numeric,
+    total_brief_chars bigint
+)
+language sql set search_path = public, extensions as $$
+    select
+        count(*)                        as total_runs,
+        count(*) filter (where exit_status = 'success') as successful_runs,
+        avg(duration_ms)                as avg_duration_ms,
+        sum(brief_length)               as total_brief_chars
+    from pipeline_run
+    where created_at >= now() - (days_back || ' days')::interval;
+$$;
+

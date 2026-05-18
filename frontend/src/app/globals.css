@@ -1,26 +1,162 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ============================================================
+   DESIGN TOKENS — TrueBrief
+   Tailwind v4 uses @theme for CSS-first config.
+   All tokens available as Tailwind utilities (bg-brand, text-muted, etc.)
+   ============================================================ */
+
+@theme {
+  /* --- Colors (OKLCH for perceptually uniform palette) --- */
+
+  /* Brand */
+  --color-brand:           oklch(0.55 0.22 264);   /* indigo-600 equivalent */
+  --color-brand-light:     oklch(0.65 0.18 264);
+  --color-brand-dark:      oklch(0.42 0.24 264);
+  --color-brand-subtle:    oklch(0.96 0.04 264);
+
+  /* Surface */
+  --color-surface:         oklch(1.00 0 0);         /* pure white */
+  --color-surface-raised:  oklch(0.98 0 0);         /* card background */
+  --color-surface-overlay: oklch(0.96 0 0);         /* hover state */
+  --color-border:          oklch(0.90 0 0);
+  --color-border-strong:   oklch(0.80 0 0);
+
+  /* Text */
+  --color-text:            oklch(0.14 0 0);         /* near-black */
+  --color-text-secondary:  oklch(0.40 0 0);         /* slate-500 equivalent */
+  --color-text-muted:      oklch(0.60 0 0);
+  --color-text-inverse:    oklch(0.98 0 0);
+
+  /* Semantic */
+  --color-success:         oklch(0.55 0.18 145);
+  --color-success-subtle:  oklch(0.95 0.05 145);
+  --color-warning:         oklch(0.72 0.17  75);
+  --color-warning-subtle:  oklch(0.97 0.04  75);
+  --color-danger:          oklch(0.55 0.22  25);
+  --color-danger-subtle:   oklch(0.96 0.04  25);
+  --color-info:            oklch(0.58 0.16 220);
+  --color-info-subtle:     oklch(0.95 0.04 220);
+
+  /* --- Typography --- */
+  --font-sans:   var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:   var(--font-geist-mono), ui-monospace, monospace;
+
+  /* --- Type scale --- */
+  --font-size-xs:   0.75rem;
+  --font-size-sm:   0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg:   1.125rem;
+  --font-size-xl:   1.25rem;
+  --font-size-2xl:  1.5rem;
+  --font-size-3xl:  1.875rem;
+  --font-size-4xl:  2.25rem;
+
+  /* --- Spacing (extend Tailwind's default scale) --- */
+  --spacing-18: 4.5rem;
+  --spacing-22: 5.5rem;
+
+  /* --- Border radius --- */
+  --radius-sm:  0.25rem;
+  --radius-md:  0.5rem;
+  --radius-lg:  0.75rem;
+  --radius-xl:  1rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* --- Shadows --- */
+  --shadow-sm:  0 1px 2px 0 oklch(0 0 0 / 0.05);
+  --shadow-md:  0 4px 6px -1px oklch(0 0 0 / 0.07), 0 2px 4px -2px oklch(0 0 0 / 0.05);
+  --shadow-lg:  0 10px 15px -3px oklch(0 0 0 / 0.08), 0 4px 6px -4px oklch(0 0 0 / 0.05);
+  --shadow-xl:  0 20px 25px -5px oklch(0 0 0 / 0.10), 0 8px 10px -6px oklch(0 0 0 / 0.05);
+
+  /* --- Motion --- */
+  --duration-fast:   120ms;
+  --duration-normal: 200ms;
+  --duration-slow:   350ms;
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth:     cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ============================================================
+   DARK MODE TOKENS
+   next-themes adds class="dark" to <html> when dark mode is active.
+   ============================================================ */
+
+.dark {
+  --color-brand:           oklch(0.68 0.18 264);
+  --color-brand-light:     oklch(0.75 0.14 264);
+  --color-brand-dark:      oklch(0.55 0.22 264);
+  --color-brand-subtle:    oklch(0.22 0.06 264);
+
+  --color-surface:         oklch(0.13 0 0);         /* near-black bg */
+  --color-surface-raised:  oklch(0.18 0 0);
+  --color-surface-overlay: oklch(0.22 0 0);
+  --color-border:          oklch(0.27 0 0);
+  --color-border-strong:   oklch(0.38 0 0);
+
+  --color-text:            oklch(0.96 0 0);
+  --color-text-secondary:  oklch(0.72 0 0);
+  --color-text-muted:      oklch(0.55 0 0);
+  --color-text-inverse:    oklch(0.14 0 0);
+
+  --color-success:         oklch(0.65 0.16 145);
+  --color-success-subtle:  oklch(0.22 0.06 145);
+  --color-warning:         oklch(0.80 0.14  75);
+  --color-warning-subtle:  oklch(0.22 0.05  75);
+  --color-danger:          oklch(0.68 0.18  25);
+  --color-danger-subtle:   oklch(0.22 0.06  25);
+  --color-info:            oklch(0.70 0.12 220);
+  --color-info-subtle:     oklch(0.22 0.05 220);
+
+  --shadow-sm:  0 1px 2px 0 oklch(0 0 0 / 0.25);
+  --shadow-md:  0 4px 6px -1px oklch(0 0 0 / 0.35), 0 2px 4px -2px oklch(0 0 0 / 0.25);
+  --shadow-lg:  0 10px 15px -3px oklch(0 0 0 / 0.40), 0 4px 6px -4px oklch(0 0 0 / 0.25);
+  --shadow-xl:  0 20px 25px -5px oklch(0 0 0 / 0.50), 0 8px 10px -6px oklch(0 0 0 / 0.25);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ============================================================
+   BASE STYLES
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  transition: background-color var(--duration-normal) var(--ease-smooth),
+              color var(--duration-normal) var(--ease-smooth);
+}
+
+/* Smooth scrolling on anchors; respect prefers-reduced-motion */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Focus ring — consistent, accessible */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Selection */
+::selection {
+  background-color: var(--color-brand-subtle);
+  color: var(--color-brand-dark);
+}
+.dark ::selection {
+  background-color: var(--color-brand-subtle);
+  color: var(--color-brand-light);
 }

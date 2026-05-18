@@ -4,18 +4,32 @@ LLM Abstraction Layer - llm/client.py
 Thin, config-driven wrapper around any LLM provider.
 Switch providers by changing LLM_CONFIG in config/settings.py - zero code changes here.
 Uses the modern google-genai SDK for Gemini.
+
+Telemetry: every call() invocation logs to llm_call_log via TelemetryLogger.
+Set the `pipeline_run_id` context var before calling to associate logs with a run.
 """
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 from typing import Optional, List, Any
 
+from truebrief.llm.pricing import compute_cost_usd
+
 logger = logging.getLogger(__name__)
+
+# Context variable: set this in pipeline_task before calling the LLM so every
+# call in that task automatically logs against the correct pipeline_run row.
+pipeline_run_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "pipeline_run_id", default=None
+)
+
 
 class LLMError(Exception):
     """Raised when an LLM call fails after all retries."""
+
 
 class LLMClient:
     """
@@ -51,13 +65,29 @@ class LLMClient:
         model = cfg["model"]
 
         for attempt in range(1, self.MAX_RETRIES + 1):
+            t0 = time.monotonic()
             try:
                 if provider == "gemini":
-                    return self._call_gemini(model, prompt, json_mode, system_prompt)
+                    result, in_tok, out_tok = self._call_gemini_instrumented(
+                        model, prompt, json_mode, system_prompt
+                    )
                 elif provider == "openai":
-                    return self._call_openai(model, prompt, json_mode, system_prompt)
+                    result, in_tok, out_tok = self._call_openai_instrumented(
+                        model, prompt, json_mode, system_prompt
+                    )
                 else:
                     raise LLMError(f"Unknown provider '{provider}'.")
+
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                self._log_call(
+                    stage=step_name,
+                    model=model,
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
+                    duration_ms=duration_ms,
+                )
+                return result
+
             except Exception as exc:
                 if attempt < self.MAX_RETRIES:
                     wait = self.RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
@@ -95,8 +125,7 @@ class LLMClient:
         """Generate vector embeddings for a list of strings."""
         if not texts:
             return []
-        
-        # Filter out empty strings which cause Gemini to error
+
         valid_texts = [t if (t and t.strip()) else "[empty]" for t in texts]
 
         client = self._get_gemini_client()
@@ -112,40 +141,36 @@ class LLMClient:
             )
             if not res or not res.embeddings:
                 raise LLMError("Gemini returned no embeddings for the batch.")
-            
+
             embeddings = [emb.values for emb in res.embeddings]
             if len(embeddings) != len(texts):
                 logger.warning(f"Batch embedding returned {len(embeddings)} items for {len(texts)} inputs.")
-            
+
             return embeddings
         except Exception as e:
             logger.error(f"Batch embedding failed: {e}")
             raise LLMError(f"Batch embedding failed: {e}") from e
 
-    def _get_gemini_client(self) -> Any:
-        if self._gemini_client is None:
-            from google import genai
-            api_key = self._settings.GOOGLE_API_KEY
-            if not api_key:
-                raise LLMError("GOOGLE_API_KEY not set.")
-            self._gemini_client = genai.Client(api_key=api_key)
-        return self._gemini_client
+    # -------------------------------------------------------------------------
+    # Internal: instrumented call methods (return text + token counts)
+    # -------------------------------------------------------------------------
 
-    def _call_gemini(
+    def _call_gemini_instrumented(
         self,
         model: str,
         prompt: str,
         json_mode: bool,
         system_prompt: Optional[str],
-    ) -> str:
+    ) -> tuple[str, int, int]:
+        """Call Gemini and return (text, input_tokens, output_tokens)."""
         client = self._get_gemini_client()
         from google.genai import types
-        
+
         config = types.GenerateContentConfig(
             system_instruction=system_prompt if system_prompt else None,
             response_mime_type="application/json" if json_mode else "text/plain",
         )
-        
+
         try:
             response = client.models.generate_content(
                 model=model,
@@ -154,31 +179,34 @@ class LLMClient:
             )
             if not response or not response.text:
                 logger.warning(f"Gemini returned empty text for model {model}. Possible safety block.")
-                return "{}" if json_mode else ""
-            return response.text.strip()
+                text = "{}" if json_mode else ""
+            else:
+                text = response.text.strip()
+
+            # Extract token counts from usage_metadata when available
+            in_tok = 0
+            out_tok = 0
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                meta = response.usage_metadata
+                in_tok = getattr(meta, "prompt_token_count", 0) or 0
+                out_tok = getattr(meta, "candidates_token_count", 0) or 0
+
+            return text, in_tok, out_tok
+
         except Exception as e:
-            # If it's a safety block, sometimes text access raises an error
             if "safety" in str(e).lower():
                 logger.warning(f"Gemini call blocked by safety filters: {e}")
-                return "{}" if json_mode else "Content blocked by safety filters."
+                return ("{}" if json_mode else "Content blocked by safety filters.", 0, 0)
             raise e
 
-    def _get_openai_client(self) -> Any:
-        if self._openai_client is None:
-            from openai import OpenAI
-            api_key = getattr(self._settings, "OPENAI_API_KEY", None)
-            if not api_key:
-                raise LLMError("OPENAI_API_KEY not set.")
-            self._openai_client = OpenAI(api_key=api_key)
-        return self._openai_client
-
-    def _call_openai(
+    def _call_openai_instrumented(
         self,
         model: str,
         prompt: str,
         json_mode: bool,
         system_prompt: Optional[str],
-    ) -> str:
+    ) -> tuple[str, int, int]:
+        """Call OpenAI and return (text, input_tokens, output_tokens)."""
         client = self._get_openai_client()
         messages = []
         if system_prompt:
@@ -190,4 +218,57 @@ class LLMClient:
             kwargs["response_format"] = {"type": "json_object"}
 
         response = client.chat.completions.create(**kwargs)
-        return response.choices[0].message.content.strip()
+        text = response.choices[0].message.content.strip()
+        in_tok = response.usage.prompt_tokens if response.usage else 0
+        out_tok = response.usage.completion_tokens if response.usage else 0
+        return text, in_tok, out_tok
+
+    # -------------------------------------------------------------------------
+    # Internal helpers
+    # -------------------------------------------------------------------------
+
+    def _log_call(
+        self,
+        stage: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        duration_ms: int,
+    ) -> None:
+        """Fire-and-forget telemetry log. Never raises."""
+        try:
+            from truebrief.ledger.telemetry import get_telemetry
+            tel = get_telemetry()
+            if tel is None:
+                return
+            run_id = pipeline_run_id_var.get()
+            cost = compute_cost_usd(model, input_tokens, output_tokens)
+            tel.log_llm_call(
+                run_id,
+                stage=stage,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost,
+                duration_ms=duration_ms,
+            )
+        except Exception as exc:
+            logger.debug("LLM telemetry log failed (non-fatal): %s", exc)
+
+    def _get_gemini_client(self) -> Any:
+        if self._gemini_client is None:
+            from google import genai
+            api_key = self._settings.GOOGLE_API_KEY
+            if not api_key:
+                raise LLMError("GOOGLE_API_KEY not set.")
+            self._gemini_client = genai.Client(api_key=api_key)
+        return self._gemini_client
+
+    def _get_openai_client(self) -> Any:
+        if self._openai_client is None:
+            from openai import OpenAI
+            api_key = getattr(self._settings, "OPENAI_API_KEY", None)
+            if not api_key:
+                raise LLMError("OPENAI_API_KEY not set.")
+            self._openai_client = OpenAI(api_key=api_key)
+        return self._openai_client

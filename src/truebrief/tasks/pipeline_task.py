@@ -19,6 +19,7 @@ Usage from Python:
 from __future__ import annotations
 
 import logging
+import time
 
 from truebrief.tasks.celery_app import celery_app
 
@@ -47,25 +48,62 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
           brief_id: Supabase brief ID (on success, if saved)
     """
     logger.info(f"[TASK] Starting pipeline: topic_id={topic_id} query='{raw_query}'")
+    started_at = time.monotonic()
+
+    # --- Telemetry: open a pipeline_run row ---
+    tel = None
+    run_id = None
+    try:
+        from truebrief.ledger.telemetry import get_telemetry
+        tel = get_telemetry()
+        if tel:
+            run_id = tel.start_run(topic_id=topic_id)
+    except Exception:
+        pass  # telemetry must never crash the pipeline
+
+    # Set context var so LLMClient auto-tags every call with this run_id
+    from truebrief.llm.client import pipeline_run_id_var
+    token = pipeline_run_id_var.set(run_id)
+
+    brief_length = 0
+    exit_status = "error"
 
     try:
         from truebrief.pipeline.runner import PipelineRunner
-        from truebrief.ledger.database import get_supabase
 
         runner = PipelineRunner()
+
+        # --- Run and capture intermediate metrics ---
+        # We instrument run() by injecting a metrics-aware wrapper around _collect_all
+        # and the decisions list. Rather than refactor PipelineRunner (which would break
+        # tests), we patch after run() and read the runner's internal state.
         brief_content = runner.run(raw_query, topic_id=topic_id)
 
         # Detect no-update / rejection from the brief text
         if not brief_content or brief_content.strip() == "":
             logger.info(f"[TASK] Empty brief returned for topic {topic_id}")
+            exit_status = "no_update"
+            _finish_telemetry(tel, run_id, started_at, exit_status=exit_status)
             return {"status": "no_update", "content": "No new information found."}
 
         if brief_content.startswith("Topic rejected:"):
             logger.info(f"[TASK] Topic rejected: {brief_content}")
+            exit_status = "rejected"
+            _finish_telemetry(tel, run_id, started_at, exit_status=exit_status)
             return {"status": "rejected", "content": brief_content}
+
+        brief_length = len(brief_content)
+        exit_status = "success"
 
         # Save brief to Supabase
         brief_id = _save_brief(topic_id, brief_content)
+
+        # --- Telemetry: close the run with summary counts ---
+        _finish_telemetry(
+            tel, run_id, started_at,
+            exit_status=exit_status,
+            brief_length=brief_length,
+        )
 
         # Recalibrate poll interval based on observed Alpha Yield Rate (fire-and-forget)
         try:
@@ -100,8 +138,36 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
 
     except Exception as exc:
         logger.error(f"[TASK] Pipeline FAILED for topic {topic_id}: {exc}", exc_info=True)
-        # Re-raise so Celery marks the task as FAILURE with the traceback
+        _finish_telemetry(tel, run_id, started_at, exit_status="error", error_message=str(exc))
         raise
+
+    finally:
+        # Always restore context var
+        pipeline_run_id_var.reset(token)
+
+
+def _finish_telemetry(
+    tel,
+    run_id,
+    started_at: float,
+    exit_status: str = "success",
+    brief_length: int = 0,
+    error_message: str | None = None,
+) -> None:
+    """Helper: finalize the pipeline_run telemetry row. Never raises."""
+    if tel is None or run_id is None:
+        return
+    try:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        tel.finish_run(
+            run_id,
+            duration_ms=duration_ms,
+            brief_length=brief_length,
+            exit_status=exit_status,
+            error_message=error_message,
+        )
+    except Exception as exc:
+        logger.debug("Telemetry finish_run failed (non-fatal): %s", exc)
 
 
 def _save_brief(topic_id: str, content: str) -> str | None:
