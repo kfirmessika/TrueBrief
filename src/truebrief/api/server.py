@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from truebrief.api.routes import router
 from truebrief.billing.billing_routes import router as billing_router
+from truebrief.api.digest_routes import router as digest_router
 
 # Setup logging
 logging.basicConfig(
@@ -35,6 +36,7 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(billing_router, prefix="/api/v1/billing")
+app.include_router(digest_router, prefix="/api/v1")
 
 @app.get("/health")
 def health_check():

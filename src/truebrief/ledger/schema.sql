@@ -114,3 +114,23 @@ begin
     limit match_count;
 end;
 $$;
+
+-- Digest Settings Table (Phase 3, Step 3.15 — Email Digest)
+-- Stores per-user email digest preferences.
+-- `user_id` is UNIQUE so we can safely upsert on conflict.
+create table if not exists digest_settings (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references users(id) on delete cascade unique,
+    enabled boolean default true,
+    frequency text default 'daily',   -- 'daily' | 'weekly'
+    send_hour_utc int default 8,       -- 0-23
+    created_at timestamptz default timezone('utc'::text, now()),
+    updated_at timestamptz default timezone('utc'::text, now())
+);
+
+-- RLS
+alter table digest_settings enable row level security;
+create policy "Users can manage their own digest settings"
+    on digest_settings for all
+    using (auth.role() in ('anon', 'authenticated'));
+

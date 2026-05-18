@@ -50,6 +50,7 @@ celery_app = Celery(
     include=[
         "truebrief.tasks.pipeline_task",
         "truebrief.tasks.scheduler",
+        "truebrief.tasks.digest_task",
     ],
 )
 
@@ -72,6 +73,11 @@ celery_app.conf.beat_schedule = {
     "scheduler-heartbeat": {
         "task": "truebrief.tasks.scheduler.check_and_schedule_topics",
         "schedule": 60.0,   # every 60 seconds
+        "options": {"queue": "celery"},
+    },
+    "daily-digest": {
+        "task": "truebrief.tasks.digest_task.send_digest_task",
+        "schedule": crontab(hour=8, minute=0),  # every day at 08:00 UTC
         "options": {"queue": "celery"},
     },
 }
