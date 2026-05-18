@@ -310,6 +310,48 @@ def get_brief(brief_id: str):
     return res.data[0]
 
 
+class UserStatsResponse(BaseModel):
+    total_briefs: int
+    articles_scanned: int
+    time_saved_minutes: int
+
+@router.get("/users/me/stats", response_model=UserStatsResponse)
+def get_user_stats(user: User = Depends(get_current_user)):
+    """Return aggregate stats for the current user: briefs delivered, articles scanned, time saved."""
+    db = get_supabase()
+
+    subs = db.table("topic_subscriptions").select("topic_id").eq("user_id", user.id).execute()
+    if not subs.data:
+        return {"total_briefs": 0, "articles_scanned": 0, "time_saved_minutes": 0}
+
+    topic_ids = [s["topic_id"] for s in subs.data]
+
+    briefs_res = (
+        db.table("briefs")
+        .select("id", count="exact")
+        .in_("topic_id", topic_ids)
+        .execute()
+    )
+    total_briefs = briefs_res.count or 0
+
+    facts_res = (
+        db.table("known_facts")
+        .select("id", count="exact")
+        .in_("topic_id", topic_ids)
+        .execute()
+    )
+    articles_scanned = facts_res.count or 0
+
+    # Avg 4 min/article saved vs 2 min/brief to read
+    time_saved = max(0, articles_scanned * 4 - total_briefs * 2)
+
+    return {
+        "total_briefs": total_briefs,
+        "articles_scanned": articles_scanned,
+        "time_saved_minutes": time_saved,
+    }
+
+
 @router.get("/topics/{topic_id}/ayr")
 def get_topic_ayr(topic_id: str, days: int = 30):
     """

@@ -2,9 +2,11 @@
 
 import { useTopics, useCreateTopic, useDeleteTopic, useTriggerScan } from '@/hooks/useTopics';
 import { useTier } from '@/hooks/useTier';
+import { useStats } from '@/hooks/useStats';
 import { TopicCard } from '@/components/topics/TopicCard';
 import { AddTopicForm } from '@/components/topics/AddTopicForm';
 import { UpgradeBanner } from '@/components/topics/UpgradeBanner';
+import { TimeSavedBadge } from '@/components/dashboard/TimeSavedBadge';
 import { Toast, useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useState } from 'react';
@@ -19,9 +21,8 @@ interface DashboardClientProps {
 
 export default function DashboardClient({ initialTopics, initialBilling }: DashboardClientProps) {
   const { data: topics, isLoading: topicsLoading } = useTopics();
-  // We don't strictly NEED to pass initial data to useQuery if we pre-fetched 
-  // on the server and use dehydration, but since the spec asked for props:
   const { data: billing } = useTier();
+  const { data: stats } = useStats();
   const { toast, showToast, hideToast } = useToast();
   
   const createMutation = useCreateTopic();
@@ -83,14 +84,17 @@ export default function DashboardClient({ initialTopics, initialBilling }: Dashb
           <p className="text-slate-500 font-medium">Monitoring the delta in real-time.</p>
         </div>
 
-        {billing && (
-          <div className="bg-white border border-slate-100 rounded-2xl px-4 py-2 flex items-center gap-3 shadow-sm">
-            <div className={`h-2.5 w-2.5 rounded-full ${billing.tier === 'free' ? 'bg-amber-400' : 'bg-green-500 animate-pulse'}`} />
-            <span className="text-sm font-bold text-slate-700 uppercase tracking-wider">{billing.tier} Plan</span>
-            <span className="text-slate-200">|</span>
-            <span className="text-sm font-black text-indigo-600">{topics?.length || 0} / {billing.limits.max_topics} used</span>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {stats && <TimeSavedBadge stats={stats} />}
+          {billing && (
+            <div className="bg-white border border-slate-100 rounded-2xl px-4 py-2 flex items-center gap-3 shadow-sm">
+              <div className={`h-2.5 w-2.5 rounded-full ${billing.tier === 'free' ? 'bg-amber-400' : 'bg-green-500 animate-pulse'}`} />
+              <span className="text-sm font-bold text-slate-700 uppercase tracking-wider">{billing.tier} Plan</span>
+              <span className="text-slate-200">|</span>
+              <span className="text-sm font-black text-indigo-600">{topics?.length || 0} / {billing.limits.max_topics} used</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="max-w-4xl">

@@ -62,6 +62,17 @@ export const billingApi = {
   getStatus: () => api.get<BillingStatus>('/billing/status'),
 };
 
+// User Stats Types
+export interface UserStats {
+  total_briefs: number;
+  articles_scanned: number;
+  time_saved_minutes: number;
+}
+
+export const statsApi = {
+  getStats: () => api.get<UserStats>('/users/me/stats'),
+};
+
 import { auth } from "@clerk/nextjs/server";
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
