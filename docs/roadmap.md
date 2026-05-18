@@ -34,7 +34,7 @@
 - [x] 3.13 "Time Saved" Metric (C: 5 | M: **FLASH**)
 - [x] 3.14 Public Sharing Pages (C: 10 | M: **SONNET**)
 - [x] 3.15 Email Digest (C: 15 | M: **SONNET**) ← NEXT
-- [ ] 3.16 Web Push Notifications (C: 15 | M: **SONNET**)
+- [x] 3.16 Web Push Notifications (C: 15 | M: **SONNET**)
 - [ ] 3.17 Mobile-Responsive Design (C: 8 | M: **FLASH**)
 - [ ] 3.18 Rate Limiting & Abuse (C: 18 | M: **SONNET**)
 - [ ] 3.19 Brave Search + Exa (C: 15 | M: **SONNET**)

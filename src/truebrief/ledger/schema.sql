@@ -134,3 +134,23 @@ create policy "Users can manage their own digest settings"
     on digest_settings for all
     using (auth.role() in ('anon', 'authenticated'));
 
+-- Push Subscriptions Table (Phase 3, Step 3.16 — Web Push Notifications)
+-- Stores per-device browser push subscriptions (one user may have many devices).
+-- `user_id, endpoint` is UNIQUE so we can safely upsert on conflict.
+create table if not exists push_subscriptions (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references users(id) on delete cascade,
+    endpoint text not null,
+    p256dh text not null,
+    auth text not null,
+    enabled boolean default true,
+    created_at timestamptz default timezone('utc'::text, now()),
+    unique(user_id, endpoint)
+);
+
+-- RLS
+alter table push_subscriptions enable row level security;
+create policy "Users can manage their own push subscriptions"
+    on push_subscriptions for all
+    using (auth.role() in ('anon', 'authenticated'));
+

@@ -74,6 +74,23 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
         except Exception as ayr_err:
             logger.warning(f"[TASK] AYR recalibration skipped: {ayr_err}")
 
+        # Fire web push notification (fire-and-forget)
+        try:
+            from truebrief.ledger.database import get_supabase as _get_db
+            from truebrief.tasks.push_task import send_push_notifications_task
+
+            _db = _get_db()
+            _topic_res = _db.table("topics").select("user_id, raw_query").eq("id", topic_id).execute()
+            if _topic_res.data:
+                _row = _topic_res.data[0]
+                send_push_notifications_task.delay(
+                    user_id=str(_row["user_id"]),
+                    topic_name=_row["raw_query"],
+                    brief_id=str(brief_id) if brief_id else "",
+                )
+        except Exception as push_err:
+            logger.warning(f"[TASK] Push notification skipped: {push_err}")
+
         logger.info(f"[TASK] Pipeline SUCCESS for topic {topic_id}. Brief ID: {brief_id}")
         return {
             "status": "success",

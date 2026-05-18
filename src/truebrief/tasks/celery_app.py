@@ -51,6 +51,7 @@ celery_app = Celery(
         "truebrief.tasks.pipeline_task",
         "truebrief.tasks.scheduler",
         "truebrief.tasks.digest_task",
+        "truebrief.tasks.push_task",
     ],
 )
 
