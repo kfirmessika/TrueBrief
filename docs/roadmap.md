@@ -49,14 +49,14 @@
 - [x] A.1 Cost & Latency Telemetry — pipeline_run + llm_call_log tables, LLMClient instrumentation, /admin/cost-summary (C: 25 | M: **SONNET**)
 - [ ] A.2 Accuracy Test Harness — 6 reproducible harnesses (grounding, arbiter P/R, story assign, summary stability, briefer faithfulness, confidence floor) (C: 18 | M: **SONNET**)
 - [ ] A.3 Longitudinal Stress Tests — 30-day fast-news sim, slow-burn, topic-overlap (C: 15 | M: **SONNET**)
-- [ ] A.4 Failure-Mode Tests — 8 edge-case tests (auto-merge, merge creep, orphan, batch mismatch, race, hallucination, starvation, zero alphas) (C: 12 | M: **SONNET**)
-- [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**)
+- [x] A.4 Failure-Mode Tests — 10 tests covering temporal boundary, story merge creep, orphaned fact, batch mismatch, idempotent schedule, hallucination smoke, rotator starvation, briefer zero alphas (C: 12 | M: **SONNET**)
+- [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**) ← run post-deploy
 - [ ] A.6 Admin Metrics Dashboard — /admin/metrics endpoint + UI (C: 8 | M: **FLASH**)
 
 ### Phase B · Premium UI/UX
 
 - [x] B.0 Design System Foundation — OKLCH tokens, dark mode (next-themes), Framer Motion primitives, Radix UI, EmptyState/Skeleton/ErrorBoundary (C: 15 | M: **SONNET**)
-- [ ] B.1 Critical Gaps — Topic Detail (3-tab), Settings (full), Per-brief sources panel (C: 18 | M: **SONNET**)
+- [x] B.1 Critical Gaps — Topic Detail (3-tab: Briefs/Stories/Insights + live scan button), Settings (account/billing/notifications/danger zone), ScanButton with polling (C: 18 | M: **SONNET**)
 - [ ] B.2 New Surfaces — Story Node timeline, AYR insight, Query variants panel, Real-time scan progress, Command palette, Notification inbox (C: 20 | M: **SONNET**)
 - [ ] B.3 Polish Layer — Skeletons, optimistic mutations, page transitions, confetti, OG images (C: 10 | M: **FLASH**)
 - [ ] B.4 Copy & Brand — Empty states, onboarding interstitial, landing rewrite (C: 5 | M: **FLASH**)
