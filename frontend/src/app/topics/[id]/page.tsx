@@ -1,69 +1,361 @@
 import { apiFetch } from "@/lib/api";
 import Link from 'next/link';
-import { ArrowLeft, Clock, History, Play, Trash2 } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
+import {
+  ArrowLeft, Clock, Zap, BookOpen, GitBranch, BarChart2,
+  ExternalLink, TrendingUp, TrendingDown, Activity
+} from 'lucide-react';
+import ScanButton from '@/components/topics/ScanButton';
+import TopicTabs from '@/components/topics/TopicTabs';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { FadeIn, StaggerList, StaggerItem } from '@/components/ui/motion';
+import { cn } from '@/lib/utils';
 
-export default async function TopicDetailPage({ params }: { params: { id: string } }) {
-  const res = await apiFetch(`/topics/${params.id}`);
-  
-  if (!res.ok) {
-    if (res.status === 404) notFound();
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface Brief {
+  id: string;
+  topic_id: string;
+  content: string;
+  delivered_at: string;
+}
+
+interface StoryNode {
+  id: string;
+  summary: string;
+  status: string;
+  fact_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AyrData {
+  total: number;
+  alphas: number;
+  ayr: number;
+  trusted: boolean;
+  recommended_interval_s: number;
+  current_interval_s: number;
+  by_domain: { source_domain: string; total: number; alphas: number; ayr: number }[];
+}
+
+interface QueryVariant {
+  id: string;
+  query_text: string;
+  scans_used: number;
+  alphas_yielded: number;
+  ayr: number;
+  is_active: boolean;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function BriefPreview({ brief }: { brief: Brief }) {
+  const preview = brief.content.replace(/[#*`_]/g, '').trim().slice(0, 200);
+  const date = formatDistanceToNow(new Date(brief.delivered_at), { addSuffix: true });
+
+  return (
+    <Link
+      href={`/topics/${brief.topic_id}/briefs/${brief.id}`}
+      className="block group rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 hover:border-[var(--color-brand)] hover:shadow-md transition-all duration-200"
+    >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">{date}</span>
+        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)] group-hover:text-[var(--color-brand)] transition-colors" />
+      </div>
+      <p className="text-sm text-[var(--color-text-secondary)] line-clamp-3 leading-relaxed">{preview}…</p>
+    </Link>
+  );
+}
+
+function StoryCard({ story }: { story: StoryNode }) {
+  const isActive = story.status === 'active';
+  const updated = formatDistanceToNow(new Date(story.updated_at), { addSuffix: true });
+
+  return (
+    <div className={cn(
+      'rounded-xl border p-4 transition-all',
+      isActive
+        ? 'border-[var(--color-brand)] bg-[var(--color-brand-subtle)]'
+        : 'border-[var(--color-border)] bg-[var(--color-surface-raised)]'
+    )}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className={cn(
+          'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold',
+          isActive
+            ? 'bg-[var(--color-brand)] text-white'
+            : 'bg-[var(--color-surface-overlay)] text-[var(--color-text-muted)]'
+        )}>
+          {isActive ? <Activity className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
+          {isActive ? 'Active' : story.status}
+        </div>
+        <span className="text-xs text-[var(--color-text-muted)]">{updated}</span>
+      </div>
+      <p className="text-sm text-[var(--color-text)] leading-relaxed mb-3">{story.summary}</p>
+      <p className="text-xs text-[var(--color-text-muted)]">
+        {story.fact_count ?? '?'} facts
+      </p>
+    </div>
+  );
+}
+
+function AyrBar({ value, max = 1 }: { value: number; max?: number }) {
+  const pct = Math.min(100, Math.round((value / max) * 100));
+  const color = value >= 0.5 ? 'var(--color-success)' : value >= 0.25 ? 'var(--color-warning)' : 'var(--color-danger)';
+  return (
+    <div className="h-1.5 w-full rounded-full bg-[var(--color-surface-overlay)] overflow-hidden">
+      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+    </div>
+  );
+}
+
+// ── Tab Panels ─────────────────────────────────────────────────────────────
+
+function BriefsPanel({ briefs }: { briefs: Brief[] }) {
+  if (briefs.length === 0) {
+    return (
+      <EmptyState
+        icon={BookOpen}
+        title="No briefs yet"
+        description="Trigger a manual scan to generate your first intelligence brief for this topic."
+      />
+    );
+  }
+  return (
+    <StaggerList className="grid gap-3">
+      {briefs.map((brief) => (
+        <StaggerItem key={brief.id}>
+          <BriefPreview brief={brief} />
+        </StaggerItem>
+      ))}
+    </StaggerList>
+  );
+}
+
+function StoriesPanel({ stories }: { stories: StoryNode[] }) {
+  if (stories.length === 0) {
+    return (
+      <EmptyState
+        icon={GitBranch}
+        title="No story threads yet"
+        description="Story nodes are created automatically as facts accumulate across scans."
+      />
+    );
+  }
+
+  const active = stories.filter(s => s.status === 'active');
+  const dormant = stories.filter(s => s.status !== 'active');
+
+  return (
+    <FadeIn className="space-y-6">
+      {active.length > 0 && (
+        <section>
+          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Active threads</h3>
+          <div className="grid gap-3">
+            {active.map((s) => <StoryCard key={s.id} story={s} />)}
+          </div>
+        </section>
+      )}
+      {dormant.length > 0 && (
+        <section>
+          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Dormant threads</h3>
+          <div className="grid gap-3">
+            {dormant.map((s) => <StoryCard key={s.id} story={s} />)}
+          </div>
+        </section>
+      )}
+    </FadeIn>
+  );
+}
+
+function InsightsPanel({ ayr, variants }: { ayr: AyrData | null; variants: QueryVariant[] }) {
+  if (!ayr) {
+    return (
+      <EmptyState
+        icon={BarChart2}
+        title="Insights not yet available"
+        description="Run a few scans first to see Alpha Yield Rate and source quality data."
+      />
+    );
+  }
+
+  const intervalHours = Math.round(ayr.current_interval_s / 3600);
+  const recommendedHours = Math.round(ayr.recommended_interval_s / 3600);
+
+  return (
+    <FadeIn className="space-y-6">
+      {/* AYR summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Alpha Yield', value: `${Math.round(ayr.ayr * 100)}%`, sub: `${ayr.alphas} of ${ayr.total} scans` },
+          { label: 'Scan interval', value: `${intervalHours}h`, sub: ayr.recommended_interval_s !== ayr.current_interval_s ? `recommended ${recommendedHours}h` : 'optimal' },
+          { label: 'Novel facts', value: ayr.alphas, sub: 'last 30 days' },
+          { label: 'Signal quality', value: ayr.trusted ? 'High' : 'Building', sub: ayr.trusted ? '≥10 scans' : 'need more data' },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-3">
+            <p className="text-xs text-[var(--color-text-muted)] mb-1">{stat.label}</p>
+            <p className="text-xl font-bold text-[var(--color-text)]">{stat.value}</p>
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{stat.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* By-domain table */}
+      {ayr.by_domain?.length > 0 && (
+        <section>
+          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Source quality</h3>
+          <div className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-[var(--color-surface-overlay)] text-left">
+                  <th className="px-4 py-2 text-xs font-semibold text-[var(--color-text-muted)]">Source</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-[var(--color-text-muted)] text-right">Scans</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-[var(--color-text-muted)]">AYR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--color-border)]">
+                {ayr.by_domain.map((d) => (
+                  <tr key={d.source_domain} className="bg-[var(--color-surface-raised)]">
+                    <td className="px-4 py-2.5 font-medium text-[var(--color-text)]">{d.source_domain}</td>
+                    <td className="px-4 py-2.5 text-right text-[var(--color-text-muted)]">{d.total}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <AyrBar value={d.ayr} />
+                        <span className="text-xs text-[var(--color-text-muted)] w-8 shrink-0">{Math.round(d.ayr * 100)}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* Query variants */}
+      {variants.length > 0 && (
+        <section>
+          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Search variants</h3>
+          <div className="space-y-2">
+            {variants.map((v) => (
+              <div key={v.id} className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-4 py-3">
+                <div className={cn(
+                  'h-2 w-2 rounded-full shrink-0',
+                  v.is_active ? 'bg-[var(--color-success)]' : 'bg-[var(--color-text-muted)]'
+                )} />
+                <p className="text-sm text-[var(--color-text)] flex-1 truncate">{v.query_text}</p>
+                <span className="text-xs text-[var(--color-text-muted)] shrink-0">{v.alphas_yielded} facts</span>
+                {v.ayr > 0.5
+                  ? <TrendingUp className="h-3.5 w-3.5 text-[var(--color-success)] shrink-0" />
+                  : <TrendingDown className="h-3.5 w-3.5 text-[var(--color-text-muted)] shrink-0" />
+                }
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </FadeIn>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
+
+export default async function TopicDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  const [topicRes, briefsRes, storiesRes, ayrRes, variantsRes] = await Promise.allSettled([
+    apiFetch(`/topics/${id}`),
+    apiFetch(`/topics/${id}/briefs`),
+    apiFetch(`/topics/${id}/stories`),
+    apiFetch(`/topics/${id}/ayr`),
+    apiFetch(`/topics/${id}/query-variants`),
+  ]);
+
+  const topicResponse = topicRes.status === 'fulfilled' ? topicRes.value : null;
+  if (!topicResponse?.ok) {
+    if (topicResponse?.status === 404) notFound();
     throw new Error("Failed to load topic");
   }
 
-  const topic = await res.json();
+  const topic = await topicResponse.json();
 
-  const humanizedDate = topic.last_scan_at 
-    ? `${formatDistanceToNow(new Date(topic.last_scan_at))} ago`
-    : 'Never scanned';
+  const briefs: Brief[] = briefsRes.status === 'fulfilled' && briefsRes.value.ok
+    ? await briefsRes.value.json() : [];
+  const stories: StoryNode[] = storiesRes.status === 'fulfilled' && storiesRes.value.ok
+    ? await storiesRes.value.json() : [];
+  const ayr: AyrData | null = ayrRes.status === 'fulfilled' && ayrRes.value.ok
+    ? await ayrRes.value.json() : null;
+  const variants: QueryVariant[] = variantsRes.status === 'fulfilled' && variantsRes.value.ok
+    ? await variantsRes.value.json() : [];
+
+  const lastScan = topic.last_scan_at
+    ? formatDistanceToNow(new Date(topic.last_scan_at), { addSuffix: true })
+    : null;
+
+  const tabs = [
+    { id: 'briefs' as const, label: 'Briefs', count: briefs.length },
+    { id: 'stories' as const, label: 'Stories', count: stories.length },
+    { id: 'insights' as const, label: 'Insights' },
+  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <Link href="/dashboard" className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 transition-colors mb-8 group">
-        <ArrowLeft className="h-4 w-4 group-hover:-translate-x-1 transition-transform" /> Back to Dashboard
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Back link */}
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors mb-6 group"
+      >
+        <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
+        Dashboard
       </Link>
 
-      <div className="flex flex-col md:flex-row justify-between items-start gap-8 mb-12">
-        <div className="flex-grow">
-          <div className="flex items-center gap-4 mb-2">
-            <h1 className="text-4xl font-black text-slate-900 tracking-tight">{topic.raw_query}</h1>
-            <div className={`h-2.5 w-2.5 rounded-full ${topic.is_active ? 'bg-green-500' : 'bg-slate-300'}`} />
+      {/* Sticky header */}
+      <div className="mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <div className={cn(
+                'h-2 w-2 rounded-full shrink-0',
+                topic.is_active ? 'bg-[var(--color-success)]' : 'bg-[var(--color-text-muted)]'
+              )} />
+              <h1 className="text-2xl font-bold text-[var(--color-text)] truncate">{topic.raw_query}</h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-muted)]">
+              {lastScan && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" />
+                  Scanned {lastScan}
+                </span>
+              )}
+              {ayr && (
+                <span className="flex items-center gap-1">
+                  <Zap className="h-3.5 w-3.5 text-[var(--color-warning)]" />
+                  {Math.round(ayr.ayr * 100)}% alpha yield
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-6 text-sm font-bold text-slate-400 uppercase tracking-widest">
-            <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Last scan: {humanizedDate}</span>
-            <span className="flex items-center gap-1.5"><History className="h-4 w-4" /> {topic.frequency} interval</span>
+          <div className="shrink-0">
+            <ScanButton topicId={id} />
           </div>
-        </div>
-        
-        <div className="flex gap-3 w-full md:w-auto">
-          <Link 
-            href={`/topics/${params.id}/briefs`} 
-            className="flex-grow md:flex-none flex items-center justify-center gap-2 px-6 py-3 border-2 border-slate-200 rounded-2xl font-black hover:bg-slate-50 transition-all text-slate-700 active:scale-95"
-          >
-            <History className="h-5 w-5" /> View Briefs
-          </Link>
-          <button className="flex-grow md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95">
-            <Play className="h-5 w-5 fill-white" /> Manual Scan
-          </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-[2.5rem] p-12 text-center border border-slate-100 shadow-sm">
-        <div className="bg-slate-50 p-6 rounded-[2rem] w-fit mx-auto mb-8">
-          <History className="h-12 w-12 text-slate-300" />
-        </div>
-        <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Intelligence Feed</h2>
-        <p className="text-slate-500 max-w-lg mx-auto mb-10 text-lg font-medium leading-relaxed">
-          Brief content rendering is arriving in Step 3.9. For now, you can trigger manual scans and manage your tracking parameters.
-        </p>
-        
-        <div className="pt-10 border-t border-slate-50 flex justify-center">
-          <button className="text-red-500 font-bold hover:text-red-700 transition-colors flex items-center gap-2">
-            <Trash2 className="h-5 w-5" /> Stop tracking this topic
-          </button>
-        </div>
-      </div>
+      {/* Tabs */}
+      <TopicTabs tabs={tabs}>
+        {(activeTab) => (
+          <>
+            {activeTab === 'briefs' && <BriefsPanel briefs={briefs} />}
+            {activeTab === 'stories' && <StoriesPanel stories={stories} />}
+            {activeTab === 'insights' && <InsightsPanel ayr={ayr} variants={variants} />}
+          </>
+        )}
+      </TopicTabs>
     </div>
   );
 }

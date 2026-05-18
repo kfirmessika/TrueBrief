@@ -1,21 +1,33 @@
 import { Metadata } from 'next';
-import PushNotificationToggle from '@/components/PushNotificationToggle';
+import { auth, currentUser } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
+import { apiFetch } from '@/lib/api';
+import SettingsClient from './SettingsClient';
 
 export const metadata: Metadata = {
   title: 'Settings | TrueBrief',
 };
 
-export default function SettingsPage() {
-  return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <h1 className="text-2xl font-bold text-slate-900 mb-8">Settings</h1>
+export default async function SettingsPage() {
+  const { userId } = await auth();
+  if (!userId) redirect('/sign-in');
 
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold text-slate-500 uppercase tracking-wide">
-          Notifications
-        </h2>
-        <PushNotificationToggle />
-      </section>
-    </div>
+  const user = await currentUser();
+
+  // Fetch billing status (non-blocking)
+  let billing: { tier: string; status: string; current_period_end: number | null } | null = null;
+  try {
+    const res = await apiFetch('/billing/status');
+    if (res.ok) billing = await res.json();
+  } catch { /* ignore */ }
+
+  return (
+    <SettingsClient
+      email={user?.emailAddresses[0]?.emailAddress ?? ''}
+      name={user?.fullName ?? user?.firstName ?? ''}
+      tier={billing?.tier ?? 'free'}
+      billingStatus={billing?.status ?? 'none'}
+      periodEnd={billing?.current_period_end ?? null}
+    />
   );
 }

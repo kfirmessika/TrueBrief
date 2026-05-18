@@ -382,6 +382,21 @@ def get_user_stats(user: User = Depends(get_current_user)):
     }
 
 
+@router.delete("/users/me")
+def delete_account(user: User = Depends(get_current_user)):
+    """
+    Permanently delete the current user's account and all associated data.
+    Cascades via FK: topics → known_facts, briefs, story_nodes, subscriptions.
+    """
+    db = get_supabase()
+    try:
+        db.table("users").delete().eq("id", user.id).execute()
+    except Exception as exc:
+        logger.error("Failed to delete user %s: %s", user.id, exc)
+        raise HTTPException(status_code=500, detail="Account deletion failed")
+    return {"status": "deleted"}
+
+
 @router.get("/topics/{topic_id}/ayr")
 def get_topic_ayr(topic_id: str, days: int = 30):
     """
@@ -467,6 +482,45 @@ def get_query_variants(topic_id: str):
         .select("id, query_text, scans_used, alphas_yielded, ayr, is_active, generation, created_at, last_used_at")
         .eq("topic_id", topic_id)
         .order("ayr", desc=True)
+        .execute()
+    )
+    return res.data or []
+
+
+@router.get("/topics/{topic_id}/stories")
+def get_topic_stories(topic_id: str, limit: int = 50):
+    """
+    List all story nodes for a topic, newest-updated first.
+    Each story includes summary, fact count, and last-update timestamp.
+    """
+    db = get_supabase()
+    topic_res = db.table("topics").select("id").eq("id", topic_id).execute()
+    if not topic_res.data:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    res = (
+        db.table("story_nodes")
+        .select("id, topic_id, summary, status, fact_count, created_at, updated_at")
+        .eq("topic_id", topic_id)
+        .order("updated_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return res.data or []
+
+
+@router.get("/topics/{topic_id}/stories/{story_id}/facts")
+def get_story_facts(topic_id: str, story_id: str):
+    """
+    List all facts (alphas) attached to a specific story node, newest first.
+    """
+    db = get_supabase()
+    res = (
+        db.table("known_facts")
+        .select("id, alpha_text, confidence, source_url, source_domain, first_seen_at, event_date")
+        .eq("topic_id", topic_id)
+        .eq("story_node_id", story_id)
+        .order("first_seen_at", desc=True)
         .execute()
     )
     return res.data or []
