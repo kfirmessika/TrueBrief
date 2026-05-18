@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 from unittest.mock import MagicMock, patch
+from starlette.requests import Request as StarletteRequest
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,12 @@ class TestPushRoutes:
         user.id = "user-1"
         return user
 
+    @staticmethod
+    def _make_request():
+        """Minimal Starlette Request required by @limiter.limit() decorated handlers."""
+        scope = {"type": "http", "method": "POST", "path": "/", "headers": [], "query_string": b""}
+        return StarletteRequest(scope)
+
     def test_vapid_public_key_endpoint(self):
         """GET /push/vapid-public-key returns public_key when set."""
         with patch.dict("os.environ", {"VAPID_PUBLIC_KEY": "test-public-key"}, clear=False):
@@ -123,7 +130,7 @@ class TestPushRoutes:
         )
 
         with patch("truebrief.api.push_routes.get_supabase", return_value=mock_db):
-            result = subscribe(body=body, user=self._make_user())
+            result = subscribe(request=self._make_request(), body=body, user=self._make_user())
 
         assert result.status == "subscribed"
 
@@ -149,6 +156,6 @@ class TestPushRoutes:
         mock_db.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
 
         with patch("truebrief.api.push_routes.get_supabase", return_value=mock_db):
-            result = test_push(user=self._make_user())
+            result = test_push(request=self._make_request(), user=self._make_user())
 
         assert result.status == "skipped"

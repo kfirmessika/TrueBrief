@@ -4,7 +4,7 @@ API Routes - api/routes.py
 Topic CRUD and pipeline triggers.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
@@ -14,6 +14,7 @@ from uuid import UUID
 from truebrief.ledger.database import get_supabase
 from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit
 from truebrief.auth.dependencies import User, get_current_user, get_optional_user
+from truebrief.api.rate_limit import limiter
 from supabase import Client
 
 router = APIRouter()
@@ -39,7 +40,8 @@ class BriefResponse(BaseModel):
 # --- Endpoints ---
 
 @router.post("/topics", response_model=TopicResponse)
-def create_topic(topic: TopicCreate, user: User = Depends(get_current_user)):
+@limiter.limit("20/hour")
+def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_current_user)):
     """
     Create a new tracking topic or subscribe to an existing one.
     If a topic with the same raw_query already exists, returns the existing
@@ -147,7 +149,8 @@ def get_topic(topic_id: str):
     return res.data[0]
 
 @router.delete("/topics/{topic_id}")
-def delete_topic(topic_id: str, user: User = Depends(get_current_user)):
+@limiter.limit("30/hour")
+def delete_topic(request: Request, topic_id: str, user: User = Depends(get_current_user)):
     """Delete a topic."""
     db = get_supabase()
     res = db.table("topics").delete().eq("id", topic_id).execute()
@@ -156,7 +159,8 @@ def delete_topic(topic_id: str, user: User = Depends(get_current_user)):
     return {"status": "deleted"}
 
 @router.post("/topics/{topic_id}/scan")
-def trigger_scan(topic_id: str, user: User = Depends(get_current_user)):
+@limiter.limit("10/hour")
+def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_current_user)):
     """
     Queue the intelligence pipeline for a topic as a background task.
 

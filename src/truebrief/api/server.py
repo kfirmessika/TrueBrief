@@ -6,7 +6,11 @@ FastAPI application setup.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 import logging
+from truebrief.api.rate_limit import limiter
 from truebrief.api.routes import router
 from truebrief.billing.billing_routes import router as billing_router
 from truebrief.api.digest_routes import router as digest_router
@@ -25,6 +29,11 @@ app = FastAPI(
     description="API for the TrueBrief Intelligence Engine.",
     version="1.0.0",
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # CORS config
 app.add_middleware(

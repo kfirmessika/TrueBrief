@@ -16,9 +16,10 @@ import logging
 import os
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from truebrief.api.rate_limit import limiter
 from truebrief.auth.dependencies import User, get_current_user
 from truebrief.ledger.database import get_supabase
 
@@ -66,7 +67,9 @@ def get_vapid_public_key():
 
 
 @router.post("/subscribe", response_model=PushSubscribeResponse)
+@limiter.limit("10/hour")
 def subscribe(
+    request: Request,
     body: PushSubscribeRequest,
     user: User = Depends(get_current_user),
 ):
@@ -121,7 +124,8 @@ def unsubscribe(
 
 
 @router.post("/test", response_model=PushTestResponse)
-def test_push(user: User = Depends(get_current_user)):
+@limiter.limit("5/hour")
+def test_push(request: Request, user: User = Depends(get_current_user)):
     """
     Send a test push notification to all active subscriptions for the current user.
     Useful for developer testing without waiting for a real brief.
