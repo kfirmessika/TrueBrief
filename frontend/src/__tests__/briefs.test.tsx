@@ -79,7 +79,7 @@ describe("Brief Display Components (Unit)", () => {
 
     it("shows 'Copied!' text after click", async () => {
       renderWithProviders(<CopyLinkButton />);
-      const button = screen.getByRole("button", { name: /copy link/i });
+      const button = screen.getByRole("button", { name: /share brief/i });
       
       fireEvent.click(button);
       

@@ -19,6 +19,11 @@ vi.mock("@clerk/nextjs/server", () => ({
   }),
 }));
 
+// Mock next/headers since BriefDetailPage uses headers() for share URL construction
+vi.mock("next/headers", () => ({
+  headers: () => Promise.resolve(new Map([['host', 'localhost:3000']])),
+}));
+
 describe("Briefs Integration (MSW)", () => {
   const mockParams = { id: "topic-1", briefId: "brief-1" };
 

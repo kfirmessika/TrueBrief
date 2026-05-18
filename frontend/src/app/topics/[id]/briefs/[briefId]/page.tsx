@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { apiFetch, Brief, Topic } from "@/lib/api";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
+import { headers } from "next/headers";
 import BriefContent from "@/components/briefs/BriefContent";
 import CopyLinkButton from "@/components/briefs/CopyLinkButton";
 
@@ -12,6 +13,11 @@ export default async function BriefDetailPage({
   params: { id: string; briefId: string };
 }) {
   // Parallel fetch for brief data and topic metadata
+  const headersList = await headers();
+  const host = headersList.get('host') ?? 'localhost:3000';
+  const protocol = host.startsWith('localhost') ? 'http' : 'https';
+  const shareUrl = `${protocol}://${host}/share/${params.briefId}`;
+
   const [briefRes, topicRes] = await Promise.all([
     apiFetch(`/briefs/${params.briefId}`),
     apiFetch(`/topics/${params.id}`),
@@ -40,7 +46,7 @@ export default async function BriefDetailPage({
           <ArrowLeft className="h-4 w-4 group-hover:-translate-x-1 transition-transform" />{" "}
           Back to History
         </Link>
-        <CopyLinkButton />
+        <CopyLinkButton shareUrl={shareUrl} />
       </div>
 
       <article className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-8 md:p-16">

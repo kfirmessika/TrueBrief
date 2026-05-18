@@ -310,6 +310,32 @@ def get_brief(brief_id: str):
     return res.data[0]
 
 
+class PublicBriefResponse(BaseModel):
+    brief_id: str
+    content: str
+    delivered_at: str
+    topic_name: str
+
+@router.get("/share/{brief_id}", response_model=PublicBriefResponse)
+def get_shared_brief(brief_id: str):
+    """Public endpoint — no auth. Returns brief content for shareable links."""
+    db = get_supabase()
+    brief_res = db.table("briefs").select("*").eq("id", brief_id).execute()
+    if not brief_res.data:
+        raise HTTPException(status_code=404, detail="Brief not found")
+    brief = brief_res.data[0]
+
+    topic_res = db.table("topics").select("raw_query").eq("id", brief["topic_id"]).execute()
+    topic_name = topic_res.data[0]["raw_query"] if topic_res.data else "Intelligence Brief"
+
+    return {
+        "brief_id": brief["id"],
+        "content": brief["content"],
+        "delivered_at": brief["delivered_at"],
+        "topic_name": topic_name,
+    }
+
+
 class UserStatsResponse(BaseModel):
     total_briefs: int
     articles_scanned: int
