@@ -17,6 +17,8 @@ class ArticleSource(str, Enum):
     RSS = "rss"
     TAVILY = "tavily"
     GOOGLE_NEWS = "google_news"  # Phase 2
+    BRAVE = "brave"              # Phase 3 — Step 3.19
+    EXA = "exa"                  # Phase 3 — Step 3.19
 
 
 @dataclass

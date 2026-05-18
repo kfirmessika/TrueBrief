@@ -26,6 +26,9 @@ fakeredis>=2.26.0        # Dev-mode in-memory broker (no Redis install needed)
 googlenewsdecoder>=0.1.6  # Decode Google News RSS redirect URLs (Phase 2.9)
 
 
+# Additional Search Sources (Step 3.19)
+exa-py>=1.1.0
+
 # Billing (Stripe)
 stripe>=10.0.0
 

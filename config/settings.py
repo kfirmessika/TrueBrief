@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     # --- Collector ---
     TAVILY_API_KEY: str = ""
+    BRAVE_API_KEY: str = ""
+    EXA_API_KEY: str = ""
 
     # --- Database (Supabase) ---
     SUPABASE_URL: str = ""

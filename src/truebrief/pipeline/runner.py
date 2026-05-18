@@ -20,6 +20,8 @@ from truebrief.collector.query_builder import QueryBuilder, SearchQuery
 from truebrief.collector.rss_layer import RSSLayer
 from truebrief.collector.tavily_layer import TavilyLayer
 from truebrief.collector.google_news_layer import GoogleNewsLayer
+from truebrief.collector.brave_layer import BraveLayer
+from truebrief.collector.exa_layer import ExaLayer
 from truebrief.collector.extractor import ArticleExtractor
 from truebrief.harvester.harvester import Harvester
 from truebrief.ledger.vector_store import VectorStore
@@ -80,7 +82,9 @@ class PipelineRunner:
         )
 
         # Build default source list.
-        all_sources: List[SourceLayer] = sources or [TavilyLayer(), RSSLayer(), GoogleNewsLayer()]
+        all_sources: List[SourceLayer] = sources or [
+            TavilyLayer(), RSSLayer(), GoogleNewsLayer(), BraveLayer(), ExaLayer()
+        ]
 
         # Apply tier-based source filtering when an allowlist is provided.
         if allowed_sources and "__all__" not in allowed_sources:
@@ -247,9 +251,10 @@ class PipelineRunner:
                         continue
                     seen_urls.add(a.url)
 
-                    # For broad sources (RSS), apply basic keyword filter.
-                    # Tavily already returns topic-relevant results so we skip this for it.
-                    if source.name != "tavily" and keywords:
+                    # For broad sources (RSS, Google News), apply keyword filter.
+                    # Targeted engines (Tavily, Brave, Exa) already return on-topic results.
+                    _TARGETED = {"tavily", "brave", "exa"}
+                    if source.name not in _TARGETED and keywords:
                         text = (a.title + " " + (a.text or "")).lower()
                         if not any(k in text for k in keywords):
                             continue
