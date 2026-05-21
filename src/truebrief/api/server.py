@@ -4,6 +4,7 @@ API Server - api/server.py
 FastAPI application setup.
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -35,10 +36,13 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# CORS config
+# CORS config — restrict to the deployed frontend URL in production
+_frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+_allowed_origins = [o.strip() for o in _frontend_url.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Update for production
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
