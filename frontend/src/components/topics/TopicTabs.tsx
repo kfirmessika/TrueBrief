@@ -22,34 +22,32 @@ export default function TopicTabs({ tabs, children, defaultTab = 'briefs' }: Top
 
   return (
     <div>
-      {/* Tab bar */}
-      <div className="border-b border-[var(--color-border)] mb-6">
-        <nav className="-mb-px flex gap-0" aria-label="Topic sections">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActive(tab.id)}
-              className={cn(
-                'px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap',
+      {/* Tab bar — pill style */}
+      <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--color-surface-overlay)] w-fit mb-6">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActive(tab.id)}
+            className={cn(
+              'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap',
+              active === tab.id
+                ? 'bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm'
+                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+            )}
+          >
+            {tab.label}
+            {tab.count !== undefined && (
+              <span className={cn(
+                'text-[11px] font-semibold rounded-full px-1.5 py-0.5 min-w-[1.25rem] text-center leading-none',
                 active === tab.id
-                  ? 'border-[var(--color-brand)] text-[var(--color-brand)]'
-                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:border-[var(--color-border-strong)]'
-              )}
-            >
-              {tab.label}
-              {tab.count !== undefined && (
-                <span className={cn(
-                  'ml-2 text-xs rounded-full px-1.5 py-0.5',
-                  active === tab.id
-                    ? 'bg-[var(--color-brand-subtle)] text-[var(--color-brand)]'
-                    : 'bg-[var(--color-surface-overlay)] text-[var(--color-text-muted)]'
-                )}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
+                  ? 'bg-[var(--color-brand-subtle)] text-[var(--color-brand)]'
+                  : 'bg-[var(--color-border)] text-[var(--color-text-muted)]'
+              )}>
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {children(active)}

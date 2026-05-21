@@ -1,32 +1,24 @@
-# STEP SPEC — {Phase.Step}: {Task Title}
-> **Status:** [ ] READY FOR BUILD | [ ] IN PROGRESS | [ ] VERIFIED
+# STEP {N.X} — {Title}
 
-## 🎯 Objective
-{One sentence describing the final goal of this specific session.}
+> **Status:** [ ] Ready | [ ] In Progress | [ ] Done
+> **Complexity:** {Low / Medium / High} — {who should build: Flash / Sonnet}
 
-## 📐 Design & Logic
-{Detailed explanation of how the feature will work. Include pseudocode or logic flow.}
+## 🎯 Goal
+{One sentence. What exists when this step is complete?}
 
-## 📂 File GPS
-**Reads:**
-- {file1}
-- {file2}
+## 📐 What to Build
+{Describe each file/component/endpoint to create. Include shapes, signatures, key logic. Be specific enough that the builder makes no guesses.}
 
-**Touches:**
-- {file1} (Modify/Create)
+## 📂 Files
+**Read first:** {files the builder must understand before touching anything}
+**Create:** {new files}
+**Modify:** {existing files to change}
 
-## 🛠 Execution Steps
-1. [ ] {Step 1}
-2. [ ] {Step 2}
+## ✅ Done When
+{Numbered acceptance criteria. Must be verifiable, not subjective.}
+1. {e.g. `pytest tests/` passes with no regressions}
+2. {e.g. `npm run build` exits 0}
+3. {e.g. page renders at /route with real backend}
 
-## ✅ Testing & Verification
-### Unit Tests
-- [ ] {Test Case 1}
-- [ ] {Test Case 2}
-
-### Integration Check
-- [ ] {How to prove this works with the rest of the app}
-
----
-## 📝 Planner Notes
-{Any extra context the builder needs.}
+## ⚠️ Gotchas
+{Known traps, existing patterns to reuse, things NOT to do.}

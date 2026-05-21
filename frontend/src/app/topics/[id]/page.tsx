@@ -118,7 +118,7 @@ function BriefsPanel({ briefs }: { briefs: Brief[] }) {
       <EmptyState
         icon={BookOpen}
         title="No briefs yet"
-        description="Trigger a manual scan to generate your first intelligence brief for this topic."
+        description="Hit 'Scan Now' to generate your first brief for this topic. It usually takes under a minute."
       />
     );
   }
@@ -139,7 +139,7 @@ function StoriesPanel({ stories }: { stories: StoryNode[] }) {
       <EmptyState
         icon={GitBranch}
         title="No story threads yet"
-        description="Story nodes are created automatically as facts accumulate across scans."
+        description="Story threads appear automatically as related facts accumulate across multiple scans."
       />
     );
   }
@@ -174,8 +174,8 @@ function InsightsPanel({ ayr, variants }: { ayr: AyrData | null; variants: Query
     return (
       <EmptyState
         icon={BarChart2}
-        title="Insights not yet available"
-        description="Run a few scans first to see Alpha Yield Rate and source quality data."
+        title="Not enough data yet"
+        description="Run a few scans first — insights on source quality and scan efficiency will appear here."
       />
     );
   }
@@ -188,10 +188,10 @@ function InsightsPanel({ ayr, variants }: { ayr: AyrData | null; variants: Query
       {/* AYR summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Alpha Yield', value: `${Math.round(ayr.ayr * 100)}%`, sub: `${ayr.alphas} of ${ayr.total} scans` },
-          { label: 'Scan interval', value: `${intervalHours}h`, sub: ayr.recommended_interval_s !== ayr.current_interval_s ? `recommended ${recommendedHours}h` : 'optimal' },
-          { label: 'Novel facts', value: ayr.alphas, sub: 'last 30 days' },
-          { label: 'Signal quality', value: ayr.trusted ? 'High' : 'Building', sub: ayr.trusted ? '≥10 scans' : 'need more data' },
+          { label: 'New info rate', value: `${Math.round(ayr.ayr * 100)}%`, sub: `${ayr.alphas} of ${ayr.total} scans yielded new facts` },
+          { label: 'Scan frequency', value: `Every ${intervalHours}h`, sub: ayr.recommended_interval_s !== ayr.current_interval_s ? `optimal would be ${recommendedHours}h` : 'frequency is optimal' },
+          { label: 'New facts found', value: ayr.alphas, sub: 'in the last 30 days' },
+          { label: 'Data confidence', value: ayr.trusted ? 'High' : 'Building', sub: ayr.trusted ? 'Based on 10+ scans' : 'Need a few more scans' },
         ].map((stat) => (
           <div key={stat.label} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-3">
             <p className="text-xs text-[var(--color-text-muted)] mb-1">{stat.label}</p>
@@ -204,14 +204,14 @@ function InsightsPanel({ ayr, variants }: { ayr: AyrData | null; variants: Query
       {/* By-domain table */}
       {ayr.by_domain?.length > 0 && (
         <section>
-          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Source quality</h3>
+          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Source performance</h3>
           <div className="rounded-xl border border-[var(--color-border)] overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-[var(--color-surface-overlay)] text-left">
                   <th className="px-4 py-2 text-xs font-semibold text-[var(--color-text-muted)]">Source</th>
                   <th className="px-4 py-2 text-xs font-semibold text-[var(--color-text-muted)] text-right">Scans</th>
-                  <th className="px-4 py-2 text-xs font-semibold text-[var(--color-text-muted)]">AYR</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-[var(--color-text-muted)]">New info rate</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">
@@ -236,7 +236,7 @@ function InsightsPanel({ ayr, variants }: { ayr: AyrData | null; variants: Query
       {/* Query variants */}
       {variants.length > 0 && (
         <section>
-          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Search variants</h3>
+          <h3 className="text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-widest mb-3">Search queries</h3>
           <div className="space-y-2">
             {variants.map((v) => (
               <div key={v.id} className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-4 py-3">
@@ -335,7 +335,7 @@ export default async function TopicDetailPage({
               {ayr && (
                 <span className="flex items-center gap-1">
                   <Zap className="h-3.5 w-3.5 text-[var(--color-warning)]" />
-                  {Math.round(ayr.ayr * 100)}% alpha yield
+                  {Math.round(ayr.ayr * 100)}% new-info rate
                 </span>
               )}
             </div>

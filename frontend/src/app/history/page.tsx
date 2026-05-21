@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Inbox } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
+import { formatDistanceToNow } from "date-fns";
 
 interface BriefHistoryItem {
   topic_id: string;
@@ -19,11 +21,8 @@ export default async function HistoryPage() {
 
   const briefs: BriefHistoryItem[] = await res.json();
 
-  // Group briefs by topic name
   const briefsByTopic = briefs.reduce((acc, brief) => {
-    if (!acc[brief.topic_name]) {
-      acc[brief.topic_name] = [];
-    }
+    if (!acc[brief.topic_name]) acc[brief.topic_name] = [];
     acc[brief.topic_name].push(brief);
     return acc;
   }, {} as Record<string, BriefHistoryItem[]>);
@@ -31,67 +30,60 @@ export default async function HistoryPage() {
   const topicNames = Object.keys(briefsByTopic).sort();
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <FadeIn className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <header className="mb-12">
-        <h1 className="text-4xl font-black text-slate-900 tracking-tight mb-2">
+        <h1 className="text-3xl font-bold text-[var(--color-text)] tracking-tight mb-1">
           Brief History
         </h1>
-        <p className="text-slate-500 font-medium text-lg">
+        <p className="text-sm text-[var(--color-text-secondary)]">
           A complete timeline of all intelligence reports you've generated.
         </p>
       </header>
 
       {briefs.length === 0 ? (
-        <div className="bg-white rounded-[2.5rem] p-6 sm:p-12 md:p-16 text-center border border-slate-100 shadow-sm">
-          <div className="bg-slate-50 p-6 rounded-[2rem] w-fit mx-auto mb-8">
-            <Inbox className="h-12 w-12 text-slate-300" />
+        <div className="rounded-2xl border-2 border-dashed border-[var(--color-border)] bg-[var(--color-surface-raised)] p-12 md:p-20 text-center">
+          <div className="mb-6 inline-flex rounded-2xl bg-[var(--color-surface-overlay)] p-5">
+            <Inbox className="h-10 w-10 text-[var(--color-text-muted)]" strokeWidth={1.5} />
           </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-4 tracking-tight">
-            No briefs yet
-          </h2>
-          <p className="text-slate-500 max-w-sm mx-auto mb-10 text-lg font-medium leading-relaxed">
-            Add a topic to get started generating intelligence reports.
+          <h2 className="text-xl font-bold text-[var(--color-text)] mb-2">No briefs yet</h2>
+          <p className="text-sm text-[var(--color-text-secondary)] max-w-sm mx-auto mb-8 leading-relaxed">
+            Add a topic to start generating intelligence reports.
           </p>
           <Link
-            href="/topics"
-            className="inline-flex items-center justify-center px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+            href="/dashboard"
+            className="inline-flex items-center justify-center px-6 py-2.5 bg-[var(--color-brand)] text-white rounded-xl text-sm font-semibold hover:bg-[var(--color-brand-dark)] transition-colors shadow-sm"
           >
-            Browse Topics
+            Go to Dashboard
           </Link>
         </div>
       ) : (
-        <div className="space-y-12">
+        <div className="space-y-10">
           {topicNames.map((topicName) => (
             <section key={topicName}>
-              <h2 className="text-xl font-black text-slate-900 mb-6 tracking-tight">
+              <h2 className="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-widest mb-4">
                 {topicName}
               </h2>
-              <div className="grid gap-6">
+              <StaggerList className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] divide-y divide-[var(--color-border)] overflow-hidden">
                 {briefsByTopic[topicName].map((brief) => (
-                  <Link
-                    key={brief.brief_id}
-                    href={`/topics/${brief.topic_id}/briefs/${brief.brief_id}`}
-                    className="block bg-white rounded-3xl border border-slate-100 p-8 shadow-sm hover:shadow-md transition-all group border-b-4 border-b-slate-50 hover:border-b-indigo-100"
-                  >
-                    <div className="mb-4">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                        {new Date(brief.created_at).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        })}
+                  <StaggerItem key={brief.brief_id}>
+                    <Link
+                      href={`/topics/${brief.topic_id}/briefs/${brief.brief_id}`}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 hover:bg-[var(--color-surface-overlay)] transition-colors group"
+                    >
+                      <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed line-clamp-2 flex-1">
+                        {brief.summary_preview}
                       </p>
-                    </div>
-                    <p className="text-slate-600 font-medium leading-relaxed line-clamp-3">
-                      {brief.summary_preview}...
-                    </p>
-                  </Link>
+                      <span className="shrink-0 text-xs text-[var(--color-text-muted)] group-hover:text-[var(--color-brand)] transition-colors">
+                        {formatDistanceToNow(new Date(brief.created_at))} ago
+                      </span>
+                    </Link>
+                  </StaggerItem>
                 ))}
-              </div>
+              </StaggerList>
             </section>
           ))}
         </div>
       )}
-    </div>
+    </FadeIn>
   );
 }

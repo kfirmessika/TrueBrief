@@ -11,17 +11,17 @@ interface EmptyStateProps {
 
 export function EmptyState({ icon: Icon, title, description, action, className = '' }: EmptyStateProps) {
   return (
-    <FadeIn className={`flex flex-col items-center justify-center py-16 px-6 text-center ${className}`}>
+    <FadeIn className={`flex flex-col items-center justify-center py-20 px-8 text-center ${className}`}>
       {Icon && (
-        <div className="mb-4 rounded-2xl bg-[var(--color-surface-overlay)] p-4">
-          <Icon className="h-8 w-8 text-[var(--color-text-muted)]" strokeWidth={1.5} />
+        <div className="mb-5 rounded-2xl bg-[var(--color-surface-overlay)] p-5 border border-[var(--color-border)]">
+          <Icon className="h-10 w-10 text-[var(--color-text-muted)]" strokeWidth={1.25} />
         </div>
       )}
-      <h3 className="text-base font-semibold text-[var(--color-text)]">{title}</h3>
+      <h3 className="text-lg font-semibold text-[var(--color-text)] mb-2">{title}</h3>
       {description && (
-        <p className="mt-1 max-w-sm text-sm text-[var(--color-text-secondary)]">{description}</p>
+        <p className="max-w-xs text-sm text-[var(--color-text-secondary)] leading-relaxed">{description}</p>
       )}
-      {action && <div className="mt-4">{action}</div>}
+      {action && <div className="mt-5">{action}</div>}
     </FadeIn>
   );
 }

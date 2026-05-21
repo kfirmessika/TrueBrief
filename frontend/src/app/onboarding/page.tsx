@@ -8,10 +8,10 @@ import { useTopics, useCreateTopic, useTriggerScan } from '@/hooks/useTopics';
 type Step = 1 | 2 | 3;
 
 const EXAMPLE_QUERIES = [
-  'NVIDIA Earnings',
-  'Ukraine War',
-  'iPhone 17 Leaks',
-  'Fed Interest Rates',
+  'NVIDIA earnings',
+  'iPhone 17 leaks',
+  'Federal Reserve rates',
+  'OpenAI news',
 ];
 
 export default function OnboardingPage() {
@@ -39,7 +39,6 @@ export default function OnboardingPage() {
     setStep(2);
     try {
       const topic = await createMutation.mutateAsync(trimmed);
-      // Fire-and-forget: kick off first scan without blocking UI
       scanMutation.mutate(topic.id);
       setStep(3);
     } catch (err: any) {
@@ -52,15 +51,27 @@ export default function OnboardingPage() {
   if (topicsLoading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <Loader2 className="h-8 w-8 text-indigo-600 animate-spin" />
+        <Loader2 className="h-7 w-7 text-[var(--color-brand)] animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-      <div className="bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-full text-sm font-bold w-fit mx-auto mb-6">
-        Step {step} of 3
+    <div className="max-w-lg mx-auto px-4 py-20 text-center">
+      {/* Step indicator */}
+      <div className="flex items-center justify-center gap-2 mb-10">
+        {([1, 2, 3] as Step[]).map((s) => (
+          <div
+            key={s}
+            className={`h-1.5 rounded-full transition-all duration-300 ${
+              s === step
+                ? 'w-8 bg-[var(--color-brand)]'
+                : s < step
+                ? 'w-4 bg-[var(--color-brand)]'
+                : 'w-4 bg-[var(--color-border)]'
+            }`}
+          />
+        ))}
       </div>
 
       {step === 1 && (
@@ -72,9 +83,7 @@ export default function OnboardingPage() {
           onSkip={() => router.push('/dashboard')}
         />
       )}
-
       {step === 2 && <StepTwo topicName={createdTopicName} />}
-
       {step === 3 && (
         <StepThree
           topicName={createdTopicName}
@@ -85,7 +94,7 @@ export default function OnboardingPage() {
   );
 }
 
-// ─── Step 1: Enter topic ──────────────────────────────────────────────────────
+// ─── Step 1: Choose topic ─────────────────────────────────────────────────────
 
 interface StepOneProps {
   query: string;
@@ -102,23 +111,22 @@ function StepOne({ query, setQuery, error, onSubmit, onSkip }: StepOneProps) {
 
   return (
     <>
-      <h1 className="text-4xl font-extrabold text-slate-900 mb-4">
+      <h1 className="text-3xl font-bold text-[var(--color-text)] mb-3">
         Welcome to TrueBrief
       </h1>
-      <p className="text-xl text-slate-600 mb-10">
-        Let&apos;s get your intelligence pipeline running. What&apos;s the first
-        thing you want to track?
+      <p className="text-[var(--color-text-secondary)] mb-10 leading-relaxed">
+        What do you want to stay on top of? Enter a topic and we'll monitor it for you — delivering only what's new each time you check.
       </p>
 
       <div className="relative mb-4">
-        <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-text-muted)] pointer-events-none" />
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="e.g. NVIDIA Earnings, Ukraine War, iPhone 17 Leaks"
-          className="w-full pl-14 pr-6 py-5 rounded-2xl border-2 border-slate-200 focus:border-indigo-600 focus:outline-none text-lg transition-colors shadow-sm"
+          placeholder="e.g. NVIDIA earnings, Ukraine war, iPhone 17"
+          className="w-full pl-11 pr-5 py-4 rounded-xl border-2 border-[var(--color-border)] bg-[var(--color-surface-raised)] focus:border-[var(--color-brand)] focus:outline-none text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] text-sm transition-colors shadow-sm"
           autoFocus
         />
       </div>
@@ -128,7 +136,7 @@ function StepOne({ query, setQuery, error, onSubmit, onSkip }: StepOneProps) {
           <button
             key={ex}
             onClick={() => setQuery(ex)}
-            className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 text-sm font-medium hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+            className="px-3.5 py-1.5 rounded-full bg-[var(--color-surface-overlay)] text-[var(--color-text-secondary)] text-xs font-medium hover:bg-[var(--color-brand-subtle)] hover:text-[var(--color-brand)] transition-colors"
           >
             {ex}
           </button>
@@ -136,7 +144,7 @@ function StepOne({ query, setQuery, error, onSubmit, onSkip }: StepOneProps) {
       </div>
 
       {error && (
-        <p className="text-red-600 text-sm font-medium mb-4 bg-red-50 px-4 py-2 rounded-xl">
+        <p className="text-[var(--color-danger)] text-sm mb-4 bg-[var(--color-danger-subtle)] px-4 py-2.5 rounded-xl">
           {error}
         </p>
       )}
@@ -144,81 +152,77 @@ function StepOne({ query, setQuery, error, onSubmit, onSkip }: StepOneProps) {
       <button
         onClick={onSubmit}
         disabled={!query.trim()}
-        className="w-full bg-indigo-600 text-white py-5 rounded-2xl text-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 mb-6 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+        className="w-full bg-[var(--color-brand)] text-white py-4 rounded-xl text-sm font-semibold hover:bg-[var(--color-brand-dark)] transition-all shadow-sm mb-5 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
-        Build My First Brief
-        <ArrowRight className="h-5 w-5" />
+        Start Tracking
+        <ArrowRight className="h-4 w-4" />
       </button>
 
       <button
         onClick={onSkip}
-        className="text-slate-400 font-medium hover:text-slate-600 transition-colors"
+        className="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
       >
-        Skip and go to dashboard
+        Skip for now
       </button>
     </>
   );
 }
 
-// ─── Step 2: Loading / creating ───────────────────────────────────────────────
+// ─── Step 2: Setting up ───────────────────────────────────────────────────────
 
 function StepTwo({ topicName }: { topicName: string }) {
   return (
     <>
       <div className="flex justify-center mb-8">
-        <div className="bg-indigo-50 p-6 rounded-[2rem]">
-          <Loader2 className="h-14 w-14 text-indigo-600 animate-spin" />
+        <div className="bg-[var(--color-brand-subtle)] p-5 rounded-2xl">
+          <Loader2 className="h-10 w-10 text-[var(--color-brand)] animate-spin" />
         </div>
       </div>
-      <h1 className="text-4xl font-extrabold text-slate-900 mb-4">
-        Building your pipeline
+      <h1 className="text-2xl font-bold text-[var(--color-text)] mb-3">
+        Setting things up…
       </h1>
-      <p className="text-xl text-slate-600">
-        We&apos;re spinning up your intelligence feed for{' '}
-        <span className="font-bold text-slate-800">&ldquo;{topicName}&rdquo;</span>.
+      <p className="text-[var(--color-text-secondary)] leading-relaxed">
+        We're configuring monitoring for{' '}
+        <span className="font-semibold text-[var(--color-text)]">"{topicName}"</span>.
         This takes just a moment.
       </p>
-      <div className="mt-10 flex flex-col gap-3 text-left max-w-sm mx-auto">
-        {['Creating topic', 'Configuring sources', 'Scheduling first scan'].map(
-          (label) => (
-            <div key={label} className="flex items-center gap-3 text-slate-500 text-sm font-medium">
-              <Loader2 className="h-4 w-4 text-indigo-400 animate-spin shrink-0" />
-              {label}…
-            </div>
-          )
-        )}
+      <div className="mt-8 flex flex-col gap-3 text-left max-w-xs mx-auto">
+        {['Creating your topic', 'Connecting sources', 'Scheduling first scan'].map((label) => (
+          <div key={label} className="flex items-center gap-3 text-[var(--color-text-muted)] text-sm">
+            <Loader2 className="h-3.5 w-3.5 text-[var(--color-brand)] animate-spin shrink-0" />
+            {label}…
+          </div>
+        ))}
       </div>
     </>
   );
 }
 
-// ─── Step 3: Success ──────────────────────────────────────────────────────────
+// ─── Step 3: Done ─────────────────────────────────────────────────────────────
 
 function StepThree({ topicName, onDone }: { topicName: string; onDone: () => void }) {
   return (
     <>
       <div className="flex justify-center mb-8">
-        <div className="bg-green-50 p-6 rounded-[2rem]">
-          <CheckCircle className="h-14 w-14 text-green-500" />
+        <div className="bg-[var(--color-success-subtle)] p-5 rounded-2xl">
+          <CheckCircle className="h-10 w-10 text-[var(--color-success)]" />
         </div>
       </div>
-      <h1 className="text-4xl font-extrabold text-slate-900 mb-4">
-        Pipeline live!
+      <h1 className="text-2xl font-bold text-[var(--color-text)] mb-3">
+        You're all set!
       </h1>
-      <p className="text-xl text-slate-600 mb-3">
-        <span className="font-bold text-slate-800">&ldquo;{topicName}&rdquo;</span> is now
-        being monitored. Your first brief is generating in the background.
+      <p className="text-[var(--color-text-secondary)] mb-2 leading-relaxed">
+        <span className="font-semibold text-[var(--color-text)]">"{topicName}"</span> is now being monitored. Your first brief is being prepared in the background.
       </p>
-      <p className="text-slate-500 mb-10">
-        You&apos;ll see it in your dashboard once the scan completes — usually under a
-        minute.
+      <p className="text-sm text-[var(--color-text-muted)] mb-10">
+        It usually appears in your dashboard within a minute.
       </p>
 
       <button
         onClick={onDone}
-        className="w-full bg-indigo-600 text-white py-5 rounded-2xl text-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-3"
+        className="w-full bg-[var(--color-brand)] text-white py-4 rounded-xl text-sm font-semibold hover:bg-[var(--color-brand-dark)] transition-all shadow-sm flex items-center justify-center gap-2"
       >
-        <Zap className="h-5 w-5" />
+        <Zap className="h-4 w-4" />
         Go to Dashboard
       </button>
     </>

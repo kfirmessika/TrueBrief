@@ -38,27 +38,39 @@
 - [x] 3.17 Mobile-Responsive Design (C: 8 | M: **FLASH**)
 - [x] 3.18 Rate Limiting & Abuse (C: 18 | M: **SONNET**)
 - [x] 3.19 Brave Search + Exa (C: 15 | M: **SONNET**)
-- [x] 3.20 Deployment (C: 10 | M: **SONNET**)
+- [x] **3.20 Deployment — Railway (backend + Celery + Redis) + Vercel (frontend). Deploy FIRST so all A/B/C testing runs against live URLs, not localhost.** (C: 10 | M: **SONNET**)
 
 ---
 
-## Phase 3.5: Pre-Deployment (A→B→C before 3.20)
+## Phase 3.5: Post-Deployment Validation (A→B→C run against live Railway/Vercel URLs)
+
+> **Decision (2026-05-21):** Deploy first (3.20), then run all validation against the live app.
+> Local testing is abandoned — Celery/Redis stops when the PC sleeps, making longitudinal tests impossible.
+> All A/B/C tests target the Railway backend URL and Vercel frontend URL.
 
 ### Phase A · Backend Validation
 
 - [x] A.1 Cost & Latency Telemetry — pipeline_run + llm_call_log tables, LLMClient instrumentation, /admin/cost-summary (C: 25 | M: **SONNET**)
 - [ ] A.2 Accuracy Test Harness — 6 reproducible harnesses (grounding, arbiter P/R, story assign, summary stability, briefer faithfulness, confidence floor) (C: 18 | M: **SONNET**)
-- [ ] A.3 Longitudinal Stress Tests — 30-day fast-news sim, slow-burn, topic-overlap (C: 15 | M: **SONNET**)
+- [ ] A.3 Longitudinal Stress Tests — 30-day fast-news sim, slow-burn, topic-overlap — run against Railway so it stays up 24/7 (C: 15 | M: **SONNET**)
 - [x] A.4 Failure-Mode Tests — 10 tests covering temporal boundary, story merge creep, orphaned fact, batch mismatch, idempotent schedule, hallucination smoke, rotator starvation, briefer zero alphas (C: 12 | M: **SONNET**)
-- [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**) ← run post-deploy
+- [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**)
 - [ ] A.6 Admin Metrics Dashboard — /admin/metrics endpoint + UI (C: 8 | M: **FLASH**)
 
-### Phase B · Premium UI/UX
+### Phase B · UI/UX Redesign
+
+> **Decision (2026-05-21):** Previous approach (implement design without a validated reference) failed.
+> New workflow — 3 mandatory steps before any code is written:
+> 1. **Generate** — use Google AI Studio or Claude.ai (claude.ai Projects) to produce HTML/screenshot mockups of the redesigned dashboard and topic detail page. Upload current screenshots, prompt for a Linear/Vercel-style clean dark-first design.
+> 2. **Validate** — open the AI-generated HTML in a browser. Iterate prompts until it looks right to the founder.
+> 3. **Implement** — bring the approved screenshot/HTML to Claude Code. Implement it 1:1. No guessing.
+> Do NOT start B.0–B.5 until Step 1+2 are done and a design reference exists.
 
 - [x] B.0 Design System Foundation — OKLCH tokens, dark mode (next-themes), Framer Motion primitives, Radix UI, EmptyState/Skeleton/ErrorBoundary (C: 15 | M: **SONNET**)
 - [x] B.1 Critical Gaps — Topic Detail (3-tab: Briefs/Stories/Insights + live scan button), Settings (account/billing/notifications/danger zone), ScanButton with polling (C: 18 | M: **SONNET**)
-- [ ] B.2 New Surfaces — Story Node timeline, AYR insight, Query variants panel, Real-time scan progress, Command palette, Notification inbox (C: 20 | M: **SONNET**)
-- [ ] B.3 Polish Layer — Skeletons, optimistic mutations, page transitions, confetti, OG images (C: 10 | M: **FLASH**)
+- [ ] **B.REF Design Reference** — founder generates mockups via Google AI Studio / Claude.ai, validates visually, brings approved reference here (C: 0 | founder task, not AI)
+- [ ] B.2 New Surfaces — Story Node timeline, AYR insight, Query variants panel, Real-time scan progress, Command palette, Notification inbox — implement against B.REF (C: 20 | M: **SONNET**)
+- [ ] B.3 Polish Layer — Skeletons, optimistic mutations, page transitions, confetti, OG images — implement against B.REF (C: 10 | M: **FLASH**)
 - [ ] B.4 Copy & Brand — Empty states, onboarding interstitial, landing rewrite (C: 5 | M: **FLASH**)
 - [ ] B.5 Accessibility & Mobile — axe-core, ARIA, focus traps, reduced-motion, touch targets (C: 8 | M: **FLASH**)
 

@@ -159,7 +159,7 @@ export default function SettingsClient({ email, name, tier, billingStatus, perio
                 disabled={portalLoading}
                 className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--color-brand)] hover:underline disabled:opacity-50"
               >
-                {portalLoading ? 'Opening…' : 'Stripe portal'}
+                {portalLoading ? 'Opening…' : 'Manage billing'}
                 <ExternalLink className="h-3.5 w-3.5" />
               </button>
             }

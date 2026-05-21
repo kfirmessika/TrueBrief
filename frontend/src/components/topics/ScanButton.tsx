@@ -80,10 +80,10 @@ export default function ScanButton({ topicId, className, onComplete }: ScanButto
 
   const labels: Record<ScanState, string> = {
     idle:    'Scan Now',
-    queuing: 'Queuing…',
+    queuing: 'Starting…',
     running: 'Scanning…',
-    done:    message || 'Done',
-    error:   message || 'Error',
+    done:    'Brief ready',
+    error:   message || 'Scan failed',
   };
 
   const colorMap: Record<ScanState, string> = {

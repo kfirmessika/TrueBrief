@@ -24,20 +24,16 @@ export default function CopyLinkButton({ shareUrl }: CopyLinkButtonProps) {
   return (
     <button
       onClick={handleCopy}
-      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all text-sm shadow-sm ${
+      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow-sm ${
         copied
-          ? "bg-green-500 text-white shadow-green-100"
-          : "bg-slate-900 text-white hover:bg-slate-800 shadow-slate-200"
+          ? "bg-[var(--color-success)] text-white"
+          : "bg-[var(--color-text)] text-[var(--color-text-inverse)] hover:opacity-90"
       }`}
     >
       {copied ? (
-        <>
-          <Check className="h-4 w-4" /> Copied!
-        </>
+        <><Check className="h-4 w-4" /> Copied!</>
       ) : (
-        <>
-          <Share2 className="h-4 w-4" /> Share Brief
-        </>
+        <><Share2 className="h-4 w-4" /> Share Brief</>
       )}
     </button>
   );

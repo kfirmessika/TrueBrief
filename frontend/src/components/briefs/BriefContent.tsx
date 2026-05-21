@@ -14,32 +14,32 @@ export default function BriefContent({ content }: BriefContentProps) {
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h2 className="text-2xl font-black text-slate-900 mt-8 mb-3 tracking-tight">
+            <h2 className="text-2xl font-bold text-[var(--color-text)] mt-8 mb-3 tracking-tight">
               {children}
             </h2>
           ),
           h2: ({ children }) => (
-            <h3 className="text-xl font-bold text-slate-800 mt-6 mb-2 tracking-tight">
+            <h3 className="text-xl font-semibold text-[var(--color-text)] mt-6 mb-2">
               {children}
             </h3>
           ),
           h3: ({ children }) => (
-            <h4 className="text-lg font-bold text-slate-800 mt-4 mb-2">
+            <h4 className="text-base font-semibold text-[var(--color-text)] mt-4 mb-2">
               {children}
             </h4>
           ),
           p: ({ children }) => (
-            <p className="text-slate-700 leading-relaxed mb-4 font-medium">
+            <p className="text-[var(--color-text-secondary)] leading-relaxed mb-4">
               {children}
             </p>
           ),
           ul: ({ children }) => (
-            <ul className="list-disc list-inside space-y-2 mb-4 text-slate-700 font-medium ml-2">
+            <ul className="list-disc list-inside space-y-2 mb-4 text-[var(--color-text-secondary)] ml-2">
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="list-decimal list-inside space-y-2 mb-4 text-slate-700 font-medium ml-2">
+            <ol className="list-decimal list-inside space-y-2 mb-4 text-[var(--color-text-secondary)] ml-2">
               {children}
             </ol>
           ),
@@ -49,22 +49,22 @@ export default function BriefContent({ content }: BriefContentProps) {
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-indigo-600 underline underline-offset-4 font-bold hover:text-indigo-800 transition-colors"
+              className="text-[var(--color-brand)] underline underline-offset-4 font-medium hover:text-[var(--color-brand-dark)] transition-colors"
             >
               {children}
             </a>
           ),
           strong: ({ children }) => (
-            <strong className="font-black text-slate-900">{children}</strong>
+            <strong className="font-semibold text-[var(--color-text)]">{children}</strong>
           ),
-          hr: () => <hr className="border-slate-200 my-8" />,
+          hr: () => <hr className="border-[var(--color-border)] my-8" />,
           blockquote: ({ children }) => (
-            <blockquote className="border-l-4 border-indigo-200 pl-4 py-1 my-6 italic text-slate-600 bg-slate-50 rounded-r-xl">
+            <blockquote className="border-l-4 border-[var(--color-brand-subtle)] pl-4 py-1 my-6 italic text-[var(--color-text-secondary)] bg-[var(--color-surface-overlay)] rounded-r-xl">
               {children}
             </blockquote>
           ),
           code: ({ children }) => (
-            <code className="bg-slate-100 text-slate-900 px-1.5 py-0.5 rounded font-mono text-sm font-bold">
+            <code className="bg-[var(--color-surface-overlay)] text-[var(--color-text)] px-1.5 py-0.5 rounded font-mono text-sm">
               {children}
             </code>
           ),

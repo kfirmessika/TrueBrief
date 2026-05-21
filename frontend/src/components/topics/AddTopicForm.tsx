@@ -18,37 +18,35 @@ export function AddTopicForm({ onSubmit, isLoading }: AddTopicFormProps) {
       await onSubmit(query.trim());
       setQuery('');
     } catch {
-      // Error handling is managed by the parent via toast
+      // Error handling managed by parent via toast
     }
   };
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
-      {/* Input wrapper */}
       <div className="relative flex-grow group">
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 bg-slate-100 p-2 rounded-xl group-focus-within:bg-indigo-100 transition-colors pointer-events-none">
-          <Plus className="h-5 w-5 text-slate-400 group-focus-within:text-indigo-600" />
+        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-[var(--color-surface-overlay)] group-focus-within:bg-[var(--color-brand-subtle)] transition-colors pointer-events-none">
+          <Plus className="h-4 w-4 text-[var(--color-text-muted)] group-focus-within:text-[var(--color-brand)]" />
         </div>
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Track a new topic (e.g. 'Bitcoin ETFs', 'AI Safety Bill')..."
-          className="w-full pl-16 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:border-indigo-600 focus:outline-none transition-all text-base font-medium shadow-sm"
+          className="w-full pl-12 pr-4 py-3.5 bg-[var(--color-surface-raised)] border-2 border-[var(--color-border)] rounded-xl focus:border-[var(--color-brand)] focus:outline-none transition-all text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] shadow-sm"
           disabled={isLoading}
         />
       </div>
 
-      {/* Submit button */}
       <button
         type="submit"
         disabled={!query.trim() || isLoading}
-        className="bg-indigo-600 text-white px-6 py-4 rounded-2xl font-bold hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 transition-all flex items-center justify-center gap-2 shadow-sm shadow-indigo-100 shrink-0"
+        className="bg-[var(--color-brand)] text-white px-5 py-3.5 rounded-xl text-sm font-semibold hover:bg-[var(--color-brand-dark)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-sm shrink-0"
       >
         {isLoading ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
-            Adding...
+            Adding…
           </>
         ) : (
           'Add Topic'

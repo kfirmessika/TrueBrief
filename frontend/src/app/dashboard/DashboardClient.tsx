@@ -9,10 +9,12 @@ import { UpgradeBanner } from '@/components/topics/UpgradeBanner';
 import { TimeSavedBadge } from '@/components/dashboard/TimeSavedBadge';
 import { Toast, useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { SkeletonCard } from '@/components/ui/Skeleton';
+import { StaggerList, StaggerItem, FadeIn } from '@/components/ui/motion';
 import { useState } from 'react';
-import { Search, Loader2 } from 'lucide-react';
-
+import { Search } from 'lucide-react';
 import { Topic, BillingStatus } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 interface DashboardClientProps {
   initialTopics: Topic[];
@@ -24,7 +26,7 @@ export default function DashboardClient({ initialTopics, initialBilling }: Dashb
   const { data: billing } = useTier();
   const { data: stats } = useStats();
   const { toast, showToast, hideToast } = useToast();
-  
+
   const createMutation = useCreateTopic();
   const deleteMutation = useDeleteTopic();
   const scanMutation = useTriggerScan();
@@ -34,9 +36,9 @@ export default function DashboardClient({ initialTopics, initialBilling }: Dashb
   const handleCreate = async (query: string) => {
     try {
       await createMutation.mutateAsync(query);
-      showToast('Topic added successfully!', 'success');
-    } catch (err: any) {
-      const detail = err.response?.data?.detail || 'Failed to add topic';
+      showToast('Topic added!', 'success');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Failed to add topic';
       showToast(detail, 'error');
     }
   };
@@ -45,8 +47,8 @@ export default function DashboardClient({ initialTopics, initialBilling }: Dashb
     if (!deleteTargetId) return;
     try {
       await deleteMutation.mutateAsync(deleteTargetId);
-      showToast('Topic deleted', 'info');
-    } catch (err: any) {
+      showToast('Topic removed', 'info');
+    } catch {
       showToast('Failed to delete topic', 'error');
     } finally {
       setDeleteTargetId(null);
@@ -57,87 +59,99 @@ export default function DashboardClient({ initialTopics, initialBilling }: Dashb
     try {
       const res = await scanMutation.mutateAsync(id);
       return res.task_id;
-    } catch (err: any) {
-      const detail = err.response?.data?.detail || 'Scan failed to start';
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Scan failed to start';
       showToast(detail, 'error');
       throw err;
     }
   };
 
-  if (topicsLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin" />
-        <p className="text-slate-500 font-bold animate-pulse">Loading intelligence...</p>
-      </div>
-    );
-  }
-
-  const hasTopics = topics && topics.length > 0;
-  const isAtCap = billing?.tier === 'free' && (topics?.length || 0) >= (billing?.limits?.max_topics || 2);
+  const displayTopics = topics ?? initialTopics;
+  const displayBilling = billing ?? initialBilling;
+  const hasTopics = displayTopics.length > 0;
+  const isAtCap = displayBilling?.tier === 'free' && displayTopics.length >= (displayBilling?.limits?.max_topics ?? 2);
 
   return (
-    <div className="space-y-10 py-10">
+    <FadeIn className="space-y-8 py-10">
+      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">Your Topics</h1>
-          <p className="text-slate-500 font-medium">Monitoring the delta in real-time.</p>
+          <h1 className="text-3xl font-bold text-[var(--color-text)] tracking-tight">Your Topics</h1>
+          <p className="text-sm text-[var(--color-text-secondary)] mt-1">Monitoring the web so you only read what's new.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {stats && <TimeSavedBadge stats={stats} />}
-          {billing && (
-            <div className="bg-white border border-slate-100 rounded-2xl px-4 py-2 flex items-center gap-3 shadow-sm">
-              <div className={`h-2.5 w-2.5 rounded-full ${billing.tier === 'free' ? 'bg-amber-400' : 'bg-green-500 animate-pulse'}`} />
-              <span className="text-sm font-bold text-slate-700 uppercase tracking-wider">{billing.tier} Plan</span>
-              <span className="text-slate-200">|</span>
-              <span className="text-sm font-black text-indigo-600">{topics?.length || 0} / {billing.limits.max_topics} used</span>
+          {displayBilling && (
+            <div className="flex items-center gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3.5 py-2 shadow-sm text-sm">
+              <div className={cn(
+                'h-2 w-2 rounded-full',
+                displayBilling.tier === 'free' ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-success)] animate-pulse'
+              )} />
+              <span className="font-semibold text-[var(--color-text)] uppercase tracking-wide text-xs">{displayBilling.tier}</span>
+              <span className="text-[var(--color-border-strong)]">·</span>
+              <span className="font-bold text-[var(--color-brand)] text-xs">
+                {displayTopics.length} / {displayBilling.limits.max_topics}
+              </span>
             </div>
           )}
         </div>
       </div>
 
-      <div className="max-w-4xl">
+      {/* Add topic form */}
+      <div className="max-w-2xl">
         {isAtCap ? (
-          <UpgradeBanner currentCount={topics?.length || 0} maxTopics={billing?.limits?.max_topics || 2} />
+          <UpgradeBanner currentCount={displayTopics.length} maxTopics={displayBilling?.limits?.max_topics ?? 2} />
         ) : (
           <AddTopicForm onSubmit={handleCreate} isLoading={createMutation.isPending} />
         )}
       </div>
 
-      {!hasTopics ? (
-        <div className="bg-white rounded-[2rem] border-2 border-dashed border-slate-200 p-6 sm:p-12 md:p-20 text-center shadow-inner">
-          <div className="bg-slate-50 p-6 rounded-[1.5rem] w-fit mx-auto mb-8 shadow-sm">
-            <Search className="h-10 w-10 text-slate-400" />
+      {/* Topic grid */}
+      {topicsLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[0, 1, 2].map((i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : !hasTopics ? (
+        <FadeIn className="rounded-2xl border-2 border-dashed border-[var(--color-border)] bg-[var(--color-surface-raised)] py-20 px-8 text-center">
+          <div className="mb-5 inline-flex rounded-2xl bg-[var(--color-surface-overlay)] p-5 border border-[var(--color-border)]">
+            <Search className="h-10 w-10 text-[var(--color-text-muted)]" strokeWidth={1.25} />
           </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">No topics yet</h2>
-          <p className="text-slate-500 max-w-sm mx-auto mb-10 text-lg font-medium">
-            Start tracking a keyword or theme to see how it develops over time without the noise.
+          <h2 className="text-xl font-semibold text-[var(--color-text)] mb-2">Nothing to track yet</h2>
+          <p className="text-sm text-[var(--color-text-secondary)] max-w-xs mx-auto leading-relaxed mb-6">
+            Enter any topic above — a company, a market, a news story — and we'll deliver only what's new each time.
           </p>
-        </div>
+          <button
+            onClick={() => document.querySelector('input')?.focus()}
+            className="inline-flex items-center gap-2 bg-[var(--color-brand)] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[var(--color-brand-dark)] transition-colors shadow-sm"
+          >
+            Add your first topic
+          </button>
+        </FadeIn>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {topics.map((topic) => (
-            <TopicCard 
-              key={topic.id} 
-              topic={topic} 
-              onScan={handleScan}
-              onDelete={(id) => setDeleteTargetId(id)}
-            />
+        <StaggerList className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {displayTopics.map((topic) => (
+            <StaggerItem key={topic.id}>
+              <TopicCard
+                topic={topic}
+                onScan={handleScan}
+                onDelete={(id) => setDeleteTargetId(id)}
+              />
+            </StaggerItem>
           ))}
-        </div>
+        </StaggerList>
       )}
 
       {toast && <Toast {...toast} onClose={hideToast} />}
-      
+
       <ConfirmDialog
         isOpen={!!deleteTargetId}
         title="Delete Topic?"
-        description="This will stop monitoring this topic and remove all historical briefs. This action cannot be undone."
-        confirmLabel="Delete Everything"
+        description="This stops monitoring and removes all historical briefs. This cannot be undone."
+        confirmLabel="Delete"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTargetId(null)}
       />
-    </div>
+    </FadeIn>
   );
 }
