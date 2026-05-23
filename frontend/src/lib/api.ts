@@ -38,7 +38,7 @@ export interface BillingStatus {
   user_id: string;
   tier: string;
   status: string;
-  stripe_customer_id: string | null;
+  paddle_customer_id: string | null;
   current_period_end: number | null;
   limits: TierLimits;
 }

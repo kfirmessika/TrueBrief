@@ -259,7 +259,7 @@ class TestBillingStatus:
         user = _override_user(user_id="33333333-3333-3333-3333-333333333333")
 
         with patch(
-            "truebrief.billing.billing_routes._stripe.get_subscription",
+            "truebrief.billing.billing_routes._paddle.get_subscription",
             return_value={"tier": "pro", "status": "active"},
         ):
             r = client.get("/api/v1/billing/status")

@@ -35,11 +35,11 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""          # anon/service role key
 
-    # --- Stripe ---
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PRICE_PRO: str = ""      # Price ID from Stripe dashboard (e.g. price_xxx)
-    STRIPE_PRICE_POWER: str = ""    # Price ID from Stripe dashboard
+    # --- Paddle ---
+    PADDLE_API_KEY: str = ""
+    PADDLE_WEBHOOK_SECRET: str = ""
+    PADDLE_PRICE_PRO: str = ""      # Price ID from Paddle dashboard (e.g. pri_xxx)
+    PADDLE_PRICE_POWER: str = ""    # Price ID from Paddle dashboard
 
     # --- Clerk ---
     CLERK_PUBLISHABLE_KEY: str = ""

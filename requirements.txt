@@ -29,8 +29,8 @@ googlenewsdecoder>=0.1.6  # Decode Google News RSS redirect URLs (Phase 2.9)
 # Additional Search Sources (Step 3.19)
 exa-py>=1.1.0
 
-# Billing (Stripe)
-stripe>=10.0.0
+# Billing (Paddle)
+# No SDK needed — Paddle REST API called directly via httpx
 
 # Email Digest
 resend>=2.0.0
