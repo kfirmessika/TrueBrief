@@ -17,8 +17,8 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
-include = ["truebrief*"]
+where = [".", "src"]
+include = ["truebrief*", "config*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
