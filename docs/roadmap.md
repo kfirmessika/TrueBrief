@@ -42,6 +42,12 @@
 
 ---
 
+## Pre-launch blockers (need a real domain first)
+> - **Resend:** `DIGEST_FROM_EMAIL` must be a verified domain. Buy domain → verify in Resend → set `DIGEST_FROM_EMAIL=briefs@yourdomain.com`
+> - **Paddle:** requires a live website URL to complete merchant account setup. Deploy → get domain → finish Paddle setup → set `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_PRICE_PRO`, `PADDLE_PRICE_POWER`
+> - **Clerk:** switch from `integral-grackle-67.clerk.accounts.dev` (dev instance) to a production Clerk instance when going public
+> - For the test deploy, all three above are skipped — everyone is on free tier, no emails sent
+
 ## Phase 3.5: Post-Deployment Validation (A→B→C run against live Railway/Vercel URLs)
 
 > **Decision (2026-05-21):** Deploy first (3.20), then run all validation against the live app.
