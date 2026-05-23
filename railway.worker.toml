@@ -2,6 +2,6 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "celery -A truebrief.tasks.celery_app worker --loglevel=info -c 2"
+startCommand = "PYTHONPATH=/app/src celery -A truebrief.tasks.celery_app worker --loglevel=info -c 2"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
