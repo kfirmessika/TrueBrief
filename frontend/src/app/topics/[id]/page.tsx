@@ -347,15 +347,11 @@ export default async function TopicDetailPage({
       </div>
 
       {/* Tabs */}
-      <TopicTabs tabs={tabs}>
-        {(activeTab) => (
-          <>
-            {activeTab === 'briefs' && <BriefsPanel briefs={briefs} />}
-            {activeTab === 'stories' && <StoriesPanel stories={stories} />}
-            {activeTab === 'insights' && <InsightsPanel ayr={ayr} variants={variants} />}
-          </>
-        )}
-      </TopicTabs>
+      <TopicTabs tabs={tabs} panels={{
+        briefs: <BriefsPanel briefs={briefs} />,
+        stories: <StoriesPanel stories={stories} />,
+        insights: <InsightsPanel ayr={ayr} variants={variants} />,
+      }} />
     </div>
   );
 }

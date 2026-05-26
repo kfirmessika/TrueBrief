@@ -150,9 +150,13 @@ def run(verbose: bool = False):
         else:
             print(f"  {ANSI_YELLOW}[WARN] No topics available for per-topic checks{ANSI_RESET}")
 
-        # Bad input checks (should return 422, not 500)
-        results.append(check_endpoint(client, "GET", "/api/v1/topics/undefined"))
-        results.append(check_endpoint(client, "GET", "/api/v1/briefs/undefined"))
+        # Bad input checks (should return 422, not 500) — mark as expected_status=422
+        r_bad_topic = check_endpoint(client, "GET", "/api/v1/topics/undefined")
+        r_bad_topic["expected_status"] = 422
+        results.append(r_bad_topic)
+        r_bad_brief = check_endpoint(client, "GET", "/api/v1/briefs/undefined")
+        r_bad_brief["expected_status"] = 422
+        results.append(r_bad_brief)
 
         # Unauthenticated share (should work without token)
         if topic_id:
@@ -174,12 +178,16 @@ def run(verbose: bool = False):
 
     errors = []
     for r in results:
-        c = status_color(r["status"])
+        expected = r.get("expected_status")
+        is_ok = (expected and r["status"] == expected) or (not expected and r["status"] and r["status"] < 400)
+        c = ANSI_GREEN if is_ok else (ANSI_YELLOW if r.get("expected_status") else ANSI_RED)
         status_str = str(r["status"]) if r["status"] else "ERR"
-        marker = OK if r["status"] and r["status"] < 400 else FAIL
-        print(f"{r['method']:<8} {r['path']:<45} {c}{status_str:<8}{ANSI_RESET} {r['ms']:<8} {c}{marker}{ANSI_RESET}")
+        note = f" (expected {expected})" if expected else ""
+        marker = OK if is_ok else FAIL
+        print(f"{r['method']:<8} {r['path']:<45} {c}{status_str:<8}{ANSI_RESET} {r['ms']:<8} {c}{marker}{note}{ANSI_RESET}")
 
-        if r["status"] >= 400 or r.get("error"):
+        is_real_error = not is_ok and (r["status"] == 0 or r["status"] >= 400)
+        if is_real_error:
             errors.append(r)
             if verbose:
                 print(f"         {ANSI_DIM}{json.dumps(r['body'], indent=2)[:300]}{ANSI_RESET}")
@@ -198,7 +206,7 @@ def run(verbose: bool = False):
     else:
         print(f"{ANSI_GREEN}{ANSI_BOLD}All endpoints OK{ANSI_RESET}")
 
-    ok = sum(1 for r in results if r["status"] and r["status"] < 400)
+    ok = sum(1 for r in results if (r.get("expected_status") and r["status"] == r["expected_status"]) or (not r.get("expected_status") and r["status"] and r["status"] < 400))
     total = len(results)
     print(f"\n{ok}/{total} endpoints healthy\n")
 

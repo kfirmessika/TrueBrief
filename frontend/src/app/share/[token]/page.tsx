@@ -5,7 +5,7 @@ import { Zap, ArrowRight } from 'lucide-react';
 import BriefContent from '@/components/briefs/BriefContent';
 import { FadeIn } from '@/components/ui/motion';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1';
 
 interface SharedBrief {
   brief_id: string;
@@ -14,8 +14,9 @@ interface SharedBrief {
   topic_name: string;
 }
 
-export async function generateMetadata({ params }: { params: { token: string } }) {
-  const res = await fetch(`${API_BASE_URL}/share/${params.token}`, { cache: 'no-store' });
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  const res = await fetch(`${API_BASE_URL}/share/${token}`, { cache: 'no-store' });
   if (!res.ok) return { title: 'Brief Not Found | TrueBrief' };
   const brief: SharedBrief = await res.json();
   return {
@@ -24,8 +25,9 @@ export async function generateMetadata({ params }: { params: { token: string } }
   };
 }
 
-export default async function SharePage({ params }: { params: { token: string } }) {
-  const res = await fetch(`${API_BASE_URL}/share/${params.token}`, { cache: 'no-store' });
+export default async function SharePage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  const res = await fetch(`${API_BASE_URL}/share/${token}`, { cache: 'no-store' });
 
   if (!res.ok) {
     if (res.status === 404) notFound();
