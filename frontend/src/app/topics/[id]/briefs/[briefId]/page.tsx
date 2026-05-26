@@ -11,16 +11,17 @@ import { FadeIn } from "@/components/ui/motion";
 export default async function BriefDetailPage({
   params,
 }: {
-  params: { id: string; briefId: string };
+  params: Promise<{ id: string; briefId: string }>;
 }) {
+  const { id, briefId } = await params;
   const headersList = await headers();
   const host = headersList.get('host') ?? 'localhost:3000';
   const protocol = host.startsWith('localhost') ? 'http' : 'https';
-  const shareUrl = `${protocol}://${host}/share/${params.briefId}`;
+  const shareUrl = `${protocol}://${host}/share/${briefId}`;
 
   const [briefRes, topicRes] = await Promise.all([
-    apiFetch(`/briefs/${params.briefId}`),
-    apiFetch(`/topics/${params.id}`),
+    apiFetch(`/briefs/${briefId}`),
+    apiFetch(`/topics/${id}`),
   ]);
 
   if (!briefRes.ok) {
@@ -37,7 +38,7 @@ export default async function BriefDetailPage({
     <FadeIn className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-10">
         <Link
-          href={`/topics/${params.id}/briefs`}
+          href={`/topics/${id}/briefs`}
           className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors font-medium group"
         >
           <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />

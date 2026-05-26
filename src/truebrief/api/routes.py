@@ -8,8 +8,19 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
+import re
 from datetime import datetime
 from uuid import UUID
+
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+def _require_uuid(value: str, name: str = "id") -> str:
+    if not _UUID_RE.match(value):
+        raise HTTPException(status_code=422, detail=f"Invalid {name}: must be a valid UUID")
+    return value
 
 from truebrief.ledger.database import get_supabase
 from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit
@@ -142,6 +153,7 @@ def list_topics(user: Optional[User] = Depends(get_optional_user)):
 @router.get("/topics/{topic_id}", response_model=TopicResponse)
 def get_topic(topic_id: str):
     """Get a specific topic."""
+    _require_uuid(topic_id, "topic_id")
     db = get_supabase()
     res = db.table("topics").select("*").eq("id", topic_id).execute()
     if not res.data:
@@ -152,6 +164,7 @@ def get_topic(topic_id: str):
 @limiter.limit("30/hour")
 def delete_topic(request: Request, topic_id: str, user: User = Depends(get_current_user)):
     """Delete a topic."""
+    _require_uuid(topic_id, "topic_id")
     db = get_supabase()
     res = db.table("topics").delete().eq("id", topic_id).execute()
     if not res.data:
@@ -255,6 +268,7 @@ def get_scan_status(task_id: str):
 @router.get("/topics/{topic_id}/briefs", response_model=List[BriefResponse])
 def list_topic_briefs(topic_id: str):
     """Get all briefs for a topic."""
+    _require_uuid(topic_id, "topic_id")
     db = get_supabase()
     res = db.table("briefs").select("*").eq("topic_id", topic_id).order("delivered_at", desc=True).execute()
     return res.data
@@ -307,6 +321,7 @@ def get_briefs_history(user: User = Depends(get_current_user)):
 @router.get("/briefs/{brief_id}", response_model=BriefResponse)
 def get_brief(brief_id: str):
     """Get a specific brief."""
+    _require_uuid(brief_id, "brief_id")
     db = get_supabase()
     res = db.table("briefs").select("*").eq("id", brief_id).execute()
     if not res.data:
@@ -323,6 +338,7 @@ class PublicBriefResponse(BaseModel):
 @router.get("/share/{brief_id}", response_model=PublicBriefResponse)
 def get_shared_brief(brief_id: str):
     """Public endpoint — no auth. Returns brief content for shareable links."""
+    _require_uuid(brief_id, "brief_id")
     db = get_supabase()
     brief_res = db.table("briefs").select("*").eq("id", brief_id).execute()
     if not brief_res.data:
@@ -493,6 +509,7 @@ def get_topic_stories(topic_id: str, limit: int = 50):
     List all story nodes for a topic, newest-updated first.
     Each story includes summary, fact count, and last-update timestamp.
     """
+    _require_uuid(topic_id, "topic_id")
     db = get_supabase()
     topic_res = db.table("topics").select("id").eq("id", topic_id).execute()
     if not topic_res.data:

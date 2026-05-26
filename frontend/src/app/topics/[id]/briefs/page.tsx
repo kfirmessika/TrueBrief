@@ -9,9 +9,10 @@ import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 export default async function BriefHistoryPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const res = await apiFetch(`/topics/${params.id}/briefs`);
+  const { id } = await params;
+  const res = await apiFetch(`/topics/${id}/briefs`);
 
   if (!res.ok) {
     if (res.status === 404) notFound();
@@ -23,7 +24,7 @@ export default async function BriefHistoryPage({
   return (
     <FadeIn className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <Link
-        href={`/topics/${params.id}`}
+        href={`/topics/${id}`}
         className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors mb-8 font-medium group"
       >
         <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
@@ -49,7 +50,7 @@ export default async function BriefHistoryPage({
             We haven't generated any intelligence reports for this topic yet. Trigger a manual scan to get started.
           </p>
           <Link
-            href={`/topics/${params.id}`}
+            href={`/topics/${id}`}
             className="inline-flex items-center justify-center px-6 py-2.5 bg-[var(--color-brand)] text-white rounded-xl text-sm font-semibold hover:bg-[var(--color-brand-dark)] transition-colors shadow-sm"
           >
             Go to Topic Detail
@@ -59,7 +60,7 @@ export default async function BriefHistoryPage({
         <StaggerList className="grid gap-5">
           {briefs.map((brief) => (
             <StaggerItem key={brief.id}>
-              <BriefCard brief={brief} topicId={params.id} />
+              <BriefCard brief={brief} topicId={id} />
             </StaggerItem>
           ))}
         </StaggerList>

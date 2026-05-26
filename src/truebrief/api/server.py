@@ -5,8 +5,9 @@ FastAPI application setup.
 """
 
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -16,6 +17,7 @@ from truebrief.api.routes import router
 from truebrief.billing.billing_routes import router as billing_router
 from truebrief.api.digest_routes import router as digest_router
 from truebrief.api.push_routes import router as push_router
+from postgrest.exceptions import APIError as PostgrestAPIError
 
 # Setup logging
 logging.basicConfig(
@@ -35,6 +37,17 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+
+@app.exception_handler(PostgrestAPIError)
+async def postgrest_error_handler(request: Request, exc: PostgrestAPIError):
+    if exc.code == "22P02":  # invalid input syntax for type uuid
+        return JSONResponse(status_code=422, content={"detail": "Invalid ID format — expected a UUID"})
+    if exc.code == "PGRST205":  # table not found (missing migration)
+        logger.error("DB table missing — run pending migrations in Supabase SQL Editor. Error: %s", exc.message)
+        return JSONResponse(status_code=503, content={"detail": "Feature not available — database migration required"})
+    logger.error("Unexpected database error: code=%s message=%s", exc.code, exc.message)
+    return JSONResponse(status_code=500, content={"detail": "Database error"})
 
 # CORS config — restrict to the deployed frontend URL in production
 _frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
