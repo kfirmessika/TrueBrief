@@ -13,11 +13,11 @@ interface Tab {
 
 interface TopicTabsProps {
   tabs: Tab[];
-  children: (activeTab: TabId) => React.ReactNode;
+  panels: Record<TabId, React.ReactNode>;
   defaultTab?: TabId;
 }
 
-export default function TopicTabs({ tabs, children, defaultTab = 'briefs' }: TopicTabsProps) {
+export default function TopicTabs({ tabs, panels, defaultTab = 'briefs' }: TopicTabsProps) {
   const [active, setActive] = useState<TabId>(defaultTab);
 
   return (
@@ -50,7 +50,7 @@ export default function TopicTabs({ tabs, children, defaultTab = 'briefs' }: Top
         ))}
       </div>
 
-      {children(active)}
+      {panels[active]}
     </div>
   );
 }

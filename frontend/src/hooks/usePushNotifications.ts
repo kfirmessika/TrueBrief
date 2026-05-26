@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApi } from '@/lib/useApi';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export function usePushNotifications() {
   const api = useApi();
