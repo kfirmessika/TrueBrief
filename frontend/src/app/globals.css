@@ -116,6 +116,43 @@
 }
 
 /* ============================================================
+   APP SHELL DESIGN TOKENS (from truebrief_frontend_spec.md)
+   Light-mode fixed values matching the HTML design reference.
+   ============================================================ */
+
+:root {
+  --color-background-primary:   #ffffff;
+  --color-background-secondary: #F9F8F5;
+  --color-background-tertiary:  #F1EFE8;
+  --color-border-primary:       #9B9B9B;
+  --color-border-secondary:     #D0CEC6;
+  --color-border-tertiary:      #E5E3DC;
+  --color-text-primary:         #1A1A1A;
+  --color-text-secondary:       #6B6B6B;
+  --color-text-tertiary:        #9B9B9B;
+  --color-text-info:            #185FA5;
+  --color-background-info:      #E6F1FB;
+  --color-background-success:   #E1F5EE;
+  --color-text-success:         #085041;
+  --border-radius-md:           8px;
+  --border-radius-lg:           12px;
+  --tb-green:                   #0F6E56;
+  --tb-green-light:             #E1F5EE;
+  --tb-green-border:            #A3D9C5;
+  --tb-green-medium:            #5DCAA5;
+  --tb-green-dark:              #085041;
+  --tb-coral-bg:                #FAECE7;
+  --tb-coral-text:              #993C1D;
+  --tb-coral-dot:               #D85A30;
+  --tb-amber:                   #EF9F27;
+}
+
+@keyframes tb-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ============================================================
    BASE STYLES
    ============================================================ */
 

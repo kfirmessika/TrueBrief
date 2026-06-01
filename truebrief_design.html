@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrueBrief — Design</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#EDECEA;min-height:100vh;padding:28px 24px 40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+
+/* Presentation shell */
+.pres-head{display:flex;align-items:center;gap:16px;margin-bottom:20px;max-width:960px;margin-left:auto;margin-right:auto}
+.pres-logo{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:#1A1A1A}
+.pres-li{width:26px;height:26px;background:#0F6E56;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:500;flex-shrink:0}
+.pres-sub{font-size:12px;color:#9B9B9B;font-weight:400;margin-left:2px}
+.tabs{display:flex;gap:3px;background:rgba(0,0,0,0.07);padding:3px;border-radius:9px;margin-left:auto}
+.tab{padding:6px 18px;border-radius:6px;border:none;background:transparent;font-size:13px;color:#6B6B6B;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
+.tab.on{background:#fff;color:#1A1A1A;font-weight:500}
+
+/* App frame */
+.app-wrap{max-width:960px;margin:0 auto;border-radius:14px;overflow:hidden;border:0.5px solid #D0CEC6;box-shadow:0 2px 24px rgba(0,0,0,0.08)}
+.view{display:none}
+.view.on{display:block}
+.app{display:flex;height:680px;overflow:hidden;background:#fff}
+
+/* ── Sidebar ── */
+.sb{width:232px;min-width:232px;border-right:0.5px solid #E5E3DC;background:#F9F8F5;display:flex;flex-direction:column;overflow-y:auto}
+.sb-logo{display:flex;align-items:center;gap:8px;font-weight:500;font-size:14px;color:#1A1A1A;padding:14px 14px 10px}
+.sb-li{width:26px;height:26px;background:#0F6E56;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:500;flex-shrink:0}
+.sb-nb{display:flex;align-items:center;gap:8px;margin:2px 10px 6px;padding:7px 12px;border:0.5px solid #D0CEC6;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;color:#6B6B6B;font-family:inherit;width:calc(100% - 20px)}
+.sb-nb.on{background:#E1F5EE;border-color:#A3D9C5;color:#085041;font-weight:500}
+.sb-srch{margin:0 10px 6px;padding:6px 10px;border:0.5px solid #E5E3DC;border-radius:8px;font-size:12px;color:#9B9B9B;display:flex;align-items:center;gap:7px;background:#fff}
+.sb-dv{border:none;border-top:0.5px solid #E5E3DC;margin:4px 10px}
+.sb-sec{font-size:10px;color:#9B9B9B;padding:10px 14px 3px;letter-spacing:.06em;text-transform:uppercase;font-weight:500}
+.sb-di{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:2px 8px;border-radius:8px;cursor:pointer;font-size:13px;color:#1A1A1A;font-weight:500}
+.sb-di:hover,.sb-di.on{background:#fff}
+.sb-ti{display:flex;align-items:center;gap:8px;padding:6px 12px;margin:1px 8px;border-radius:8px;cursor:pointer}
+.sb-ti:hover{background:#F1EFE8}
+.sb-ti.on{background:#fff}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dr{background:#D85A30}.dg{background:#D0CEC6}.da{background:#EF9F27;animation:pu 1.5s ease-in-out infinite}
+.tn{font-size:13px;color:#1A1A1A;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bdg{font-size:10px;font-weight:500;padding:1px 6px;border-radius:10px;background:#FAECE7;color:#993C1D}
+.sb-ft{margin-top:auto;border-top:0.5px solid #E5E3DC;padding:6px}
+.sb-fr{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12px;color:#6B6B6B}
+.sb-fr:hover{background:#F1EFE8}
+.sb-av{width:26px;height:26px;border-radius:50%;background:#0F6E56;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0}
+.plan{font-size:10px;padding:1px 6px;border-radius:10px;background:#E6F1FB;color:#185FA5;margin-left:auto}
+
+/* ── Main panel ── */
+.mn{flex:1;overflow-y:auto;background:#fff;display:flex;flex-direction:column}
+
+/* ── Dashboard ── */
+.db-h{padding:20px 22px 16px}
+.db-t{font-size:20px;font-weight:500;color:#1A1A1A}
+.db-cards{padding:0 22px 28px}
+.card{border:0.5px solid #E5E3DC;border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s}
+.card:hover{border-color:#D0CEC6}
+.c-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.c-name{font-size:13px;font-weight:500;color:#1A1A1A}
+.c-meta{font-size:11px;color:#9B9B9B}
+.c-badges{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.bn{font-size:11px;padding:2px 8px;border-radius:10px;background:#E1F5EE;color:#085041;font-weight:500}
+.bu{font-size:11px;padding:2px 8px;border-radius:10px;background:#E6F1FB;color:#185FA5;font-weight:500}
+.c-prev{font-size:13px;color:#1A1A1A;line-height:1.5;margin-bottom:10px}
+.c-link{font-size:12px;color:#185FA5;display:flex;align-items:center;gap:3px}
+
+/* ── Topic view ── */
+.tv-hd{position:sticky;top:0;z-index:10;background:#fff;padding:16px 22px 12px;border-bottom:0.5px solid #E5E3DC}
+.tv-t{font-size:17px;font-weight:500;color:#1A1A1A;margin-bottom:3px}
+.tv-m{font-size:11px;color:#9B9B9B;display:flex;align-items:center;gap:7px}
+.spd{font-size:10px;padding:1px 6px;border-radius:10px;border:0.5px solid #D0CEC6;color:#6B6B6B}
+.thread{padding:0 22px 32px;flex:1}
+.dsep{display:flex;align-items:center;gap:10px;margin:18px 0 10px}
+.dl{flex:1;height:0.5px;background:#E5E3DC}
+.dlbl{font-size:11px;color:#9B9B9B;white-space:nowrap}
+.utag{font-size:10px;padding:1px 7px;border-radius:10px;background:#FAECE7;color:#993C1D;font-weight:500;white-space:nowrap}
+.noinfo{font-size:12px;color:#9B9B9B;font-style:italic;padding:4px 0 8px}
+.fact{padding:10px 0;border-bottom:0.5px solid #E5E3DC}
+.fact:last-child{border-bottom:none}
+.fact-tx{font-size:13px;color:#1A1A1A;line-height:1.6;margin-bottom:7px}
+.src-row{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.src-ics{display:flex;align-items:center;gap:4px;flex:1}
+.sic{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:500;color:#fff;cursor:pointer;flex-shrink:0;user-select:none;transition:opacity .15s}
+.sic:hover{opacity:.7}
+.sic.on{outline:2px solid #9B9B9B;outline-offset:2px}
+.xbtn{background:none;border:none;cursor:pointer;color:#9B9B9B;font-size:14px;padding:2px 4px;display:flex;align-items:center;transition:color .15s}
+.xbtn:hover{color:#1A1A1A}
+.fact-tm{font-size:11px;color:#9B9B9B}
+.sp{margin-top:7px;padding:9px 12px;border:0.5px solid #E5E3DC;border-radius:8px;background:#F9F8F5}
+.sp-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.sp-n{font-size:12px;font-weight:500;color:#1A1A1A}
+.sp-lk{font-size:11px;color:#185FA5;display:flex;align-items:center;gap:3px;text-decoration:none}
+.sp-q{font-size:12px;color:#6B6B6B;line-height:1.5;font-style:italic}
+
+/* ── New topic ── */
+.nt-w{display:flex;flex-direction:column;align-items:center;padding:60px 24px 40px;flex:1}
+.nt-t{font-size:22px;font-weight:500;color:#1A1A1A;margin-bottom:24px;text-align:center}
+.nt-sh{width:100%;max-width:420px;border:0.5px solid #D0CEC6;border-radius:22px;background:#fff;transition:border-color .2s}
+.nt-sh.fc{border-color:#0F6E56}
+.nt-ta{width:100%;padding:14px 18px 10px;border:none;outline:none;resize:none;font-size:14px;font-family:inherit;color:#1A1A1A;background:transparent;min-height:52px;max-height:100px;overflow-y:auto;display:block;line-height:1.6}
+.nt-bar{display:flex;align-items:center;justify-content:flex-end;gap:5px;padding:7px 10px;border-top:0.5px solid #E5E3DC}
+.nt-sel{display:flex;align-items:center;gap:4px;padding:3px 9px;border-radius:8px;border:0.5px solid #D0CEC6;background:transparent;cursor:pointer;font-size:11px;color:#6B6B6B;font-family:inherit}
+.nt-btn{width:30px;height:30px;border-radius:50%;background:#1A1A1A;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;flex-shrink:0;transition:background .15s}
+.nt-btn:hover{background:#0F6E56}
+.nt-pills{width:100%;max-width:420px;margin-top:14px;display:flex;flex-wrap:wrap;gap:7px;justify-content:center}
+.pill{display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;border:0.5px solid #A3D9C5;background:#F0FAF6;cursor:pointer;transition:all .15s;font-family:inherit}
+.pill:hover{background:#D7F3E9;border-color:#5DCAA5}
+.pill.done{cursor:default}
+.pn{font-size:12px;color:#1A1A1A}
+.pn b{font-weight:500;color:#085041}
+.pf{font-size:10px;padding:1px 5px;border-radius:8px;background:#0F6E56;color:#fff;font-weight:500;flex-shrink:0}
+.pfw{font-size:10px;padding:1px 5px;border-radius:8px;background:#5DCAA5;color:#fff;font-weight:500;flex-shrink:0}
+
+@keyframes pu{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+
+<div class="pres-head">
+  <div class="pres-logo">
+    <div class="pres-li">TB</div>
+    TrueBrief
+    <span class="pres-sub">— Frontend design</span>
+  </div>
+  <div class="tabs">
+    <button class="tab on" onclick="sv('dashboard',this)">Dashboard</button>
+    <button class="tab" onclick="sv('topic',this)">Topic view</button>
+    <button class="tab" onclick="sv('newtopic',this)">New topic</button>
+  </div>
+</div>
+
+<div class="app-wrap">
+
+<!-- DASHBOARD -->
+<div id="v-dashboard" class="view on"><div class="app">
+  <div class="sb">
+    <div class="sb-logo"><div class="sb-li">TB</div>TrueBrief</div>
+    <button class="sb-nb"><i class="ti ti-plus" style="font-size:14px"></i>New topic</button>
+    <div class="sb-srch"><i class="ti ti-search" style="font-size:12px;flex-shrink:0"></i><span>Search briefs...</span></div>
+    <hr class="sb-dv">
+    <div class="sb-di on"><div style="display:flex;align-items:center;gap:7px"><i class="ti ti-layout-grid" style="font-size:14px;color:#6B6B6B"></i>Dashboard</div><span class="bdg">5</span></div>
+    <hr class="sb-dv">
+    <div class="sb-sec">My topics</div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">EU AI Regulation</span><span class="bdg">2</span></div>
+    <div class="sb-ti"><div class="dot dg"></div><span class="tn">TSMC Semiconductors</span></div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">Tesla & EVs</span><span class="bdg">1</span></div>
+    <div class="sb-ti"><div class="dot da"></div><span class="tn">Israel Tech Sector</span><span style="font-size:10px;color:#9B9B9B">scanning...</span></div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">Fed Policy</span><span class="bdg">2</span></div>
+    <div class="sb-ti"><div class="dot dg"></div><span class="tn">OpenAI & Anthropic</span></div>
+    <div class="sb-ft">
+      <div class="sb-fr"><i class="ti ti-settings" style="font-size:14px"></i>Settings</div>
+      <div class="sb-fr"><div class="sb-av">KM</div><span>Kfir Messika</span><span class="plan">Pro</span></div>
+    </div>
+  </div>
+  <div class="mn">
+    <div class="db-h"><p class="db-t">Dashboard</p></div>
+    <div class="db-cards">
+      <div class="card">
+        <div class="c-h"><span class="c-name">EU AI Regulation</span><span class="c-meta">2h ago · Hourly</span></div>
+        <div class="c-badges"><span class="bn">1 new story</span><span class="bu">1 update</span></div>
+        <p class="c-prev">EU Parliament passed the AI Liability Directive amendment, requiring mandatory audits for high-risk AI in healthcare and justice sectors by Q3 2026.</p>
+        <span class="c-link">Read brief <i class="ti ti-arrow-right" style="font-size:11px"></i></span>
+      </div>
+      <div class="card">
+        <div class="c-h"><span class="c-name">Tesla & EVs</span><span class="c-meta">4h ago · Hourly</span></div>
+        <div class="c-badges"><span class="bn">1 new story</span></div>
+        <p class="c-prev">Tesla announced a $4.2B Gigafactory in Indonesia targeting 500K vehicles per year — its first Southeast Asia manufacturing site.</p>
+        <span class="c-link">Read brief <i class="ti ti-arrow-right" style="font-size:11px"></i></span>
+      </div>
+      <div class="card">
+        <div class="c-h"><span class="c-name">Fed Policy</span><span class="c-meta">1h ago · Fast</span></div>
+        <div class="c-badges"><span class="bu">2 updates</span></div>
+        <p class="c-prev">Powell signaled a pause in rate cuts through Q3 2026, citing services inflation at 3.4% — above the 2% target. CME FedWatch pricing in zero cuts before September.</p>
+        <span class="c-link">Read brief <i class="ti ti-arrow-right" style="font-size:11px"></i></span>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- TOPIC VIEW -->
+<div id="v-topic" class="view"><div class="app">
+  <div class="sb">
+    <div class="sb-logo"><div class="sb-li">TB</div>TrueBrief</div>
+    <button class="sb-nb"><i class="ti ti-plus" style="font-size:14px"></i>New topic</button>
+    <div class="sb-srch"><i class="ti ti-search" style="font-size:12px;flex-shrink:0"></i><span>Search briefs...</span></div>
+    <hr class="sb-dv">
+    <div class="sb-di"><div style="display:flex;align-items:center;gap:7px"><i class="ti ti-layout-grid" style="font-size:14px;color:#6B6B6B"></i>Dashboard</div><span class="bdg">5</span></div>
+    <hr class="sb-dv">
+    <div class="sb-sec">My topics</div>
+    <div class="sb-ti on"><div class="dot dr"></div><span class="tn">EU AI Regulation</span><span class="bdg">2</span></div>
+    <div class="sb-ti"><div class="dot dg"></div><span class="tn">TSMC Semiconductors</span></div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">Tesla & EVs</span><span class="bdg">1</span></div>
+    <div class="sb-ti"><div class="dot da"></div><span class="tn">Israel Tech Sector</span><span style="font-size:10px;color:#9B9B9B">scanning...</span></div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">Fed Policy</span><span class="bdg">2</span></div>
+    <div class="sb-ti"><div class="dot dg"></div><span class="tn">OpenAI & Anthropic</span></div>
+    <div class="sb-ft">
+      <div class="sb-fr"><i class="ti ti-settings" style="font-size:14px"></i>Settings</div>
+      <div class="sb-fr"><div class="sb-av">KM</div><span>Kfir Messika</span><span class="plan">Pro</span></div>
+    </div>
+  </div>
+  <div class="mn" id="tv-mn">
+    <div class="tv-hd">
+      <p class="tv-t">EU AI Regulation</p>
+      <div class="tv-m"><i class="ti ti-clock" style="font-size:11px"></i>Last scanned 2h ago · Next in 4h<span class="spd">Hourly</span></div>
+    </div>
+    <div class="thread">
+      <div class="dsep"><div class="dl"></div><span class="dlbl">May 27</span><div class="dl"></div></div>
+      <div class="noinfo">No new information</div>
+
+      <div class="dsep"><div class="dl"></div><span class="dlbl">May 28</span><div class="dl"></div></div>
+      <div id="fa" class="fact">
+        <p class="fact-tx">47 GPAI models are now registered under Article 51 transparency requirements, up from 31 the previous month.</p>
+        <div class="src-row"><div class="src-ics"><div class="sic" id="ia0" style="background:#1961A5" onclick="ts('a',0,'ia0')" title="Reuters">R</div></div><button class="xbtn" onclick="df('fa')"><i class="ti ti-x"></i></button></div>
+        <span class="fact-tm">9:15 AM</span>
+        <div id="pa0" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Reuters</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"The EU AI Office confirmed 47 general-purpose AI models have now completed Article 51 registration, a 52% increase from the previous reporting period."</p></div>
+      </div>
+
+      <div class="dsep"><div class="dl"></div><span class="dlbl">May 29</span><div class="dl"></div></div>
+      <div id="fb" class="fact">
+        <p class="fact-tx">EU Commission released enforcement guidelines for the AI Act's Article 6 prohibited practices list, clarifying what constitutes a banned subliminal manipulation system.</p>
+        <div class="src-row"><div class="src-ics"><div class="sic" id="ib0" style="background:#1C3E6E" onclick="ts('b',0,'ib0')" title="Politico">P</div><div class="sic" id="ib1" style="background:#0A7B6A" onclick="ts('b',1,'ib1')" title="Euractiv">E</div></div><button class="xbtn" onclick="df('fb')"><i class="ti ti-x"></i></button></div>
+        <span class="fact-tm">7:42 AM</span>
+        <div id="pb0" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Politico</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"Brussels published detailed guidance on the AI Act's prohibition list, drawing clearer lines around subliminal AI systems and social scoring applications."</p></div>
+        <div id="pb1" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Euractiv</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"The Commission's Article 6 guidelines specify seven categories of prohibited AI, with new examples targeting emotion recognition in workplaces."</p></div>
+      </div>
+
+      <div class="dsep"><div class="dl"></div><span class="dlbl">May 30</span><span class="utag">Unread · 3 new</span><div class="dl"></div></div>
+      <div id="f1" class="fact">
+        <p class="fact-tx">EU Parliament passed the AI Liability Directive amendment, requiring mandatory third-party audits for high-risk AI in healthcare and justice sectors by Q3 2026.</p>
+        <div class="src-row"><div class="src-ics"><div class="sic" id="i10" style="background:#1961A5" onclick="ts('1',0,'i10')" title="Reuters">R</div><div class="sic" id="i11" style="background:#1C3E6E" onclick="ts('1',1,'i11')" title="Politico">P</div><div class="sic" id="i12" style="background:#0A7B6A" onclick="ts('1',2,'i12')" title="Euractiv">E</div></div><button class="xbtn" onclick="df('f1')"><i class="ti ti-x"></i></button></div>
+        <span class="fact-tm">8:04 AM</span>
+        <div id="p10" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Reuters</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"The European Parliament approved the AI Liability Directive amendment, mandating independent audits for high-risk AI in healthcare and justice by Q3 2026."</p></div>
+        <div id="p11" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Politico</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"MEPs voted to require third-party audits of high-risk AI in critical sectors, with a Q3 2026 compliance deadline written into the directive."</p></div>
+        <div id="p12" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Euractiv</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"Parliament's LIBE committee cleared the AI Liability Directive update, adding mandatory independent audits for healthcare and judicial AI."</p></div>
+      </div>
+      <div id="f2" class="fact">
+        <p class="fact-tx">GPAI Article 53 enforcement deadline pushed from Aug 2026 to Nov 2026 after lobbying by the German tech industry coalition.</p>
+        <div class="src-row"><div class="src-ics"><div class="sic" id="i20" style="background:#BE431B" onclick="ts('2',0,'i20')" title="FT"><span style="font-size:7px">FT</span></div><div class="sic" id="i21" style="background:#EA6B1F" onclick="ts('2',1,'i21')" title="Ars Technica"><span style="font-size:6px">AT</span></div></div><button class="xbtn" onclick="df('f2')"><i class="ti ti-x"></i></button></div>
+        <span class="fact-tm">8:04 AM</span>
+        <div id="p20" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Financial Times</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"Germany's BDI successfully lobbied Brussels to delay the GPAI Article 53 deadline to November 2026, gaining three additional months for compliance."</p></div>
+        <div id="p21" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Ars Technica</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"The EU AI Office confirmed Article 53 compliance delayed to November 2026 following pressure from European tech industry associations."</p></div>
+      </div>
+      <div id="f3" class="fact">
+        <p class="fact-tx">EU AI Office expanded Article 53 documentation requirements to include energy consumption benchmarks for foundation model developers.</p>
+        <div class="src-row"><div class="src-ics"><div class="sic" id="i30" style="background:#BE431B" onclick="ts('3',0,'i30')" title="FT"><span style="font-size:7px">FT</span></div></div><button class="xbtn" onclick="df('f3')"><i class="ti ti-x"></i></button></div>
+        <span class="fact-tm">8:04 AM</span>
+        <div id="p30" class="sp" style="display:none"><div class="sp-h"><span class="sp-n">Financial Times</span><a class="sp-lk" href="#" onclick="return false"><i class="ti ti-arrow-up-right" style="font-size:11px"></i>Read original</a></div><p class="sp-q">"The EU AI Office added energy consumption reporting to Article 53's documentation list, expanding compliance obligations for general-purpose AI providers."</p></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- NEW TOPIC -->
+<div id="v-newtopic" class="view"><div class="app">
+  <div class="sb">
+    <div class="sb-logo"><div class="sb-li">TB</div>TrueBrief</div>
+    <button class="sb-nb on"><i class="ti ti-plus" style="font-size:14px"></i>New topic</button>
+    <div class="sb-srch"><i class="ti ti-search" style="font-size:12px;flex-shrink:0"></i><span>Search briefs...</span></div>
+    <hr class="sb-dv">
+    <div class="sb-di"><div style="display:flex;align-items:center;gap:7px"><i class="ti ti-layout-grid" style="font-size:14px;color:#6B6B6B"></i>Dashboard</div><span class="bdg">5</span></div>
+    <hr class="sb-dv">
+    <div class="sb-sec">My topics</div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">EU AI Regulation</span><span class="bdg">2</span></div>
+    <div class="sb-ti"><div class="dot dg"></div><span class="tn">TSMC Semiconductors</span></div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">Tesla & EVs</span><span class="bdg">1</span></div>
+    <div class="sb-ti"><div class="dot da"></div><span class="tn">Israel Tech Sector</span><span style="font-size:10px;color:#9B9B9B">scanning...</span></div>
+    <div class="sb-ti"><div class="dot dr"></div><span class="tn">Fed Policy</span><span class="bdg">2</span></div>
+    <div class="sb-ti"><div class="dot dg"></div><span class="tn">OpenAI & Anthropic</span></div>
+    <div class="sb-ft">
+      <div class="sb-fr"><i class="ti ti-settings" style="font-size:14px"></i>Settings</div>
+      <div class="sb-fr"><div class="sb-av">KM</div><span>Kfir Messika</span><span class="plan">Pro</span></div>
+    </div>
+  </div>
+  <div class="mn">
+    <div class="nt-w">
+      <p class="nt-t">What's worth your attention?</p>
+      <div class="nt-sh" id="ntsh">
+        <textarea class="nt-ta" id="ntta" placeholder="Tell me what to watch... e.g. Apple, Fed rates, EU AI regulation" rows="2"
+          oninput="nto(this)"
+          onfocus="document.getElementById('ntsh').classList.add('fc')"
+          onblur="document.getElementById('ntsh').classList.remove('fc')"></textarea>
+        <div class="nt-bar">
+          <button class="nt-sel"><i class="ti ti-clock" style="font-size:11px"></i>Auto<i class="ti ti-chevron-down" style="font-size:10px"></i></button>
+          <button class="nt-sel"><i class="ti ti-scan" style="font-size:11px"></i>Standard<i class="ti ti-chevron-down" style="font-size:10px"></i></button>
+          <button class="nt-btn"><i class="ti ti-arrow-up" style="font-size:13px"></i></button>
+        </div>
+      </div>
+      <div class="nt-pills" id="ntpr"></div>
+    </div>
+  </div>
+</div></div>
+
+</div><!-- app-wrap -->
+
+<script>
+// Tab switching
+function sv(v,btn){
+  document.querySelectorAll('.view').forEach(function(el){el.classList.remove('on')});
+  document.querySelectorAll('.tab').forEach(function(el){el.classList.remove('on')});
+  document.getElementById('v-'+v).classList.add('on');
+  btn.classList.add('on');
+  if(v==='topic'){setTimeout(function(){var m=document.getElementById('tv-mn');if(m)m.scrollTop=9999},50)}
+}
+
+// Topic view interactions
+var openSrc=null;
+function ts(item,idx,icId){
+  var pid='p'+item+idx;
+  document.querySelectorAll('.sp').forEach(function(p){p.style.display='none'});
+  document.querySelectorAll('.sic').forEach(function(ic){ic.classList.remove('on')});
+  if(openSrc===pid){openSrc=null}
+  else{openSrc=pid;var p=document.getElementById(pid);if(p)p.style.display='block';var ic=document.getElementById(icId);if(ic)ic.classList.add('on')}
+}
+function df(id){
+  openSrc=null;var el=document.getElementById(id);if(!el)return;
+  el.style.transition='opacity 0.2s';el.style.opacity='0';
+  setTimeout(function(){el.style.display='none'},220);
+}
+
+// New topic interactions
+var SH=[
+  {id:1,n:'Apple Inc. earnings & launches'},{id:2,n:'Apple Vision Pro updates'},
+  {id:3,n:'EU AI Act regulation'},{id:4,n:'EU digital markets'},
+  {id:5,n:'Tesla earnings & EV market'},{id:6,n:'Fed interest rate decisions'},
+  {id:7,n:'Federal Reserve & US inflation'},{id:8,n:'TSMC semiconductor yields'},
+  {id:9,n:'OpenAI product releases'},{id:10,n:'NVIDIA GPU & AI chips'},
+  {id:11,n:'Israel startup ecosystem'},{id:12,n:'China-Taiwan tensions'},
+  {id:13,n:'Bitcoin & crypto markets'},{id:14,n:'GLP-1 drug approvals'},
+  {id:15,n:'Anthropic & Claude news'}
+];
+var DF=[{l:'Tech & AI',q:'AI regulation'},{l:'Finance',q:'Fed rates'},{l:'Geopolitics',q:'China Taiwan'},{l:'Science',q:'GLP-1 drugs'},{l:'Startups',q:'startup funding'}];
+var sub={};
+function hl(n,q){return n.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'),'<b>$1</b>')}
+function rdp(){document.getElementById('ntpr').innerHTML=DF.map(function(d){return '<div class="pill" onclick="nfi(\''+d.q+'\')"><span class="pn">'+d.l+'</span><span class="pf">Free</span></div>'}).join('')}
+function nto(el){
+  el.style.height='auto';el.style.height=Math.min(el.scrollHeight,100)+'px';
+  var q=el.value.trim();if(q.length<2){rdp();return}
+  var m=SH.filter(function(t){return t.n.toLowerCase().includes(q.toLowerCase())}).slice(0,5);
+  if(!m.length){rdp();return}
+  document.getElementById('ntpr').innerHTML=m.map(function(t){
+    if(sub[t.id])return '<div class="pill done"><i class="ti ti-check" style="font-size:11px;color:#0F6E56"></i><span class="pn">'+t.n+'</span><span class="pfw">Following</span></div>';
+    var s=t.n.replace(/'/g,"\\'");
+    return '<div class="pill" onclick="nsb('+t.id+',this,\''+s+'\')"><span class="pn">'+hl(t.n,q)+'</span><span class="pf">Free</span></div>'
+  }).join('')
+}
+function nsb(id,el,n){sub[id]=true;el.classList.add('done');el.innerHTML='<i class="ti ti-check" style="font-size:11px;color:#0F6E56"></i><span class="pn">'+n+'</span><span class="pfw">Following</span>';el.onclick=null}
+function nfi(t){var ta=document.getElementById('ntta');ta.value=t;ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,100)+'px';nto(ta);ta.focus()}
+
+rdp();
+</script>
+</body>
+</html>

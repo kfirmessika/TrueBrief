@@ -1,0 +1,198 @@
+'use client';
+
+import { usePathname, useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { useUser } from '@clerk/nextjs';
+import { useApi } from '@/lib/useApi';
+import {
+  Plus, Search, LayoutGrid, Settings,
+} from 'lucide-react';
+
+interface Topic {
+  id: string;
+  raw_query: string;
+  is_active: boolean;
+  last_scan_at?: string | null;
+  frequency?: string;
+}
+
+function StatusDot({ topic }: { topic: Topic }) {
+  const isScanning = false; // TODO: track via scan polling
+  const hasUnread = false;  // TODO: track read state
+  if (isScanning) return (
+    <span style={{
+      width: 7, height: 7, borderRadius: '50%', flexShrink: 0, display: 'inline-block',
+      background: 'var(--tb-amber)', animation: 'tb-pulse 1.5s ease-in-out infinite',
+    }} />
+  );
+  if (hasUnread) return (
+    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, display: 'inline-block', background: 'var(--tb-coral-dot)' }} />
+  );
+  return (
+    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, display: 'inline-block', background: 'var(--color-border-secondary)' }} />
+  );
+}
+
+export default function Sidebar() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user } = useUser();
+  const api = useApi();
+
+  const { data: topics = [] } = useQuery<Topic[]>({
+    queryKey: ['topics'],
+    queryFn: async () => {
+      const r = await api.get('/topics');
+      return r.data;
+    },
+    staleTime: 30_000,
+  });
+
+  const isDashboard = pathname === '/dashboard';
+  const isNewTopic  = pathname === '/topics/new';
+  const activeTopic = pathname.startsWith('/topics/') && !isNewTopic
+    ? pathname.split('/topics/')[1]?.split('/')[0]
+    : null;
+
+  const initials = user?.firstName && user?.lastName
+    ? `${user.firstName[0]}${user.lastName[0]}`
+    : user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? '?';
+  const displayName = user?.firstName
+    ? `${user.firstName} ${user.lastName ?? ''}`.trim()
+    : user?.emailAddresses?.[0]?.emailAddress ?? '';
+
+  const navItem = (label: string): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '8px 12px', margin: '2px 8px', borderRadius: 8, cursor: 'pointer',
+    fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)',
+    background: 'transparent',
+  });
+
+  return (
+    <div style={{
+      width: 232, minWidth: 232,
+      borderRight: '0.5px solid var(--color-border-tertiary)',
+      background: 'var(--color-background-secondary)',
+      display: 'flex', flexDirection: 'column',
+      overflowY: 'auto', height: '100%',
+    }}>
+      {/* Logo */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 500, fontSize: 14, color: 'var(--color-text-primary)', padding: '14px 14px 10px' }}>
+        <div style={{ width: 26, height: 26, background: 'var(--tb-green)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 500, flexShrink: 0 }}>
+          TB
+        </div>
+        TrueBrief
+      </div>
+
+      {/* New topic button */}
+      <button
+        onClick={() => router.push('/topics/new')}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          margin: '2px 10px 6px', padding: '7px 12px',
+          border: isNewTopic ? '0.5px solid var(--tb-green-border)' : '0.5px solid var(--color-border-secondary)',
+          borderRadius: 8, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
+          background: isNewTopic ? 'var(--tb-green-light)' : 'var(--color-background-primary)',
+          color: isNewTopic ? 'var(--tb-green-dark)' : 'var(--color-text-secondary)',
+          fontWeight: isNewTopic ? 500 : 400,
+          width: 'calc(100% - 20px)',
+        }}
+      >
+        <Plus size={14} />
+        New topic
+      </button>
+
+      {/* Search */}
+      <div style={{
+        margin: '0 10px 6px', padding: '6px 10px',
+        border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8,
+        fontSize: 12, color: 'var(--color-text-tertiary)',
+        display: 'flex', alignItems: 'center', gap: 7,
+        background: 'var(--color-background-primary)',
+      }}>
+        <Search size={12} style={{ flexShrink: 0 }} />
+        <span>Search briefs...</span>
+      </div>
+
+      <hr style={{ border: 'none', borderTop: '0.5px solid var(--color-border-tertiary)', margin: '4px 10px' }} />
+
+      {/* Dashboard */}
+      <div
+        onClick={() => router.push('/dashboard')}
+        style={{
+          ...navItem('Dashboard'),
+          background: isDashboard ? 'var(--color-background-primary)' : 'transparent',
+        }}
+        onMouseEnter={e => { if (!isDashboard) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+        onMouseLeave={e => { if (!isDashboard) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <LayoutGrid size={14} color="var(--color-text-secondary)" />
+          Dashboard
+        </div>
+      </div>
+
+      <hr style={{ border: 'none', borderTop: '0.5px solid var(--color-border-tertiary)', margin: '4px 10px' }} />
+
+      {/* My Topics */}
+      <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', padding: '10px 14px 3px', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 500 }}>
+        My topics
+      </div>
+
+      {topics.map(topic => {
+        const isActive = activeTopic === topic.id;
+        return (
+          <div
+            key={topic.id}
+            onClick={() => router.push(`/topics/${topic.id}`)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 12px', margin: '1px 8px', borderRadius: 8, cursor: 'pointer',
+              background: isActive ? 'var(--color-background-primary)' : 'transparent',
+            }}
+            onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+            onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+          >
+            <StatusDot topic={topic} />
+            <span style={{
+              fontSize: 13, color: 'var(--color-text-primary)', flex: 1,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {topic.raw_query}
+            </span>
+          </div>
+        );
+      })}
+
+      {topics.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', padding: '8px 14px', fontStyle: 'italic' }}>
+          No topics yet
+        </div>
+      )}
+
+      {/* Footer */}
+      <div style={{ marginTop: 'auto', borderTop: '0.5px solid var(--color-border-tertiary)', padding: 6 }}>
+        <div
+          onClick={() => router.push('/settings')}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+        >
+          <Settings size={14} />
+          Settings
+        </div>
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'default', fontSize: 12, color: 'var(--color-text-secondary)' }}
+        >
+          <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--tb-green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>
+            {initials}
+          </div>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{displayName}</span>
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--color-background-info)', color: 'var(--color-text-info)', flexShrink: 0 }}>
+            Free
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}

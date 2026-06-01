@@ -3,8 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import Providers from "./providers";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,13 +31,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
         suppressHydrationWarning
       >
-        <body className="min-h-full flex flex-col bg-[var(--color-surface)] text-[var(--color-text)]">
+        <body className="h-full bg-[var(--color-background-primary)] text-[var(--color-text-primary)]">
           <Providers>
-            <Navbar />
-            <main className="flex-grow">
-              {children}
-            </main>
-            <Footer />
+            {children}
           </Providers>
         </body>
       </html>

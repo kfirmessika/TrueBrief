@@ -41,6 +41,7 @@ class TopicResponse(BaseModel):
     raw_query: str
     frequency: str
     is_active: bool
+    last_scan_at: Optional[str] = None
 
 class BriefResponse(BaseModel):
     id: str
@@ -614,3 +615,122 @@ def get_cost_summary(
         "by_stage": by_stage,
         "by_day": by_day,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dashboard endpoint
+# ---------------------------------------------------------------------------
+
+class DashboardItem(BaseModel):
+    topic_id: str
+    topic_name: str
+    frequency: str
+    last_scanned_at: Optional[str]
+    new_count: int
+    update_count: int
+    preview_text: str
+
+
+@router.get("/dashboard", response_model=List[DashboardItem])
+def get_dashboard(user: User = Depends(get_current_user)):
+    """Return topics with unread updates for the dashboard feed."""
+    db = get_supabase()
+
+    subs = db.table("topic_subscriptions").select("topic_id").eq("user_id", user.id).execute()
+    if not subs.data:
+        return []
+
+    topic_ids = [sub["topic_id"] for sub in subs.data]
+    topics_res = db.table("topics").select("*").in_("id", topic_ids).execute()
+
+    result = []
+    for topic in topics_res.data:
+        briefs_res = (
+            db.table("briefs")
+            .select("id, content, delivered_at")
+            .eq("topic_id", topic["id"])
+            .eq("is_read", False)
+            .order("delivered_at", desc=True)
+            .execute()
+        )
+        new_count = len(briefs_res.data)
+        if new_count == 0:
+            continue
+
+        latest = briefs_res.data[0]
+        raw = latest["content"].replace("#", "").replace("*", "").replace("`", "").replace("_", "").strip()
+        sentences = [s.strip() for s in raw.replace("\n", " ").split(".") if len(s.strip()) > 10]
+        preview = (sentences[0] + ".") if sentences else raw[:200]
+
+        result.append({
+            "topic_id": topic["id"],
+            "topic_name": topic["raw_query"],
+            "frequency": topic.get("frequency", "Auto"),
+            "last_scanned_at": topic.get("last_checked_at"),
+            "new_count": new_count,
+            "update_count": 0,
+            "preview_text": preview,
+        })
+
+    result.sort(key=lambda x: x["last_scanned_at"] or "", reverse=True)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Topic facts (for the thread-based topic view)
+# ---------------------------------------------------------------------------
+
+class FactSourceResponse(BaseModel):
+    name: str
+    domain: str
+    url: Optional[str] = None
+    original_sentence: Optional[str] = None
+
+
+class FactResponse(BaseModel):
+    id: str
+    alpha_text: str
+    published_at: str
+    sources: List[FactSourceResponse]
+
+
+@router.get("/topics/{topic_id}/facts", response_model=List[FactResponse])
+def get_topic_facts(topic_id: str, user: User = Depends(get_current_user)):
+    """Return all known facts for a topic sorted oldest-first for the thread view."""
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+
+    res = (
+        db.table("known_facts")
+        .select("id, alpha_text, source_url, source_domain, first_seen_at")
+        .eq("topic_id", topic_id)
+        .order("first_seen_at", desc=False)
+        .execute()
+    )
+
+    facts = []
+    for fact in res.data or []:
+        sources = []
+        if fact.get("source_domain"):
+            sources.append({
+                "name": fact["source_domain"],
+                "domain": fact["source_domain"],
+                "url": fact.get("source_url"),
+                "original_sentence": None,
+            })
+        facts.append({
+            "id": fact["id"],
+            "alpha_text": fact["alpha_text"],
+            "published_at": fact["first_seen_at"],
+            "sources": sources,
+        })
+    return facts
+
+
+@router.delete("/facts/{fact_id}/dismiss")
+def dismiss_fact(fact_id: str, user: User = Depends(get_current_user)):
+    """Remove a fact from the user's view (hard delete — dedup uses embeddings)."""
+    _require_uuid(fact_id, "fact_id")
+    db = get_supabase()
+    db.table("known_facts").delete().eq("id", fact_id).execute()
+    return {"ok": True}
