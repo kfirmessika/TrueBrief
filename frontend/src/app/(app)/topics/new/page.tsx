@@ -127,6 +127,7 @@ export default function NewTopicPage() {
   const [openPanel, setOpenPanel] = useState<'frequency' | 'coverage' | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [nudge, setNudge] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -139,8 +140,10 @@ export default function NewTopicPage() {
 
   const handleSubmit = async () => {
     const q = query.trim();
-    if (!q) return;
+    if (!q || submitting) return;
     setSubmitting(true);
+    setError(null);
+    setNudge(false);
     try {
       const res = await api.post('/topics', { raw_query: q });
       await qc.invalidateQueries({ queryKey: ['topics'] });
@@ -149,6 +152,8 @@ export default function NewTopicPage() {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 402) {
         setNudge(true);
+      } else {
+        setError('Something went wrong. Make sure you\'re signed in and try again.');
       }
     } finally {
       setSubmitting(false);
@@ -174,7 +179,7 @@ export default function NewTopicPage() {
   const pillBase: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 4,
     padding: '3px 9px', borderRadius: 20, cursor: 'pointer', fontSize: 12,
-    border: '0.5px solid var(--color-border-secondary)',
+    borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-secondary)',
     background: 'transparent', color: 'var(--color-text-secondary)',
     fontFamily: 'inherit',
   };
@@ -227,6 +232,7 @@ export default function NewTopicPage() {
         }}>
           {/* Frequency pill */}
           <button
+            type="button"
             onClick={() => togglePanel('frequency')}
             style={{ ...pillBase, ...(openPanel === 'frequency' ? pillActive : {}) }}
           >
@@ -237,6 +243,7 @@ export default function NewTopicPage() {
 
           {/* Coverage pill */}
           <button
+            type="button"
             onClick={() => togglePanel('coverage')}
             style={{ ...pillBase, ...(openPanel === 'coverage' ? pillActive : {}) }}
           >
@@ -247,6 +254,7 @@ export default function NewTopicPage() {
 
           {/* Submit */}
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={submitting || !query.trim()}
             aria-label="Track this topic"
@@ -283,6 +291,13 @@ export default function NewTopicPage() {
             onSelect={label => { setCoverage(label); setOpenPanel(null); }}
           />
         </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <p style={{ fontSize: 12, color: '#B91C1C', textAlign: 'center', marginTop: 12, maxWidth: 420 }}>
+          {error}
+        </p>
       )}
 
       {/* Upgrade nudge */}
