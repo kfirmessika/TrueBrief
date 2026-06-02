@@ -26,6 +26,7 @@ GEMINI_EMBEDDING_PER_TOKEN = 0.0
 
 
 _INPUT_RATES: dict[str, float] = {
+    "gemini-3.1-flash-lite-preview": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
     "gemini-2.0-flash-lite": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
     "gemini-2.0-flash-lite-001": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
     "gemini-2.0-flash": GEMINI_FLASH_INPUT_PER_TOKEN,
@@ -36,11 +37,12 @@ _INPUT_RATES: dict[str, float] = {
 }
 
 _OUTPUT_RATES: dict[str, float] = {
+    "gemini-3.1-flash-lite-preview": GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash-lite": GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash-lite-001": GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash": GEMINI_FLASH_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash-001": GEMINI_FLASH_OUTPUT_PER_TOKEN,
-    "gemini-1.5-pro": GEMINI_PRO_OUTPUT_PER_TOKEN,
+    "gemini-1.5-pro": GEMINI_PRO_INPUT_PER_TOKEN,
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
 }

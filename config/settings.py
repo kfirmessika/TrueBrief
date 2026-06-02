@@ -72,25 +72,25 @@ settings = Settings()
 
 LLM_CONFIG: dict[str, dict[str, str]] = {
     # Query Builder: Low token usage, simple reasoning.
-    "query_builder":  {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
+    "query_builder":  {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
 
     # Harvester: High token usage (reads full articles), strict JSON output.
-    "harvester":      {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
+    "harvester":      {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
 
     # Arbiter (Delta/Decision): Low tokens, high reasoning.
-    "arbiter":        {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
+    "arbiter":        {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
 
     # Briefer: Writes the final markdown report. High reasoning needed.
-    "briefer":        {"provider": "gemini", "model": "gemini-2.0-flash"},
+    "briefer":        {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
 
     # Garbage Filter: Trivial classification, low tokens.
-    "garbage_filter": {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
+    "garbage_filter": {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
 
     # Query Rotator: Generates fresh search queries when variants underperform.
-    "query_rotator":  {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
+    "query_rotator":  {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
 
     # Story Summarizer: Merges previous summary + new fact → updated summary (Phase 3, Task 3.3).
-    "story_summarizer": {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
+    "story_summarizer": {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
 }
 
 
