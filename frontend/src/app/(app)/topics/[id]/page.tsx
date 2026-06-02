@@ -1,24 +1,17 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
-import { useEffect, useRef, useState, use } from 'react';
-import { Clock, X } from 'lucide-react';
+import { useEffect, useRef, use } from 'react';
+import { Clock } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface Source {
-  name: string;
-  domain: string;
-  url: string | null;
-  original_sentence: string | null;
-}
-
-interface Fact {
+interface Brief {
   id: string;
-  alpha_text: string;
-  published_at: string;
-  sources: Source[];
+  topic_id: string;
+  content: string;
+  delivered_at: string;
 }
 
 interface Topic {
@@ -30,16 +23,6 @@ interface Topic {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
-
 function timeAgo(iso: string | null): string {
   if (!iso) return 'Never';
   const diff = Date.now() - new Date(iso).getTime();
@@ -50,205 +33,281 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function groupByDate(facts: Fact[]): Map<string, Fact[]> {
-  const groups = new Map<string, Fact[]>();
-  for (const fact of facts) {
-    const key = formatDate(fact.published_at);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(fact);
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+// Strip the TrueBrief header line (first line like "🔎 TrueBrief | Bitcoin | May 30, 2026")
+// and render the markdown body cleanly
+function parseContent(raw: string): string {
+  const lines = raw.split('\n');
+  // Drop the first line if it looks like a header (contains "TrueBrief |")
+  const start = lines[0]?.includes('TrueBrief') ? 1 : 0;
+  return lines.slice(start).join('\n').trim();
+}
+
+// Extract domain names from markdown links: [text](url)
+function extractDomains(content: string): string[] {
+  const urlRegex = /\[.*?\]\((https?:\/\/[^)]+)\)/g;
+  const domains = new Set<string>();
+  let match;
+  while ((match = urlRegex.exec(content)) !== null) {
+    try {
+      const domain = new URL(match[1]).hostname.replace(/^www\./, '');
+      domains.add(domain);
+    } catch { /* skip invalid URLs */ }
   }
-  return groups;
+  // Also match "Source: domain.com" patterns
+  const srcRegex = /[Ss]ource[s]?:\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+  while ((match = srcRegex.exec(content)) !== null) {
+    const d = match[1].toLowerCase();
+    if (!d.startsWith('http')) domains.add(d);
+  }
+  return Array.from(domains).slice(0, 6);
 }
 
 const SOURCE_COLORS: Record<string, string> = {
-  'reuters.com':        '#1961A5',
-  'politico.com':       '#1C3E6E',
-  'euractiv.com':       '#0A7B6A',
-  'ft.com':             '#BE431B',
-  'arstechnica.com':    '#EA6B1F',
-  'bbc.com':            '#B4071A',
-  'bbc.co.uk':          '#B4071A',
-  'bloomberg.com':      '#1A1A1A',
-  'techcrunch.com':     '#0A84FF',
-  'cnbc.com':           '#005594',
-  'nytimes.com':        '#1A1A1A',
-  'wsj.com':            '#0274B6',
+  'reuters.com':     '#1961A5',
+  'politico.com':    '#1C3E6E',
+  'euractiv.com':    '#0A7B6A',
+  'ft.com':          '#BE431B',
+  'markets.ft.com':  '#BE431B',
+  'arstechnica.com': '#EA6B1F',
+  'bbc.com':         '#B4071A',
+  'bbc.co.uk':       '#B4071A',
+  'bloomberg.com':   '#1A1A1A',
+  'techcrunch.com':  '#0A84FF',
+  'cnbc.com':        '#005594',
+  'nytimes.com':     '#1A1A1A',
+  'wsj.com':         '#0274B6',
+  'forbes.com':      '#CC2529',
+  'wired.com':       '#1A1A1A',
+  'theverge.com':    '#FF3B30',
+  'axios.com':       '#FF3B30',
+  'yahoo.com':       '#720E9E',
+  'bitget.com':      '#00C087',
+  'gizmodo.com':     '#FF6900',
 };
 
-function sourceColor(domain: string): string {
-  for (const [key, color] of Object.entries(SOURCE_COLORS)) {
-    if (domain.includes(key)) return color;
+function domainColor(d: string): string {
+  for (const [k, c] of Object.entries(SOURCE_COLORS)) {
+    if (d.includes(k) || k.includes(d)) return c;
   }
-  // Generate a deterministic color from domain string
-  let hash = 0;
-  for (let i = 0; i < domain.length; i++) hash = domain.charCodeAt(i) + ((hash << 5) - hash);
-  const colors = ['#4A6FA5', '#6B4FA5', '#A54F4F', '#4FA57A', '#A5834F'];
-  return colors[Math.abs(hash) % colors.length];
+  let h = 0;
+  for (let i = 0; i < d.length; i++) h = d.charCodeAt(i) + ((h << 5) - h);
+  return ['#4A6FA5', '#6B4FA5', '#A54F4F', '#4FA57A', '#A5834F'][Math.abs(h) % 5];
 }
 
-function sourceInitials(domain: string): string {
-  const clean = domain.replace(/^www\./, '').split('.')[0].toUpperCase();
-  if (clean.length <= 2) return clean;
-  return clean.slice(0, 2);
+function domainInitials(d: string): string {
+  const clean = d.split('.')[0].toUpperCase();
+  return clean.length <= 2 ? clean : clean.slice(0, 2);
 }
 
-// ── Source icon with favicon + fallback ───────────────────────────────────
+// ── Source dot ─────────────────────────────────────────────────────────────
 
-function SourceIcon({ source, active, onClick }: { source: Source; active: boolean; onClick: () => void }) {
-  const [faviconOk, setFaviconOk] = useState(true);
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${source.domain}&sz=32`;
-  const color = sourceColor(source.domain);
-  const initials = sourceInitials(source.domain);
+function SourceDot({ domain }: { domain: string }) {
+  const bg = domainColor(domain);
+  const initials = domainInitials(domain);
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 
   return (
     <div
-      onClick={onClick}
+      title={domain}
       style={{
-        width: 20, height: 20, borderRadius: '50%', cursor: 'pointer',
-        background: faviconOk ? 'transparent' : color,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        overflow: 'hidden', flexShrink: 0,
-        outline: active ? '2px solid var(--color-border-primary)' : 'none',
-        outlineOffset: 2,
+        width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+        background: bg, overflow: 'hidden', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.opacity = '0.7'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
     >
-      {faviconOk ? (
-        <img
-          src={faviconUrl}
-          alt={source.domain}
-          width={20} height={20}
-          style={{ objectFit: 'cover', borderRadius: '50%' }}
-          onError={() => setFaviconOk(false)}
-        />
-      ) : (
-        <span style={{
-          fontSize: initials.length > 2 ? 6 : initials.length > 1 ? 7 : 8,
-          color: '#fff', fontWeight: 600, lineHeight: 1,
-        }}>
-          {initials}
-        </span>
-      )}
+      <img
+        src={faviconUrl}
+        alt={domain}
+        width={20} height={20}
+        style={{ objectFit: 'cover', borderRadius: '50%' }}
+        onError={e => {
+          const img = e.currentTarget as HTMLImageElement;
+          img.style.display = 'none';
+          const parent = img.parentElement!;
+          parent.innerHTML = `<span style="font-size:${initials.length > 1 ? 7 : 8}px;color:#fff;font-weight:600;line-height:1">${initials}</span>`;
+        }}
+      />
     </div>
   );
 }
 
-// ── Source expansion panel ─────────────────────────────────────────────────
+// ── Markdown renderer ──────────────────────────────────────────────────────
+// Renders the pipeline's markdown output: bold, bullets, links, section headers
 
-function SourcePanel({ source }: { source: Source }) {
-  return (
-    <div style={{
-      marginTop: 7, padding: '9px 12px',
-      border: '0.5px solid var(--color-border-tertiary)',
-      borderRadius: 8, background: 'var(--color-background-secondary)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-primary)' }}>{source.name}</span>
-        {source.url && (
-          <a
-            href={source.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontSize: 11, color: 'var(--color-text-info)', display: 'flex', alignItems: 'center', gap: 2 }}
-          >
-            Read original ↗
-          </a>
-        )}
-      </div>
-      {source.original_sentence && (
-        <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, fontStyle: 'italic', margin: 0 }}>
-          &ldquo;{source.original_sentence}&rdquo;
+function renderMarkdown(md: string): React.ReactNode[] {
+  const lines = md.split('\n');
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Skip empty-ish lines
+    if (!line.trim() || line.trim() === '---' || /^[─=]{4,}/.test(line.trim())) {
+      i++;
+      continue;
+    }
+
+    // Section header: **Title** on its own line (not a bullet)
+    if (/^\*\*[^*]+\*\*$/.test(line.trim())) {
+      const text = line.trim().replace(/^\*\*|\*\*$/g, '');
+      nodes.push(
+        <p key={i} style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          {text}
         </p>
-      )}
-    </div>
-  );
+      );
+      i++;
+      continue;
+    }
+
+    // Bullet: starts with * or - or •
+    if (/^[\*\-•]\s+/.test(line.trim())) {
+      const text = line.trim().replace(/^[\*\-•]\s+/, '');
+      nodes.push(
+        <div key={i} style={{ display: 'flex', gap: 8, margin: '3px 0' }}>
+          <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0, marginTop: 1 }}>·</span>
+          <span style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.6, flex: 1 }}>
+            {inlineFormat(text)}
+          </span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Source attribution line: "↳ Source: ..." or "↳ Sources: ..."
+    if (/^[↳✓→]\s*[Ss]ource/.test(line.trim()) || /^[Ss]ource[s]?:/.test(line.trim())) {
+      i++;
+      continue; // source dots are shown separately below the bubble
+    }
+
+    // Section header lines like "🔔 NEW STORIES (4)" or "🔄 UPDATES (2)"
+    if (/^[🔔🔄📌🚨ð]\s/.test(line) || /NEW STORIES|UPDATES|NO NEW/.test(line)) {
+      const isNew = /NEW STORIES/.test(line);
+      const isUpdate = /UPDATE/.test(line);
+      const match = line.match(/\((\d+)\)/);
+      const count = match ? match[1] : '';
+      if (/NO NEW/.test(line)) {
+        i++;
+        continue;
+      }
+      nodes.push(
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '14px 0 6px' }}>
+          <span style={{
+            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+            background: isNew ? '#E1F5EE' : isUpdate ? '#E6F1FB' : 'var(--color-background-tertiary)',
+            color: isNew ? '#085041' : isUpdate ? '#185FA5' : 'var(--color-text-secondary)',
+          }}>
+            {isNew ? `${count} new` : isUpdate ? `${count} updates` : line.trim().replace(/^[🔔🔄📌🚨ð]\s*/, '')}
+          </span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Regular paragraph
+    const text = line.trim();
+    if (text) {
+      nodes.push(
+        <p key={i} style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.6, margin: '4px 0' }}>
+          {inlineFormat(text)}
+        </p>
+      );
+    }
+    i++;
+  }
+
+  return nodes;
 }
 
-// ── Fact item ─────────────────────────────────────────────────────────────
+// Handle inline **bold**, *italic*, [link](url), `code`
+function inlineFormat(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|`[^`]+`)/g;
+  let last = 0;
+  let match;
+  let idx = 0;
 
-function FactItem({
-  fact,
-  isLast,
-  onDismiss,
-}: {
-  fact: Fact;
-  isLast: boolean;
-  onDismiss: (id: string) => void;
-}) {
-  const [activeSource, setActiveSource] = useState<number | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push(<span key={idx++}>{text.slice(last, match.index)}</span>);
+    }
+    const token = match[0];
+    if (token.startsWith('**')) {
+      parts.push(<strong key={idx++} style={{ fontWeight: 600 }}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('*')) {
+      parts.push(<em key={idx++}>{token.slice(1, -1)}</em>);
+    } else if (token.startsWith('[')) {
+      const linkText = token.match(/\[([^\]]+)\]/)?.[1] ?? '';
+      const href = token.match(/\(([^)]+)\)/)?.[1] ?? '#';
+      parts.push(
+        <a key={idx++} href={href} target="_blank" rel="noopener noreferrer"
+          style={{ color: 'var(--color-text-info)', textDecoration: 'none', borderBottom: '0.5px solid var(--color-text-info)' }}>
+          {linkText}
+        </a>
+      );
+    } else if (token.startsWith('`')) {
+      parts.push(<code key={idx++} style={{ fontSize: 12, background: 'var(--color-background-tertiary)', padding: '1px 4px', borderRadius: 3 }}>{token.slice(1, -1)}</code>);
+    }
+    last = match.index + token.length;
+  }
+  if (last < text.length) parts.push(<span key={idx++}>{text.slice(last)}</span>);
+  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>;
+}
 
-  const handleDismiss = () => {
-    setDismissed(true);
-    setTimeout(() => onDismiss(fact.id), 220);
-  };
+// ── Brief bubble ───────────────────────────────────────────────────────────
 
-  const toggleSource = (i: number) => {
-    setActiveSource(prev => prev === i ? null : i);
-  };
+function BriefBubble({ brief, isLast }: { brief: Brief; isLast: boolean }) {
+  const body = parseContent(brief.content);
+  const isError = body.toLowerCase().includes('error generating') || body.length < 30;
+  const domains = extractDomains(brief.content);
+
+  if (isError) return null; // skip error briefs silently
 
   return (
     <div style={{
-      padding: '10px 0',
+      marginBottom: isLast ? 0 : 24,
+      paddingBottom: isLast ? 0 : 24,
       borderBottom: isLast ? 'none' : '0.5px solid var(--color-border-tertiary)',
-      opacity: dismissed ? 0 : 1,
-      transition: 'opacity 0.2s',
     }}>
-      <p style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.6, marginBottom: 7 }}>
-        {fact.alpha_text}
-      </p>
-
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ display: 'flex', gap: 4, flex: 1 }}>
-          {fact.sources.map((src, i) => (
-            <SourceIcon
-              key={i}
-              source={src}
-              active={activeSource === i}
-              onClick={() => toggleSource(i)}
-            />
-          ))}
-        </div>
-        <button
-          onClick={handleDismiss}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--color-text-tertiary)', padding: 2, display: 'flex',
-          }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-primary)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)'; }}
-        >
-          <X size={14} />
-        </button>
+      {/* Content */}
+      <div style={{
+        background: 'var(--color-background-secondary)',
+        borderRadius: 12, padding: '14px 16px',
+        borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-tertiary)',
+      }}>
+        {renderMarkdown(body)}
       </div>
 
-      {activeSource !== null && fact.sources[activeSource] && (
-        <SourcePanel source={fact.sources[activeSource]} />
-      )}
-
-      <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-        {formatTime(fact.published_at)}
-      </span>
+      {/* Footer: source dots + timestamp */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, paddingLeft: 2 }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {domains.map(d => <SourceDot key={d} domain={d} />)}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+          {formatTime(brief.delivered_at)}
+        </span>
+      </div>
     </div>
   );
 }
 
 // ── Date separator ─────────────────────────────────────────────────────────
 
-function DateSeparator({ label, unreadCount }: { label: string; unreadCount?: number }) {
+function DateSeparator({ label }: { label: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 10px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
       <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
       <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>{label}</span>
-      {unreadCount !== undefined && unreadCount > 0 && (
-        <span style={{
-          fontSize: 10, padding: '1px 7px', borderRadius: 10,
-          background: '#FAECE7', color: '#993C1D', fontWeight: 500, whiteSpace: 'nowrap',
-        }}>
-          Unread · {unreadCount} new
-        </span>
-      )}
       <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
     </div>
   );
@@ -258,12 +317,18 @@ function DateSeparator({ label, unreadCount }: { label: string; unreadCount?: nu
 
 function Skeleton() {
   return (
-    <div style={{ padding: '0 22px 32px' }}>
-      {[1, 2, 3].map(i => (
-        <div key={i} style={{ padding: '10px 0', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
-          <div style={{ height: 13, width: '90%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 6 }} />
-          <div style={{ height: 13, width: '70%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 8 }} />
-          <div style={{ height: 20, width: 80, background: 'var(--color-background-tertiary)', borderRadius: 10 }} />
+    <div>
+      {[1, 2].map(i => (
+        <div key={i} style={{ marginBottom: 24 }}>
+          <div style={{ background: 'var(--color-background-secondary)', borderRadius: 12, padding: '14px 16px', borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-tertiary)' }}>
+            <div style={{ height: 12, width: '30%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 12 }} />
+            <div style={{ height: 13, width: '95%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 6 }} />
+            <div style={{ height: 13, width: '85%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 6 }} />
+            <div style={{ height: 13, width: '70%', background: 'var(--color-background-tertiary)', borderRadius: 4 }} />
+          </div>
+          <div style={{ display: 'flex', gap: 4, marginTop: 8, paddingLeft: 2 }}>
+            {[1, 2, 3].map(j => <div key={j} style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--color-background-tertiary)' }} />)}
+          </div>
         </div>
       ))}
     </div>
@@ -277,7 +342,6 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const api = useApi();
   const qc = useQueryClient();
   const threadRef = useRef<HTMLDivElement>(null);
-  const [visibleFacts, setVisibleFacts] = useState<Set<string>>(new Set());
 
   const { data: topic } = useQuery<Topic>({
     queryKey: ['topic', id],
@@ -285,66 +349,58 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     staleTime: 60_000,
   });
 
-  const { data: facts = [], isLoading } = useQuery<Fact[]>({
-    queryKey: ['topic-facts', id],
-    queryFn: async () => (await api.get(`/topics/${id}/facts`)).data,
+  const { data: briefs = [], isLoading } = useQuery<Brief[]>({
+    queryKey: ['topic-briefs', id],
+    queryFn: async () => {
+      const res = await api.get(`/topics/${id}/briefs`);
+      // API returns newest first — reverse for chat order (oldest at top)
+      return [...res.data].reverse();
+    },
     staleTime: 30_000,
   });
 
-  const dismiss = useMutation({
-    mutationFn: (factId: string) => api.delete(`/facts/${factId}/dismiss`),
-    onMutate: async (factId) => {
-      await qc.cancelQueries({ queryKey: ['topic-facts', id] });
-      const prev = qc.getQueryData<Fact[]>(['topic-facts', id]);
-      qc.setQueryData<Fact[]>(['topic-facts', id], old => old?.filter(f => f.id !== factId) ?? []);
-      return { prev };
-    },
-    onError: (_err, _factId, ctx) => {
-      if (ctx?.prev) qc.setQueryData(['topic-facts', id], ctx.prev);
-    },
-  });
-
-  const handleDismiss = (factId: string) => {
-    setVisibleFacts(prev => { const next = new Set(prev); next.delete(factId); return next; });
-    dismiss.mutate(factId);
-  };
-
-  // Initialize visible facts when loaded
-  useEffect(() => {
-    if (facts.length > 0) {
-      setVisibleFacts(new Set(facts.map(f => f.id)));
-    }
-  }, [facts]);
-
-  // Auto-scroll to bottom on load
+  // Auto-scroll to bottom (newest brief) on load
   useEffect(() => {
     if (!isLoading && threadRef.current) {
       threadRef.current.scrollTop = threadRef.current.scrollHeight;
     }
-  }, [isLoading]);
+  }, [isLoading, briefs]);
 
-  const shown = facts.filter(f => visibleFacts.has(f.id));
-  const dateGroups = groupByDate(shown);
-  const dateKeys = Array.from(dateGroups.keys());
+  // Group briefs by date
+  const groups = new Map<string, Brief[]>();
+  for (const b of briefs) {
+    const key = formatDate(b.delivered_at);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(b);
+  }
+
+  const visibleBriefs = briefs.filter(b => {
+    const body = parseContent(b.content);
+    return !(body.toLowerCase().includes('error generating') || body.length < 30);
+  });
+
+  void qc; // suppress unused warning
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Sticky header */}
       <div style={{
-        position: 'sticky', top: 0, zIndex: 10,
         background: 'var(--color-background-primary)',
         padding: '16px 22px 12px',
         borderBottom: '0.5px solid var(--color-border-tertiary)',
+        flexShrink: 0,
       }}>
-        <p style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 3px' }}>
+        <p style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
           {topic?.raw_query ?? '…'}
         </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-          <Clock size={11} />
-          <span>Last scanned {timeAgo(topic?.last_scan_at ?? null)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Clock size={11} color="var(--color-text-tertiary)" />
+          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+            Last scanned {timeAgo(topic?.last_scan_at ?? null)}
+          </span>
           {topic?.frequency && (
             <span style={{
-              fontSize: 10, border: '0.5px solid var(--color-border-secondary)',
+              fontSize: 10, borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-secondary)',
               color: 'var(--color-text-secondary)', padding: '1px 6px', borderRadius: 10,
             }}>
               {topic.frequency}
@@ -354,41 +410,43 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
       </div>
 
       {/* Thread */}
-      <div ref={threadRef} style={{ flex: 1, overflowY: 'auto', padding: '0 22px 32px' }}>
-        {isLoading && <Skeleton />}
+      <div ref={threadRef} style={{ flex: 1, overflowY: 'auto', padding: '0 22px 40px' }}>
+        {isLoading && (
+          <div style={{ paddingTop: 20 }}>
+            <Skeleton />
+          </div>
+        )}
 
-        {!isLoading && shown.length === 0 && (
+        {!isLoading && visibleBriefs.length === 0 && (
           <div style={{ textAlign: 'center', paddingTop: 80 }}>
-            <span style={{
+            <div style={{
               display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
               background: '#EF9F27', animation: 'tb-pulse 1.5s ease-in-out infinite',
-              marginBottom: 12,
+              marginBottom: 14,
             }} />
-            <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)' }}>
+            <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
               Your first scan is running. Check back in a few minutes.
             </p>
           </div>
         )}
 
-        {dateKeys.map((dateKey, di) => {
-          const dayFacts = dateGroups.get(dateKey)!;
+        {Array.from(groups.entries()).map(([date, dayBriefs], gi) => {
+          const visible = dayBriefs.filter(b => {
+            const body = parseContent(b.content);
+            return !(body.toLowerCase().includes('error generating') || body.length < 30);
+          });
+          if (visible.length === 0) return null;
+          const isLastGroup = gi === groups.size - 1;
           return (
-            <div key={dateKey}>
-              <DateSeparator label={dateKey} />
-              {dayFacts.length === 0 ? (
-                <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic', padding: '4px 0 8px' }}>
-                  No new information
-                </p>
-              ) : (
-                dayFacts.map((fact, fi) => (
-                  <FactItem
-                    key={fact.id}
-                    fact={fact}
-                    isLast={di === dateKeys.length - 1 && fi === dayFacts.length - 1}
-                    onDismiss={handleDismiss}
-                  />
-                ))
-              )}
+            <div key={date}>
+              <DateSeparator label={date} />
+              {visible.map((brief, bi) => (
+                <BriefBubble
+                  key={brief.id}
+                  brief={brief}
+                  isLast={isLastGroup && bi === visible.length - 1}
+                />
+              ))}
             </div>
           );
         })}

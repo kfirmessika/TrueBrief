@@ -618,6 +618,26 @@ def get_cost_summary(
 
 
 # ---------------------------------------------------------------------------
+# Shared topics search (for New Topic suggestion pills)
+# ---------------------------------------------------------------------------
+
+class SharedTopicResult(BaseModel):
+    id: str
+    name: str
+    subscriber_count: int
+
+@router.get("/shared-topics", response_model=List[SharedTopicResult])
+def search_shared_topics(q: str = ""):
+    """Search existing topics by name substring — used for suggestion pills on New Topic page."""
+    db = get_supabase()
+    if q and len(q) >= 2:
+        res = db.table("topics").select("id, raw_query").ilike("raw_query", f"%{q}%").limit(5).execute()
+    else:
+        res = db.table("topics").select("id, raw_query").limit(5).execute()
+    return [{"id": t["id"], "name": t["raw_query"], "subscriber_count": 0} for t in res.data or []]
+
+
+# ---------------------------------------------------------------------------
 # Dashboard endpoint
 # ---------------------------------------------------------------------------
 
