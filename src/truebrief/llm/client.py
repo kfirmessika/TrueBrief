@@ -90,7 +90,7 @@ class LLMClient:
 
             except Exception as exc:
                 if attempt < self.MAX_RETRIES:
-                    wait = self.RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+                    wait = self._retry_wait(exc, attempt)
                     logger.warning(f"Attempt {attempt} failed: {exc}. Retrying in {wait}s...")
                     time.sleep(wait)
                 else:
@@ -226,6 +226,23 @@ class LLMClient:
     # -------------------------------------------------------------------------
     # Internal helpers
     # -------------------------------------------------------------------------
+
+    def _retry_wait(self, exc: Exception, attempt: int) -> float:
+        """Return seconds to wait before the next retry.
+
+        For Gemini 429s, parse the retryDelay from the error body so we
+        actually respect the quota window instead of burning retries in 5s.
+        Falls back to exponential backoff if no delay hint is available.
+        """
+        import re as _re
+        msg = str(exc)
+        # Gemini 429 body contains e.g. "Please retry in 36.731022388s."
+        m = _re.search(r'retry.*?(\d+(?:\.\d+)?)s', msg, _re.IGNORECASE)
+        if m:
+            suggested = float(m.group(1))
+            # Add a small jitter buffer and cap at 120s so the pipeline doesn't hang forever
+            return min(suggested + 2.0, 120.0)
+        return self.RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
 
     def _log_call(
         self,
