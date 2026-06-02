@@ -11,7 +11,7 @@ Phase 3, Task 3.1 - Story Nodes
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
@@ -51,8 +51,8 @@ class StoryNode:
     summary: str = ""                                   # LLM-generated summary (Task 3.3)
     status: StoryStatus = StoryStatus.ACTIVE
     fact_count: int = 0                                 # Number of Alphas in this story
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Populated after storage - for story-level vector matching (Task 3.2)
     summary_embedding: Optional[list[float]] = None
@@ -60,4 +60,4 @@ class StoryNode:
     def add_fact(self) -> None:
         """Increment fact count and update timestamp when a new fact is attached."""
         self.fact_count += 1
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)

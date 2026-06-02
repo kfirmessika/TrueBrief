@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # --- App ---
     LOG_LEVEL: str = "INFO"
     ENV: str = "development"        # "development" | "production"
+    FOUNDER_EMAIL: str = ""         # If set, restricts /admin/* endpoints to this email
 
     class Config:
         env_file = str(_PROJECT_ROOT / ".env")
@@ -71,25 +72,25 @@ settings = Settings()
 
 LLM_CONFIG: dict[str, dict[str, str]] = {
     # Query Builder: Low token usage, simple reasoning.
-    "query_builder":  {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "query_builder":  {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Harvester: High token usage (reads full articles), strict JSON output.
-    "harvester":      {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "harvester":      {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Arbiter (Delta/Decision): Low tokens, high reasoning.
-    "arbiter":        {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "arbiter":        {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Briefer: Writes the final markdown report. High reasoning needed.
-    "briefer":        {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "briefer":        {"provider": "gemini", "model": "gemini-2.0-flash"},
 
     # Garbage Filter: Trivial classification, low tokens.
-    "garbage_filter": {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "garbage_filter": {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Query Rotator: Generates fresh search queries when variants underperform.
-    "query_rotator":  {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "query_rotator":  {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Story Summarizer: Merges previous summary + new fact → updated summary (Phase 3, Task 3.3).
-    "story_summarizer": {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "story_summarizer": {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 }
 
 

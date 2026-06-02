@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from typing import Optional
 
 import httpx
@@ -189,6 +190,8 @@ class PaddleService:
         elif event_type == "transaction.completed":
             logger.info("Transaction completed: %s", data.get("id"))
 
+    _WEBHOOK_MAX_AGE_SECONDS = 300  # Reject webhooks older than 5 minutes
+
     def _verify_signature(self, payload: bytes, signature_header: str) -> None:
         """Paddle webhook signature: ts=<timestamp>;h1=<hmac-sha256-hex>"""
         try:
@@ -197,6 +200,9 @@ class PaddleService:
             h1 = parts["h1"]
         except (KeyError, ValueError) as e:
             raise ValueError(f"Malformed Paddle-Signature header: {e}")
+
+        if abs(time.time() - int(ts)) > self._WEBHOOK_MAX_AGE_SECONDS:
+            raise ValueError("Webhook timestamp too old — possible replay attack")
 
         signed = f"{ts}:{payload.decode()}"
         expected = hmac.new(

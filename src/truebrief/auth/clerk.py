@@ -19,16 +19,19 @@ def _get_jwks() -> dict:
     return keys
 
 def verify_clerk_jwt(token: str) -> dict:
+    if not settings.CLERK_ISSUER:
+        raise jwt.JWTError("CLERK_ISSUER is not configured — cannot validate token issuer")
+
     jwks = _get_jwks()
     header = jwt.get_unverified_header(token)
     key = next((k for k in jwks["keys"] if k["kid"] == header["kid"]), None)
     if not key:
         raise jwt.JWTError("kid not found in JWKS")
-    
+
     return jwt.decode(
         token,
         key,
         algorithms=["RS256"],
-        audience=settings.CLERK_AUDIENCE or None,
-        issuer=settings.CLERK_ISSUER or None,
+        audience=settings.CLERK_AUDIENCE or None,  # Clerk audience is optional
+        issuer=settings.CLERK_ISSUER,
     )

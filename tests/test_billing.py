@@ -1,6 +1,7 @@
 import json
 import hashlib
 import hmac
+import time
 import pytest
 from unittest.mock import MagicMock, patch
 from truebrief.billing.paddle_service import PaddleService, _price_to_tier
@@ -99,15 +100,18 @@ def test_create_checkout_reuses_existing_customer(mock_post, paddle_service):
 # Webhook Signature Verification
 # ---------------------------------------------------------------------------
 
-def _make_signature(payload: bytes, secret: str, ts: str = "1700000000") -> str:
+def _make_signature(payload: bytes, secret: str, ts: str = None) -> str:
+    if ts is None:
+        ts = str(int(time.time()))
     signed = f"{ts}:{payload.decode()}"
     h1 = hmac.new(secret.encode(), signed.encode(), hashlib.sha256).hexdigest()
     return f"ts={ts};h1={h1}"
 
 
 def test_webhook_bad_signature_raises_value_error(paddle_service, mock_settings):
+    fresh_ts = str(int(time.time()))
     with pytest.raises(ValueError, match="signature mismatch"):
-        paddle_service.handle_webhook(b'{"event_type":"x"}', "ts=1;h1=bad")
+        paddle_service.handle_webhook(b'{"event_type":"x"}', f"ts={fresh_ts};h1=bad")
 
 
 def test_webhook_missing_signature_raises_value_error(paddle_service):

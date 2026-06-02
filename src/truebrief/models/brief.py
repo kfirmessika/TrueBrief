@@ -8,7 +8,7 @@ Brief: the final deliverable - a structured intelligence report for a Topic + sc
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
@@ -43,7 +43,7 @@ class Brief:
     topic_id: str
     topic_name: str
     id: str = field(default_factory=lambda: str(uuid4()))
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     sections: list[BriefSection] = field(default_factory=list)
     brief_text: Optional[str] = None        # Formatted text output from Briefer

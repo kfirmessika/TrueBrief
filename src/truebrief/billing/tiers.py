@@ -86,7 +86,7 @@ def enforce_speed_limit(
     if last_scan_at is None or min_interval_hours == 0:
         return  # No restriction (never scanned, or POWER tier)
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     elapsed_hours = (now - last_scan_at).total_seconds() / 3600.0
 
     if elapsed_hours < min_interval_hours:

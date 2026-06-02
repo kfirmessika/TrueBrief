@@ -24,9 +24,40 @@ def _require_uuid(value: str, name: str = "id") -> str:
 
 from truebrief.ledger.database import get_supabase
 from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit
-from truebrief.auth.dependencies import User, get_current_user, get_optional_user
+from truebrief.auth.dependencies import User, get_current_user
 from truebrief.api.rate_limit import limiter
-from supabase import Client
+from config.settings import settings
+
+
+def _require_subscription(db, topic_id: str, user_id: str) -> None:
+    """Raise 403 if the user is not subscribed to the topic."""
+    sub = (
+        db.table("topic_subscriptions")
+        .select("topic_id")
+        .eq("user_id", user_id)
+        .eq("topic_id", topic_id)
+        .execute()
+    )
+    if not sub.data:
+        raise HTTPException(status_code=403, detail="Not subscribed to this topic")
+
+
+def _require_topic_owner(db, topic_id: str, user_id: str) -> None:
+    """Raise 403 if the user is not the creator of the topic."""
+    topic = (
+        db.table("topics")
+        .select("user_id")
+        .eq("id", topic_id)
+        .execute()
+    )
+    if not topic.data or topic.data[0].get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this topic")
+
+
+def _require_founder(user: User) -> None:
+    """Raise 403 if the user is not the configured founder."""
+    if settings.FOUNDER_EMAIL and user.email != settings.FOUNDER_EMAIL:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -129,33 +160,23 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
 
 
 @router.get("/topics", response_model=List[TopicResponse])
-def list_topics(user: Optional[User] = Depends(get_optional_user)):
-    """
-    List topics. If authenticated, returns only topics
-    that the user is subscribed to. Otherwise returns all topics.
-    """
+def list_topics(user: User = Depends(get_current_user)):
+    """List topics the authenticated user is subscribed to."""
     db = get_supabase()
-    
-    if user:
-        val_uuid = user.id
-        # Two-step fetch to avoid complex joins in Supabase python client
-        subs = db.table("topic_subscriptions").select("topic_id").eq("user_id", val_uuid).execute()
-        if not subs.data:
-            return []
-            
-        topic_ids = [sub["topic_id"] for sub in subs.data]
-        res = db.table("topics").select("*").in_("id", topic_ids).execute()
-        return res.data
-    else:
-        # Return all topics (admin/debug mode)
-        res = db.table("topics").select("*").execute()
-        return res.data
+    val_uuid = user.id
+    subs = db.table("topic_subscriptions").select("topic_id").eq("user_id", val_uuid).execute()
+    if not subs.data:
+        return []
+    topic_ids = [sub["topic_id"] for sub in subs.data]
+    res = db.table("topics").select("*").in_("id", topic_ids).execute()
+    return res.data
 
 @router.get("/topics/{topic_id}", response_model=TopicResponse)
-def get_topic(topic_id: str):
-    """Get a specific topic."""
+def get_topic(topic_id: str, user: User = Depends(get_current_user)):
+    """Get a specific topic the user is subscribed to."""
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
     res = db.table("topics").select("*").eq("id", topic_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -164,9 +185,10 @@ def get_topic(topic_id: str):
 @router.delete("/topics/{topic_id}")
 @limiter.limit("30/hour")
 def delete_topic(request: Request, topic_id: str, user: User = Depends(get_current_user)):
-    """Delete a topic."""
+    """Delete a topic. User must be the creator."""
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
+    _require_topic_owner(db, topic_id, user.id)
     res = db.table("topics").delete().eq("id", topic_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -184,6 +206,7 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
     Enforces per-tier scan frequency (HTTP 429 if scanning too soon).
     """
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
     res = db.table("topics").select("id, raw_query, last_scan_at").eq("id", topic_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -229,7 +252,7 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
 
 
 @router.get("/scan-status/{task_id}")
-def get_scan_status(task_id: str):
+def get_scan_status(task_id: str, _user: User = Depends(get_current_user)):
     """
     Poll the status of a queued scan task.
 
@@ -267,10 +290,11 @@ def get_scan_status(task_id: str):
     return response
 
 @router.get("/topics/{topic_id}/briefs", response_model=List[BriefResponse])
-def list_topic_briefs(topic_id: str):
-    """Get all briefs for a topic."""
+def list_topic_briefs(topic_id: str, user: User = Depends(get_current_user)):
+    """Get all briefs for a topic the user is subscribed to."""
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
     res = db.table("briefs").select("*").eq("topic_id", topic_id).order("delivered_at", desc=True).execute()
     return res.data
 
@@ -320,14 +344,16 @@ def get_briefs_history(user: User = Depends(get_current_user)):
     return result
 
 @router.get("/briefs/{brief_id}", response_model=BriefResponse)
-def get_brief(brief_id: str):
-    """Get a specific brief."""
+def get_brief(brief_id: str, user: User = Depends(get_current_user)):
+    """Get a specific brief the user has access to."""
     _require_uuid(brief_id, "brief_id")
     db = get_supabase()
     res = db.table("briefs").select("*").eq("id", brief_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Brief not found")
-    return res.data[0]
+    brief = res.data[0]
+    _require_subscription(db, brief["topic_id"], user.id)
+    return brief
 
 
 class PublicBriefResponse(BaseModel):
@@ -415,7 +441,7 @@ def delete_account(user: User = Depends(get_current_user)):
 
 
 @router.get("/topics/{topic_id}/ayr")
-def get_topic_ayr(topic_id: str, days: int = 30):
+def get_topic_ayr(topic_id: str, days: int = 30, user: User = Depends(get_current_user)):
     """
     Get Alpha Yield Rate (AYR) stats for a topic.
 
@@ -441,8 +467,8 @@ def get_topic_ayr(topic_id: str, days: int = 30):
         ]
       }
     """
-    # Verify topic exists first
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
     res = db.table("topics").select("id, raw_query, poll_interval_seconds").eq("id", topic_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -464,7 +490,7 @@ def get_topic_ayr(topic_id: str, days: int = 30):
 
 
 @router.get("/topics/{topic_id}/query-variants")
-def get_query_variants(topic_id: str):
+def get_query_variants(topic_id: str, user: User = Depends(get_current_user)):
     """
     List all search query variants for a topic.
 
@@ -490,6 +516,7 @@ def get_query_variants(topic_id: str):
       ]
     """
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
     topic_res = db.table("topics").select("id").eq("id", topic_id).execute()
     if not topic_res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -505,13 +532,14 @@ def get_query_variants(topic_id: str):
 
 
 @router.get("/topics/{topic_id}/stories")
-def get_topic_stories(topic_id: str, limit: int = 50):
+def get_topic_stories(topic_id: str, limit: int = 50, user: User = Depends(get_current_user)):
     """
     List all story nodes for a topic, newest-updated first.
     Each story includes summary, fact count, and last-update timestamp.
     """
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
     topic_res = db.table("topics").select("id").eq("id", topic_id).execute()
     if not topic_res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -528,11 +556,12 @@ def get_topic_stories(topic_id: str, limit: int = 50):
 
 
 @router.get("/topics/{topic_id}/stories/{story_id}/facts")
-def get_story_facts(topic_id: str, story_id: str):
+def get_story_facts(topic_id: str, story_id: str, user: User = Depends(get_current_user)):
     """
     List all facts (alphas) attached to a specific story node, newest first.
     """
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
     res = (
         db.table("known_facts")
         .select("id, alpha_text, confidence, source_url, source_domain, first_seen_at, event_date")
@@ -562,13 +591,13 @@ class CostSummaryResponse(BaseModel):
 @router.get("/admin/cost-summary", response_model=CostSummaryResponse)
 def get_cost_summary(
     days: int = 30,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """
     Admin endpoint: aggregated LLM cost & latency for the last N days.
-    Returns totals, per-stage breakdown, and per-day cost series.
-    Accessible to any authenticated user (founder-only enforcement via Clerk roles is future work).
+    Restricted to the founder email configured via FOUNDER_EMAIL env var.
     """
+    _require_founder(user)
     db = get_supabase()
 
     # -- Per-stage aggregation from llm_call_log --

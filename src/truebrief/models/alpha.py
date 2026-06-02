@@ -8,7 +8,7 @@ AlphaDecision: the Arbiter's verdict on whether an Alpha is NEW, DUPLICATE, or U
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
@@ -40,7 +40,7 @@ class Alpha:
     context: Optional[str] = None           # Extra context (e.g. broader headline)
     confidence: float = 1.0                 # 0.0–1.0; facts < 0.6 are dropped by Harvester
     id: str = field(default_factory=lambda: str(uuid4()))
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     topic_id: Optional[str] = None
 
     # Populated after storage in the Ledger

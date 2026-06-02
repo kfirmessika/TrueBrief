@@ -8,7 +8,7 @@ TopicSchedule: polling cadence metadata (Phase 2+).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
@@ -32,7 +32,7 @@ class Topic:
     id: str = field(default_factory=lambda: str(uuid4()))
     user_id: Optional[str] = None           # Owning user (Phase 3 auth)
     status: TopicStatus = TopicStatus.ACTIVE
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     last_scanned_at: Optional[datetime] = None
     scan_count: int = 0                     # Total pipeline runs for this topic
 
@@ -43,7 +43,7 @@ class Topic:
 
     def mark_scanned(self) -> None:
         """Call after each successful pipeline run."""
-        self.last_scanned_at = datetime.utcnow()
+        self.last_scanned_at = datetime.now(timezone.utc).replace(tzinfo=None)
         self.scan_count += 1
 
 
