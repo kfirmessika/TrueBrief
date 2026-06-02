@@ -42,7 +42,8 @@ def _make_db(*, tier: str = "free", topic_count: int = 0,
              last_scan_at=None, topic_id="11111111-1111-1111-1111-111111111111",
              users_existing: bool = True,
              user_uuid: str = "22222222-2222-2222-2222-222222222222",
-             clerk_id: str = "clerk_test_1"):
+             clerk_id: str = "clerk_test_1",
+             topic_exists: bool = True):
     """Mirror of the helper in test_tier_enforcement_intg.py, plus users table."""
     db = MagicMock()
 
@@ -58,22 +59,20 @@ def _make_db(*, tier: str = "free", topic_count: int = 0,
     sub_count_chain.insert.return_value.execute.return_value = _exec_result(data=[{}])
 
     last_scan_iso = last_scan_at.isoformat() + "Z" if last_scan_at else None
+    _topic_row = {
+        "id": topic_id,
+        "raw_query": "test query",
+        "frequency": "daily",
+        "is_active": True,
+        "last_scan_at": last_scan_iso,
+    }
     topics_chain = MagicMock()
-    topics_chain.select.return_value.ilike.return_value.execute.return_value = _exec_result(data=[])
+    # Existing-topic lookup (eq on raw_query): return data if topic_exists, else empty
     topics_chain.select.return_value.eq.return_value.execute.return_value = _exec_result(
-        data=[{
-            "id": topic_id,
-            "raw_query": "test query",
-            "last_scan_at": last_scan_iso,
-        }]
+        data=[_topic_row] if topic_exists else []
     )
     topics_chain.insert.return_value.execute.return_value = _exec_result(
-        data=[{
-            "id": topic_id,
-            "raw_query": "test query",
-            "frequency": "hourly",
-            "is_active": True,
-        }]
+        data=[{**_topic_row, "frequency": "hourly"}]
     )
 
     users_chain = MagicMock()
@@ -162,7 +161,8 @@ class TestAuthenticatedTopicCreation:
 
     def test_post_topics_with_valid_token_uses_resolved_user_id(self, client):
         user = _override_user()
-        db = _make_db(tier="free", topic_count=0)
+        # topic_exists=False forces the insert path so we can assert on it
+        db = _make_db(tier="free", topic_count=0, topic_exists=False)
 
         with patch("truebrief.api.routes.get_supabase", return_value=db), \
              patch("truebrief.tasks.scheduler.set_next_run", return_value=None):

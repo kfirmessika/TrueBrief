@@ -35,7 +35,8 @@ def _exec_result(data=None, count=None):
 
 
 def _make_db(*, tier: str, topic_count: int, last_scan_at=None,
-             topic_id="11111111-1111-1111-1111-111111111111"):
+             topic_id="11111111-1111-1111-1111-111111111111",
+             topic_exists: bool = True):
     db = MagicMock()
 
     sub_chain = MagicMock()
@@ -50,22 +51,20 @@ def _make_db(*, tier: str, topic_count: int, last_scan_at=None,
     sub_count_chain.insert.return_value.execute.return_value = _exec_result(data=[{}])
 
     last_scan_iso = last_scan_at.isoformat() + "Z" if last_scan_at else None
+    _topic_row = {
+        "id": topic_id,
+        "raw_query": "test query",
+        "frequency": "daily",
+        "is_active": True,
+        "last_scan_at": last_scan_iso,
+    }
     topics_chain = MagicMock()
-    topics_chain.select.return_value.ilike.return_value.execute.return_value = _exec_result(data=[])
+    # Existing-topic lookup: return row if topic_exists, else empty (triggers insert)
     topics_chain.select.return_value.eq.return_value.execute.return_value = _exec_result(
-        data=[{
-            "id": topic_id,
-            "raw_query": "test query",
-            "last_scan_at": last_scan_iso,
-        }]
+        data=[_topic_row] if topic_exists else []
     )
     topics_chain.insert.return_value.execute.return_value = _exec_result(
-        data=[{
-            "id": topic_id,
-            "raw_query": "test query",
-            "frequency": "hourly",
-            "is_active": True,
-        }]
+        data=[{**_topic_row, "frequency": "hourly"}]
     )
 
     def _table(name: str):

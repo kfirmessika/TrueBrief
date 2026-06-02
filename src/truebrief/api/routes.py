@@ -114,17 +114,17 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
     current_count = count_res.count or 0
     enforce_topic_limit(val_uuid, tier_str, current_count)
 
-    # 1. Check if topic already exists (case-insensitive)
-    existing = db.table("topics").select("*").ilike("raw_query", topic.raw_query).execute()
+    # 1. Check if topic already exists (canonical match on lowercased raw_query)
+    normalized_query = topic.raw_query.strip().lower()
+    existing = db.table("topics").select("*").eq("raw_query", normalized_query).execute()
     if existing.data:
         topic_record = existing.data[0]
-        logger.info(f"Topic '{topic.raw_query}' already exists. Subscribing user.")
+        logger.info(f"Topic '{normalized_query}' already exists. Subscribing user.")
     else:
-        # 2. Create new topic
+        # 2. Create new shared topic — no user_id, the subscription table owns ownership
         data = {
-            "raw_query": topic.raw_query,
-            "poll_interval_seconds": topic.poll_interval_seconds,
-            "user_id": val_uuid
+            "raw_query": normalized_query,
+            "user_id": val_uuid,  # kept as original-creator metadata only
         }
 
         try:
@@ -132,14 +132,14 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
             if not res.data:
                 raise HTTPException(status_code=500, detail="Database failed to return the created topic.")
             topic_record = res.data[0]
-            
+
             # Schedule the first scan immediately
             try:
                 from truebrief.tasks.scheduler import set_next_run
                 set_next_run(topic_record["id"], interval_seconds=0)
             except Exception as sched_err:
                 logger.warning(f"Could not auto-schedule first scan: {sched_err}")
-                
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Error creating topic: {error_msg}")
@@ -185,14 +185,29 @@ def get_topic(topic_id: str, user: User = Depends(get_current_user)):
 @router.delete("/topics/{topic_id}")
 @limiter.limit("30/hour")
 def delete_topic(request: Request, topic_id: str, user: User = Depends(get_current_user)):
-    """Delete a topic. User must be the creator."""
+    """
+    Unsubscribe the calling user from a topic.
+    The topic row itself is only deleted when no subscribers remain.
+    """
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
-    _require_topic_owner(db, topic_id, user.id)
-    res = db.table("topics").delete().eq("id", topic_id).execute()
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Topic not found")
-    return {"status": "deleted"}
+    _require_subscription(db, topic_id, user.id)
+
+    # Remove this user's subscription
+    db.table("topic_subscriptions").delete().eq("user_id", user.id).eq("topic_id", topic_id).execute()
+
+    # Delete the topic only if it now has zero subscribers
+    remaining = (
+        db.table("topic_subscriptions")
+        .select("topic_id", count="exact")
+        .eq("topic_id", topic_id)
+        .execute()
+    )
+    if (remaining.count or 0) == 0:
+        db.table("topics").delete().eq("id", topic_id).execute()
+        logger.info(f"Topic {topic_id} deleted (no subscribers remaining).")
+
+    return {"status": "unsubscribed"}
 
 @router.post("/topics/{topic_id}/scan")
 @limiter.limit("10/hour")
