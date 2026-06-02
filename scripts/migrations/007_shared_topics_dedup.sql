@@ -65,14 +65,20 @@ BEGIN
 
             DELETE FROM topic_subscriptions WHERE topic_id = dup_id;
 
-            -- Re-point known_facts
-            UPDATE known_facts SET topic_id = canonical_id WHERE topic_id = dup_id;
+            -- Re-point known_facts (if table exists)
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'known_facts' AND table_schema = 'public') THEN
+                UPDATE known_facts SET topic_id = canonical_id WHERE topic_id = dup_id;
+            END IF;
 
-            -- Re-point briefs
-            UPDATE briefs SET topic_id = canonical_id WHERE topic_id = dup_id;
+            -- Re-point briefs (if table exists)
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'briefs' AND table_schema = 'public') THEN
+                UPDATE briefs SET topic_id = canonical_id WHERE topic_id = dup_id;
+            END IF;
 
-            -- Re-point pipeline_run (nullable FK, set null on delete anyway but be explicit)
-            UPDATE pipeline_run SET topic_id = canonical_id WHERE topic_id = dup_id;
+            -- Re-point pipeline_run (if table exists)
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pipeline_run' AND table_schema = 'public') THEN
+                UPDATE pipeline_run SET topic_id = canonical_id WHERE topic_id = dup_id;
+            END IF;
 
             -- Delete the duplicate topic row
             DELETE FROM topics WHERE id = dup_id;
