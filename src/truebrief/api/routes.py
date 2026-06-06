@@ -134,12 +134,15 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         if topic.poll_interval_seconds is not None:
             # Clamp user-requested interval to their tier floor (can't go faster than tier allows)
             _interval_s = max(topic.poll_interval_seconds, _tier_floor_s)
+            _user_interval_s: Optional[int] = _interval_s  # lock AYR to this floor
         else:
             _interval_s = _tier_floor_s
+            _user_interval_s = None  # Auto — AYR manages freely within tier
         data = {
             "raw_query": normalized_query,
             "user_id": val_uuid,  # kept as original-creator metadata only
             "poll_interval_seconds": _interval_s,
+            "user_interval_seconds": _user_interval_s,
         }
 
         try:
@@ -249,6 +252,49 @@ def delete_topic(request: Request, topic_id: str, user: User = Depends(get_curre
         logger.info(f"Topic {topic_id} deleted (no subscribers remaining).")
 
     return {"status": "unsubscribed"}
+
+class TopicFrequencyUpdate(BaseModel):
+    poll_interval_seconds: Optional[int] = None  # None = switch back to Auto
+
+
+@router.patch("/topics/{topic_id}/frequency")
+@limiter.limit("30/hour")
+def update_topic_frequency(
+    request: Request,
+    topic_id: str,
+    body: TopicFrequencyUpdate,
+    user: User = Depends(get_current_user),
+):
+    """
+    Change the polling frequency for a topic the user is subscribed to.
+
+    Sends poll_interval_seconds = N to lock to a specific interval.
+    Sends poll_interval_seconds = null to switch back to Auto (AYR-managed).
+    Clamps the requested interval to the user's tier floor.
+    """
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+
+    sub_res = db.table("user_subscriptions").select("tier").eq("user_id", user.id).execute()
+    tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
+    _tier_floor_s = {"free": 86400, "pro": 3600, "power": 900}.get(tier_str, 3600)
+
+    if body.poll_interval_seconds is not None:
+        new_interval = max(body.poll_interval_seconds, _tier_floor_s)
+        user_interval: Optional[int] = new_interval
+    else:
+        new_interval = _tier_floor_s
+        user_interval = None  # Auto
+
+    db.table("topics").update({
+        "poll_interval_seconds": new_interval,
+        "user_interval_seconds": user_interval,
+    }).eq("id", topic_id).execute()
+
+    logger.info(f"Topic {topic_id} frequency updated: {new_interval}s (user_floor={user_interval})")
+    return {"poll_interval_seconds": new_interval, "user_interval_seconds": user_interval}
+
 
 @router.post("/topics/{topic_id}/scan")
 @limiter.limit("10/hour")

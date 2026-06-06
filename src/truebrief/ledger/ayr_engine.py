@@ -186,6 +186,26 @@ def _get_tier_floor(db, topic_id: str) -> int:
         return MAX_INTERVAL
 
 
+def _get_user_floor(db, topic_id: str) -> Optional[int]:
+    """
+    Return topics.user_interval_seconds — the user's locked minimum interval.
+    Returns None when user chose Auto (AYR controls freely).
+    """
+    try:
+        res = (
+            db.table("topics")
+            .select("user_interval_seconds")
+            .eq("id", topic_id)
+            .single()
+            .execute()
+        )
+        val = (res.data or {}).get("user_interval_seconds")
+        return int(val) if val is not None else None
+    except Exception as exc:
+        logger.warning(f"[AYR] Could not read user_interval_seconds for topic {topic_id}: {exc}")
+        return None
+
+
 def update_topic_interval(topic_id: str, days: int = 30) -> Optional[int]:
     """
     Recalculate AYR for a topic and update poll_interval_seconds in Supabase.
@@ -215,8 +235,15 @@ def update_topic_interval(topic_id: str, days: int = 30) -> Optional[int]:
         from truebrief.ledger.database import get_supabase
         db = get_supabase()
 
-        tier_floor = _get_tier_floor(db, topic_id)
-        new_interval = max(ayr_interval, tier_floor)
+        tier_floor    = _get_tier_floor(db, topic_id)
+        user_floor    = _get_user_floor(db, topic_id)  # None = Auto
+
+        # Final interval = slowest of (AYR recommendation, user preference, tier floor)
+        # This ensures AYR never fires faster than what the user explicitly chose.
+        candidates = [ayr_interval, tier_floor]
+        if user_floor is not None:
+            candidates.append(user_floor)
+        new_interval = max(candidates)
 
         db.table("topics").update({
             "poll_interval_seconds": new_interval
@@ -225,8 +252,8 @@ def update_topic_interval(topic_id: str, days: int = 30) -> Optional[int]:
         ayr_pct = f"{stats['ayr']:.0%}"
         logger.info(
             f"[AYR] Updated topic {topic_id}: "
-            f"AYR={ayr_pct} → ayr_interval={ayr_interval}s, "
-            f"tier_floor={tier_floor}s → final={new_interval}s "
+            f"AYR={ayr_pct} → ayr={ayr_interval}s, "
+            f"tier_floor={tier_floor}s, user_floor={user_floor}s → final={new_interval}s "
             f"({new_interval // 60} min)"
         )
         return new_interval
