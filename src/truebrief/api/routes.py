@@ -130,11 +130,12 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         logger.info(f"Topic '{normalized_query}' already exists. Subscribing user.")
     else:
         # 2. Create new shared topic — no user_id, the subscription table owns ownership
-        _tier_floor_s = {"free": 86400, "pro": 3600, "power": 900}.get(tier_str, 3600)
+        # T_base map: architecture spec (fast=3600, medium=21600, slow=86400)
+        # Tier floor ensures free users can't request faster than their plan
+        _tier_floor_s = {"free": 86400, "pro": 21600, "power": 900}.get(tier_str, 86400)
         if topic.poll_interval_seconds is not None:
-            # Clamp user-requested interval to their tier floor (can't go faster than tier allows)
             _interval_s = max(topic.poll_interval_seconds, _tier_floor_s)
-            _user_interval_s: Optional[int] = _interval_s  # lock AYR to this floor
+            _user_interval_s: Optional[int] = _interval_s
         else:
             _interval_s = _tier_floor_s
             _user_interval_s = None  # Auto — AYR manages freely within tier
@@ -278,7 +279,7 @@ def update_topic_frequency(
 
     sub_res = db.table("user_subscriptions").select("tier").eq("user_id", user.id).execute()
     tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
-    _tier_floor_s = {"free": 86400, "pro": 3600, "power": 900}.get(tier_str, 3600)
+    _tier_floor_s = {"free": 86400, "pro": 21600, "power": 900}.get(tier_str, 86400)
 
     if body.poll_interval_seconds is not None:
         new_interval = max(body.poll_interval_seconds, _tier_floor_s)

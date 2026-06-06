@@ -10,20 +10,26 @@ import { ArrowUp, Clock, ScanLine, ChevronDown } from 'lucide-react';
 
 type PanelId = 'frequency' | 'coverage' | null;
 
+// T_base values match the architecture spec:
+//   Fast   T_base=3600s  → AYR modulates to  1–4 h actual range
+//   Medium T_base=21600s → AYR modulates to  6–12 h actual range
+//   Slow   T_base=86400s → AYR modulates to ~24 h actual range
 const FREQUENCY_OPTIONS = [
-  { label: 'Auto',            badge: 'Recommended', style: 'rec',   tooltip: 'TrueBrief learns which sources update most and adjusts scan frequency automatically.' },
-  { label: 'Daily',           badge: 'Free',        style: 'free' },
-  { label: 'Hourly',         badge: 'Pro',          style: 'pro',   tooltip: 'Scans every hour. Best for fast-moving topics.' },
-  { label: 'Every 15 min',   badge: 'Power',        style: 'power', tooltip: 'Maximum scan frequency. Best for breaking news and live events.' },
-  { label: 'Custom interval', badge: 'Coming soon', style: 'dim',   disabled: true },
+  { label: 'Auto',       badge: 'Recommended', style: 'rec',   tooltip: 'TrueBrief measures how fast each topic changes and adjusts scan speed automatically.' },
+  { label: 'Slow',       badge: 'Free',        style: 'free',  tooltip: 'Around once a day. Good for slow-moving topics like research or regulation.' },
+  { label: 'Medium',     badge: 'Pro',         style: 'pro',   tooltip: 'Every 6–12 hours. Good for market updates and political developments.' },
+  { label: 'Fast',       badge: 'Pro',         style: 'pro',   tooltip: 'Every 1–4 hours. Best for breaking news, earnings, and live events.' },
+  { label: 'Ultra Fast', badge: 'Power',       style: 'power', tooltip: 'Every 15–90 min. Maximum scan speed for live events and breaking news.' },
+  { label: 'Custom',     badge: 'Coming soon', style: 'dim',   disabled: true },
 ];
 
 const FREQUENCY_INTERVAL: Record<string, number | null> = {
-  'Auto':           null,   // backend decides via AYR
-  'Daily':          86400,
-  'Hourly':         3600,
-  'Every 15 min':   900,
-  'Custom interval': null,
+  'Auto':       null,   // backend uses tier floor as T_base; AYR manages freely
+  'Slow':       86400,  // T_base = 24 h
+  'Medium':     21600,  // T_base = 6 h
+  'Fast':       3600,   // T_base = 1 h
+  'Ultra Fast': 900,    // T_base = 15 min (Power tier only)
+  'Custom':     null,
 };
 
 const COVERAGE_OPTIONS = [
