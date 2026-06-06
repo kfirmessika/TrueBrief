@@ -141,9 +141,58 @@ def calculate_topic_ayr(topic_id: str, days: int = 30) -> dict:
     }
 
 
+def _get_tier_floor(db, topic_id: str) -> int:
+    """
+    Return the minimum allowed poll_interval_seconds for this topic based on
+    the fastest-tier subscriber.  Power=900s, Pro=3600s, Free=86400s.
+
+    Falls back to MAX_INTERVAL on any error so we never accidentally over-poll.
+    """
+    try:
+        subs = (
+            db.table("topic_subscriptions")
+            .select("user_id")
+            .eq("topic_id", topic_id)
+            .execute()
+        )
+        if not subs.data:
+            return MAX_INTERVAL
+
+        user_ids = [r["user_id"] for r in subs.data]
+
+        tier_rows = (
+            db.table("user_subscriptions")
+            .select("tier")
+            .in_("user_id", user_ids)
+            .execute()
+        )
+        if not tier_rows.data:
+            return MAX_INTERVAL
+
+        tier_names = list({r["tier"] for r in tier_rows.data})
+        ti_rows = (
+            db.table("tier_intervals")
+            .select("poll_interval_seconds")
+            .in_("tier", tier_names)
+            .execute()
+        )
+        if not ti_rows.data:
+            return MAX_INTERVAL
+
+        return min(r["poll_interval_seconds"] for r in ti_rows.data)
+
+    except Exception as exc:
+        logger.warning(f"[AYR] Could not compute tier floor for topic {topic_id}: {exc}")
+        return MAX_INTERVAL
+
+
 def update_topic_interval(topic_id: str, days: int = 30) -> Optional[int]:
     """
     Recalculate AYR for a topic and update poll_interval_seconds in Supabase.
+
+    The final interval is max(ayr_recommended, tier_floor) so that:
+      - free-tier topics never poll faster than every 24 h
+      - power-tier topics poll at the AYR-recommended rate (down to MIN_INTERVAL)
 
     Called after every successful pipeline run (in pipeline_task.py).
     Fire-and-forget: any DB error is logged but never propagates.
@@ -161,10 +210,14 @@ def update_topic_interval(topic_id: str, days: int = 30) -> Optional[int]:
             )
             return None
 
-        new_interval = stats["recommended_interval_s"]
+        ayr_interval = stats["recommended_interval_s"]
 
         from truebrief.ledger.database import get_supabase
         db = get_supabase()
+
+        tier_floor = _get_tier_floor(db, topic_id)
+        new_interval = max(ayr_interval, tier_floor)
+
         db.table("topics").update({
             "poll_interval_seconds": new_interval
         }).eq("id", topic_id).execute()
@@ -172,7 +225,8 @@ def update_topic_interval(topic_id: str, days: int = 30) -> Optional[int]:
         ayr_pct = f"{stats['ayr']:.0%}"
         logger.info(
             f"[AYR] Updated topic {topic_id}: "
-            f"AYR={ayr_pct} → interval={new_interval}s "
+            f"AYR={ayr_pct} → ayr_interval={ayr_interval}s, "
+            f"tier_floor={tier_floor}s → final={new_interval}s "
             f"({new_interval // 60} min)"
         )
         return new_interval

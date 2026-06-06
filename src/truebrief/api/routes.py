@@ -130,9 +130,11 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         logger.info(f"Topic '{normalized_query}' already exists. Subscribing user.")
     else:
         # 2. Create new shared topic — no user_id, the subscription table owns ownership
+        _tier_interval_s = {"free": 86400, "pro": 3600, "power": 900}.get(tier_str, 3600)
         data = {
             "raw_query": normalized_query,
             "user_id": val_uuid,  # kept as original-creator metadata only
+            "poll_interval_seconds": _tier_interval_s,
         }
 
         try:
