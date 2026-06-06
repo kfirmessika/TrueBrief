@@ -46,6 +46,10 @@ class Alpha:
     # Populated after storage in the Ledger
     embedding: Optional[list[float]] = None
 
+    # Populated by the Verifier stage (before Ledger)
+    verified_count: int = 0                       # number of independent sources that confirmed this fact
+    verifier_flags: list[str] = field(default_factory=list)  # e.g. ["retrospective", "ungrounded"]
+
 
 @dataclass
 class AlphaDecision:

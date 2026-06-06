@@ -31,6 +31,7 @@ from truebrief.ledger.story_manager import StoryManager
 from truebrief.ledger.story_summarizer import StorySummarizer
 from truebrief.arbiter.arbiter import Arbiter
 from truebrief.briefer.briefer import Briefer
+from truebrief.verifier.verifier import Verifier
 from truebrief.models.article import RawArticle
 from truebrief.models.alpha import DecisionType
 
@@ -67,6 +68,7 @@ class PipelineRunner:
         self.query_builder = QueryBuilder()
         self.extractor = ArticleExtractor()
         self.harvester = Harvester()
+        self.verifier = Verifier()
         self.vector_store = VectorStore()
         self.arbiter = Arbiter(vector_store=self.vector_store)
         self.briefer = Briefer()
@@ -160,16 +162,25 @@ class PipelineRunner:
             # 4. Harvesting
             logger.info("[4] Harvesting Facts (Alphas)")
             all_alphas = []
+            article_texts: dict = {}  # url → text; passed to Verifier for entity grounding
             for i, article in enumerate(selected):
                 logger.info(f"    Processing article {i+1}/{len(selected)}: {article.url}")
                 article = self.extractor.extract(article)
                 if not article.text:
                     continue
+                article_texts[article.url] = article.text
                 alphas = self.harvester.extract(article, topic_id=topic_id)
                 all_alphas.extend(alphas)
                 if i < len(selected) - 1:
                     time.sleep(2)
             logger.info(f"    Harvested {len(all_alphas)} total facts.")
+
+            # 4b. Verification (entity grounding + cross-source + date sanity)
+            logger.info("[4b] Verifying Facts")
+            try:
+                all_alphas = self.verifier.verify_batch(all_alphas, article_texts)
+            except Exception as ver_err:
+                logger.warning(f"    Verifier failed (non-fatal, continuing): {ver_err}")
 
             # 5. Judging
             logger.info("[5] Judging Novelty")

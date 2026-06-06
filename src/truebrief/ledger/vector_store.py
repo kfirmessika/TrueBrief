@@ -51,7 +51,9 @@ class VectorStore:
             "context":         alpha.context,
             "confidence":      alpha.confidence,
             "source_url":      alpha.source_url,
-            "source_domain":   extract_domain(alpha.source_url),  # "reuters.com", not "Reuters"
+            "source_domain":   extract_domain(alpha.source_url),
+            "verified_count":  alpha.verified_count,
+            "verifier_flags":  alpha.verifier_flags,
         }
 
         # Phase 3: Link fact to its StoryNode (if set by StoryManager)
