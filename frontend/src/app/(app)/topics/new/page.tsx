@@ -11,11 +11,20 @@ import { ArrowUp, Clock, ScanLine, ChevronDown } from 'lucide-react';
 type PanelId = 'frequency' | 'coverage' | null;
 
 const FREQUENCY_OPTIONS = [
-  { label: 'Auto',            badge: 'Recommended', style: 'rec',  tooltip: 'TrueBrief learns which sources update most and adjusts scan frequency automatically.' },
+  { label: 'Auto',            badge: 'Recommended', style: 'rec',   tooltip: 'TrueBrief learns which sources update most and adjusts scan frequency automatically.' },
   { label: 'Daily',           badge: 'Free',        style: 'free' },
-  { label: 'Hourly',          badge: 'Pro',         style: 'pro',  tooltip: 'Scans every hour. Best for fast-moving topics.' },
-  { label: 'Custom interval', badge: 'Pro',         style: 'pro' },
+  { label: 'Hourly',         badge: 'Pro',          style: 'pro',   tooltip: 'Scans every hour. Best for fast-moving topics.' },
+  { label: 'Every 15 min',   badge: 'Power',        style: 'power', tooltip: 'Maximum scan frequency. Best for breaking news and live events.' },
+  { label: 'Custom interval', badge: 'Coming soon', style: 'dim',   disabled: true },
 ];
+
+const FREQUENCY_INTERVAL: Record<string, number | null> = {
+  'Auto':           null,   // backend decides via AYR
+  'Daily':          86400,
+  'Hourly':         3600,
+  'Every 15 min':   900,
+  'Custom interval': null,
+};
 
 const COVERAGE_OPTIONS = [
   { label: 'Quick',    badge: 'Free',        style: 'free' },
@@ -32,19 +41,23 @@ const STATIC_PILLS = [
 ];
 
 const BADGE: Record<string, React.CSSProperties> = {
-  rec:  { background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-tertiary)', color: 'var(--color-text-tertiary)' },
-  free: { background: 'var(--color-background-success)', color: 'var(--color-text-success)' },
-  pro:  { background: 'var(--color-background-info)', color: 'var(--color-text-info)' },
+  rec:   { background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-tertiary)', color: 'var(--color-text-tertiary)' },
+  free:  { background: 'var(--color-background-success)', color: 'var(--color-text-success)' },
+  pro:   { background: 'var(--color-background-info)', color: 'var(--color-text-info)' },
+  power: { background: '#FEF3C7', color: '#92400E' },
+  dim:   { background: 'var(--color-background-secondary)', color: 'var(--color-text-tertiary)', border: '0.5px solid var(--color-border-tertiary)' },
 };
 
 interface SharedTopic { id: string; name: string; subscriber_count: number; }
 
 // ── Dropdown panel ─────────────────────────────────────────────────────────
 
+type FrequencyOption = { label: string; badge: string; style: string; tooltip?: string; disabled?: boolean };
+
 function DropdownPanel({
   options, selected, onSelect,
 }: {
-  options: typeof FREQUENCY_OPTIONS;
+  options: FrequencyOption[];
   selected: string;
   onSelect: (l: string) => void;
 }) {
@@ -55,39 +68,45 @@ function DropdownPanel({
       borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-secondary)',
       borderRadius: 12, background: 'var(--color-background-primary)', overflow: 'hidden',
     }}>
-      {options.map((opt, i) => (
-        <div
-          key={opt.label}
-          onClick={() => onSelect(opt.label)}
-          style={{
-            padding: '10px 14px', cursor: 'pointer',
-            borderBottom: i < options.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none',
-            background: selected === opt.label ? 'var(--color-background-secondary)' : 'transparent',
-          }}
-          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-secondary)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = selected === opt.label ? 'var(--color-background-secondary)' : 'transparent'; }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{opt.label}</span>
-              {opt.tooltip && (
-                <span
-                  onClick={e => { e.stopPropagation(); setTip(tip === opt.label ? null : opt.label); }}
-                  style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'help', userSelect: 'none' }}
-                >ⓘ</span>
-              )}
+      {options.map((opt, i) => {
+        const isDisabled = opt.disabled === true;
+        const isSelected = selected === opt.label;
+        return (
+          <div
+            key={opt.label}
+            onClick={() => { if (!isDisabled) onSelect(opt.label); }}
+            style={{
+              padding: '10px 14px',
+              cursor: isDisabled ? 'not-allowed' : 'pointer',
+              borderBottom: i < options.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none',
+              background: isSelected ? 'var(--color-background-secondary)' : 'transparent',
+              opacity: isDisabled ? 0.45 : 1,
+            }}
+            onMouseEnter={e => { if (!isDisabled) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-secondary)'; }}
+            onMouseLeave={e => { if (!isDisabled) (e.currentTarget as HTMLDivElement).style.background = isSelected ? 'var(--color-background-secondary)' : 'transparent'; }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: isDisabled ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)' }}>{opt.label}</span>
+                {opt.tooltip && !isDisabled && (
+                  <span
+                    onClick={e => { e.stopPropagation(); setTip(tip === opt.label ? null : opt.label); }}
+                    style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'help', userSelect: 'none' }}
+                  >ⓘ</span>
+                )}
+              </div>
+              <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, flexShrink: 0, ...BADGE[opt.style] }}>
+                {opt.badge}
+              </span>
             </div>
-            <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, flexShrink: 0, ...BADGE[opt.style] }}>
-              {opt.badge}
-            </span>
+            {tip === opt.label && opt.tooltip && (
+              <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--color-text-secondary)', background: 'var(--color-background-tertiary)', borderRadius: 6, padding: '5px 8px', lineHeight: 1.5 }}>
+                {opt.tooltip}
+              </p>
+            )}
           </div>
-          {tip === opt.label && opt.tooltip && (
-            <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--color-text-secondary)', background: 'var(--color-background-tertiary)', borderRadius: 6, padding: '5px 8px', lineHeight: 1.5 }}>
-              {opt.tooltip}
-            </p>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -144,7 +163,12 @@ export default function NewTopicPage() {
     setError(null);
     setNudge(false);
     try {
-      const res = await api.post('/topics', { raw_query: q });
+      const intervalSeconds = FREQUENCY_INTERVAL[frequency];
+      const payload: Record<string, unknown> = { raw_query: q };
+      if (intervalSeconds !== null && intervalSeconds !== undefined) {
+        payload.poll_interval_seconds = intervalSeconds;
+      }
+      const res = await api.post('/topics', payload);
       await qc.invalidateQueries({ queryKey: ['topics'] });
       // Store the first scan task_id so the topic page can show the progress bar
       if (res.data.scan_task_id) {

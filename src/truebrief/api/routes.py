@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 # --- Pydantic Models for API ---
 class TopicCreate(BaseModel):
     raw_query: str
-    poll_interval_seconds: int = 3600   # Default: scan every hour
+    poll_interval_seconds: Optional[int] = None  # None = use tier default
 
 class TopicResponse(BaseModel):
     id: str
@@ -130,11 +130,16 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         logger.info(f"Topic '{normalized_query}' already exists. Subscribing user.")
     else:
         # 2. Create new shared topic — no user_id, the subscription table owns ownership
-        _tier_interval_s = {"free": 86400, "pro": 3600, "power": 900}.get(tier_str, 3600)
+        _tier_floor_s = {"free": 86400, "pro": 3600, "power": 900}.get(tier_str, 3600)
+        if topic.poll_interval_seconds is not None:
+            # Clamp user-requested interval to their tier floor (can't go faster than tier allows)
+            _interval_s = max(topic.poll_interval_seconds, _tier_floor_s)
+        else:
+            _interval_s = _tier_floor_s
         data = {
             "raw_query": normalized_query,
             "user_id": val_uuid,  # kept as original-creator metadata only
-            "poll_interval_seconds": _tier_interval_s,
+            "poll_interval_seconds": _interval_s,
         }
 
         try:
