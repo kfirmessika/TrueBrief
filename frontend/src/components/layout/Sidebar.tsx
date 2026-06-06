@@ -1,11 +1,12 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
 import { useApi } from '@/lib/useApi';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Plus, Search, LayoutGrid, Settings,
+  Plus, Search, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2,
 } from 'lucide-react';
 
 interface Topic {
@@ -39,6 +40,11 @@ export default function Sidebar() {
   const { user } = useUser();
   const api = useApi();
 
+  const queryClient = useQueryClient();
+  const [hoveredTopic, setHoveredTopic] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
   const { data: topics = [] } = useQuery<Topic[]>({
     queryKey: ['topics'],
     queryFn: async () => {
@@ -47,6 +53,46 @@ export default function Sidebar() {
     },
     staleTime: 30_000,
   });
+
+  const deleteTopic = useMutation({
+    mutationFn: (id: string) => api.delete(`/topics/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['topics'] }),
+  });
+
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const scanTopic = useMutation({
+    mutationFn: (id: string) => api.post<{ task_id: string }>(`/topics/${id}/scan`),
+    onSuccess: (data, topicId) => {
+      setScanError(null);
+      if (data?.data?.task_id) {
+        localStorage.setItem(`scan_task_${topicId}`, data.data.task_id);
+      }
+    },
+    onError: (err: any, topicId) => {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail ?? '';
+      if (status === 429) {
+        // Parse "next scan available in X hours" from detail if present
+        const hoursMatch = detail.match(/(\d+(?:\.\d+)?)\s*hour/i);
+        const msg = hoursMatch
+          ? `Next scan available in ${Math.ceil(parseFloat(hoursMatch[1]))}h (plan limit)`
+          : 'Scan rate limit reached. Upgrade for more frequent scans.';
+        setScanError(topicId + ':' + msg);
+        setTimeout(() => setScanError(null), 5000);
+      }
+    },
+  });
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpenMenu(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   const isDashboard = pathname === '/dashboard';
   const isNewTopic  = pathname === '/topics/new';
@@ -141,17 +187,20 @@ export default function Sidebar() {
 
       {topics.map(topic => {
         const isActive = activeTopic === topic.id;
+        const isHovered = hoveredTopic === topic.id;
+        const menuOpen = openMenu === topic.id;
         return (
           <div
             key={topic.id}
             onClick={() => router.push(`/topics/${topic.id}`)}
+            onMouseEnter={() => setHoveredTopic(topic.id)}
+            onMouseLeave={() => { setHoveredTopic(null); }}
             style={{
+              position: 'relative',
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '6px 12px', margin: '1px 8px', borderRadius: 8, cursor: 'pointer',
-              background: isActive ? 'var(--color-background-primary)' : 'transparent',
+              background: isActive ? 'var(--color-background-primary)' : (isHovered ? 'var(--color-background-tertiary)' : 'transparent'),
             }}
-            onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
-            onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
           >
             <StatusDot topic={topic} />
             <span style={{
@@ -160,6 +209,71 @@ export default function Sidebar() {
             }}>
               {topic.raw_query}
             </span>
+
+            {/* 3-dots button — visible only on hover or when menu is open */}
+            {(isHovered || menuOpen) && (
+              <button
+                onClick={e => { e.stopPropagation(); setOpenMenu(menuOpen ? null : topic.id); }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '2px 2px',
+                  borderRadius: 4, display: 'flex', alignItems: 'center', color: 'var(--color-text-secondary)',
+                  flexShrink: 0,
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-border-secondary)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+              >
+                <MoreHorizontal size={14} />
+              </button>
+            )}
+
+            {/* Dropdown menu */}
+            {menuOpen && (
+              <div
+                ref={menuRef}
+                onClick={e => e.stopPropagation()}
+                style={{
+                  position: 'absolute', right: 8, top: '100%', zIndex: 100,
+                  background: 'var(--color-background-primary)',
+                  border: '1px solid var(--color-border-secondary)',
+                  borderRadius: 8, padding: '4px', minWidth: 130,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                }}
+              >
+                <button
+                  onClick={() => { scanTopic.mutate(topic.id); setOpenMenu(null); }}
+                  style={{
+                    width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '7px 10px', borderRadius: 6,
+                    fontSize: 13, color: 'var(--color-text-primary)', textAlign: 'left',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                >
+                  <ScanSearch size={13} />
+                  Scan
+                </button>
+                {scanError?.startsWith(topic.id + ':') && (
+                  <div style={{ fontSize: 11, color: '#B45309', padding: '2px 10px 6px', lineHeight: 1.4 }}>
+                    {scanError.slice(topic.id.length + 1)}
+                  </div>
+                )}
+                <button
+                  onClick={() => { if (confirm(`Delete "${topic.raw_query}"?`)) { deleteTopic.mutate(topic.id); setOpenMenu(null); } }}
+                  style={{
+                    width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '7px 10px', borderRadius: 6,
+                    fontSize: 13, color: 'var(--tb-coral-dot)', textAlign: 'left',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                >
+                  <Trash2 size={13} />
+                  Delete
+                </button>
+              </div>
+            )}
           </div>
         );
       })}

@@ -146,6 +146,10 @@ export default function NewTopicPage() {
     try {
       const res = await api.post('/topics', { raw_query: q });
       await qc.invalidateQueries({ queryKey: ['topics'] });
+      // Store the first scan task_id so the topic page can show the progress bar
+      if (res.data.scan_task_id) {
+        localStorage.setItem(`scan_task_${res.data.id}`, res.data.scan_task_id);
+      }
       router.push(`/topics/${res.data.id}`);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;

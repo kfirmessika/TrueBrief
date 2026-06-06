@@ -24,6 +24,14 @@ import os
 
 from celery import Celery
 
+# Load .env before reading any env vars — this file is the entry point when
+# Celery worker/beat launch, so load_dotenv() must happen here.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 # ── Redis / Broker URL ────────────────────────────────────────────────────────

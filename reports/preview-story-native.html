@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrueBrief — Story-Native (Mastermind Mockup)</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #F2F0EB;
+  color: #1A1917;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 20px 100px;
+}
+.shell { width: 100%; max-width: 640px; }
+
+/* ── Topic header */
+.topic-header {
+  padding: 0 4px 20px;
+  border-bottom: 1px solid #E0DED6;
+  margin-bottom: 24px;
+}
+.topic-name {
+  font-size: 22px; font-weight: 700;
+  letter-spacing: -0.02em; color: #1A1917;
+  margin-bottom: 4px;
+}
+.topic-stats {
+  display: flex; gap: 14px; align-items: center;
+  font-size: 11px; color: #888;
+}
+.stat { display: flex; align-items: center; gap: 4px; }
+.stat-dot { width: 5px; height: 5px; border-radius: 50%; background: #0F6E56; }
+.scan-btn {
+  margin-left: auto;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: #0F6E56;
+  background: none; border: 1px solid #BBE5D2;
+  border-radius: 4px; padding: 6px 12px; cursor: pointer;
+}
+.scan-btn:hover { background: #E6F5EE; }
+
+/* ── Section labels */
+.section-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: #888;
+  margin: 28px 0 12px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-label::after {
+  content: ''; flex: 1; height: 1px; background: #E0DED6;
+}
+
+/* ── Story card (active — has delta today) */
+.story {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #E5E3DC;
+  padding: 0;
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.story:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* Story header bar */
+.story-head {
+  padding: 12px 18px 10px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #F1EFE8;
+  background: #FAFAF8;
+}
+.story-pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #0F6E56;
+  box-shadow: 0 0 0 4px #E6F5EE;
+  flex-shrink: 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 4px #E6F5EE; }
+  50% { box-shadow: 0 0 0 6px #D9F0E5; }
+}
+.story-title {
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: #1A1917; flex: 1;
+}
+.story-meta {
+  font-size: 10px; color: #999;
+  display: flex; align-items: center; gap: 5px;
+}
+
+/* The DELTA block — the new thing */
+.delta {
+  padding: 14px 18px 12px;
+  background: #FBFCF9;
+  border-left: 3px solid #0F6E56;
+  margin: 0 0 0 0;
+}
+.delta-label {
+  font-size: 9px; font-weight: 800;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: #0F6E56; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.delta-label::before {
+  content: '↑'; font-size: 11px; font-weight: 900;
+}
+.delta-text {
+  font-size: 14px; line-height: 1.5; color: #1A1917;
+  font-weight: 500; margin-bottom: 8px;
+}
+.delta-meta {
+  font-size: 11px; color: #6B6963;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; color: #6B6963;
+  border: 0.5px solid #E0DED6; border-radius: 4px;
+  padding: 2px 6px; background: #fff;
+}
+.chip img { width: 11px; height: 11px; border-radius: 2px; }
+
+/* The STORY-SO-FAR block — the rolling summary, your hidden asset */
+.context {
+  padding: 12px 18px 14px;
+  border-top: 1px dashed #E5E3DC;
+  background: #fff;
+}
+.context-label {
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: #B0AEA8; margin-bottom: 4px;
+}
+.context-text {
+  font-size: 12.5px; line-height: 1.55; color: #6B6963;
+}
+.context-foot {
+  margin-top: 8px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 10px; color: #B0AEA8;
+}
+.context-foot a {
+  color: #0F6E56; text-decoration: none; font-weight: 600;
+  cursor: pointer;
+}
+.context-foot a:hover { text-decoration: underline; }
+
+/* "NEW STORY" state — no prior context */
+.story.brand-new .delta-label { color: #B86A1F; }
+.story.brand-new .delta { border-left-color: #EF9F27; }
+.story.brand-new .delta-label::before { content: '✦'; }
+.story.brand-new .context {
+  display: flex; align-items: center; gap: 8px;
+  color: #C4C0B8; font-size: 11px; font-style: italic;
+}
+.story.brand-new .context-label { display: none; }
+.story.brand-new .context-text {
+  color: #C4C0B8; font-style: italic; font-size: 11px;
+}
+
+/* Quiet stories — collapsed, one line */
+.quiet-stories { margin-top: 4px; }
+.quiet {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 18px;
+  background: #fff;
+  border: 1px solid #EDEAE2;
+  border-radius: 8px;
+  margin-bottom: 5px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.quiet:hover { background: #FAFAF8; }
+.quiet-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #D0CEC6; flex-shrink: 0;
+}
+.quiet-title {
+  font-weight: 500; color: #6B6963;
+  flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-transform: uppercase; letter-spacing: 0.03em; font-size: 11px;
+}
+.quiet-age { font-size: 10px; color: #B0AEA8; }
+.quiet-arrow { font-size: 11px; color: #C4C0B8; }
+
+/* The footer that proves the system is watching */
+.watch-footer {
+  margin-top: 28px;
+  padding: 16px;
+  background: #fff;
+  border: 1px dashed #D0CEC6;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 12px; color: #888;
+  line-height: 1.6;
+}
+.watch-footer strong { color: #0F6E56; font-weight: 700; }
+
+/* Big "what makes this different" callout */
+.differentiator-banner {
+  background: #1A1917;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-bottom: 24px;
+  display: flex; align-items: center; gap: 12px;
+}
+.differentiator-banner strong {
+  color: #6BD4A8; font-weight: 700;
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Annotation banner (would be removed in production — just for the mockup) -->
+  <div class="differentiator-banner">
+    <strong>Mockup note</strong>
+    <span style="opacity:0.85">Organized by <em>story</em>, not by <em>brief</em>. The recursive summary (your hidden asset) is foregrounded as "Story so far." Quiet stories collapse to prove the noise-filtering is working.</span>
+  </div>
+
+  <!-- Topic header -->
+  <div class="topic-header">
+    <div class="topic-name">AI &amp; OpenAI</div>
+    <div class="topic-stats">
+      <div class="stat"><div class="stat-dot"></div> 2 stories moved today</div>
+      <div class="stat">5 active</div>
+      <div class="stat">last scan 22m ago</div>
+      <button class="scan-btn">↻ Scan now</button>
+    </div>
+  </div>
+
+  <!-- ════════════ SECTION: Active today ════════════ -->
+  <div class="section-label">Moved today</div>
+
+  <!-- Story 1: Update to an existing story (the killer case) -->
+  <div class="story">
+    <div class="story-head">
+      <div class="story-pulse"></div>
+      <div class="story-title">OpenAI Funding Round</div>
+      <div class="story-meta">7 facts · started Mar 12</div>
+    </div>
+
+    <div class="delta">
+      <div class="delta-label">New today · 2h ago</div>
+      <div class="delta-text">SoftBank closes the round at $40B, valuing OpenAI at $300B — the largest private tech round ever recorded.</div>
+      <div class="delta-meta">
+        <div class="chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />nytimes.com</div>
+        <div class="chip"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />ft.com</div>
+        <div class="chip"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />reuters.com</div>
+        <span style="color:#0F6E56; font-weight:600; font-size:10px;">verified by 3 sources</span>
+      </div>
+    </div>
+
+    <div class="context">
+      <div class="context-label">Story so far</div>
+      <div class="context-text">OpenAI has been fundraising since Q1 2026 across four rounds — Microsoft ($10B, Jan), Thrive ($1.5B tender, Feb), Sequoia consortium ($3B, Apr), and now SoftBank. Cumulative raise of ~$54.5B since incorporation. Altman first publicly floated the $300B valuation in March; today's close confirms it.</div>
+      <div class="context-foot">
+        <a>▸ See all 7 facts</a>
+        <span>·</span>
+        <span>Last update before today: 3 days ago</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Story 2: Brand new (no prior context) -->
+  <div class="story brand-new">
+    <div class="story-head">
+      <div class="story-pulse" style="background:#EF9F27; box-shadow:0 0 0 4px #FEF3DC;"></div>
+      <div class="story-title">FTC Antitrust Probe — Microsoft/OpenAI</div>
+      <div class="story-meta">2 facts · started today</div>
+    </div>
+
+    <div class="delta">
+      <div class="delta-label" style="color:#B86A1F;">New story · 5h ago</div>
+      <div class="delta-text">The FTC has opened an antitrust probe into Microsoft's exclusive cloud deal with OpenAI, focused on whether Azure exclusivity blocks AI competition.</div>
+      <div class="delta-meta">
+        <div class="chip"><img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32" />washingtonpost.com</div>
+        <div class="chip"><img src="https://www.google.com/s2/favicons?domain=bloomberg.com&sz=32" />bloomberg.com</div>
+        <span style="color:#B86A1F; font-weight:600; font-size:10px;">verified by 2 sources</span>
+      </div>
+    </div>
+
+    <div class="context">
+      <div class="context-text">First time we've seen this story. No prior context.</div>
+    </div>
+  </div>
+
+  <!-- ════════════ SECTION: Quiet — proves noise filtering ════════════ -->
+  <div class="section-label">Quiet — no movement</div>
+
+  <div class="quiet-stories">
+    <div class="quiet">
+      <div class="quiet-dot"></div>
+      <div class="quiet-title">GPT-5 Benchmarks</div>
+      <span class="quiet-age">no change · 3d</span>
+      <span class="quiet-arrow">▸</span>
+    </div>
+    <div class="quiet">
+      <div class="quiet-dot"></div>
+      <div class="quiet-title">EU AI Act Registration</div>
+      <span class="quiet-age">no change · 5d</span>
+      <span class="quiet-arrow">▸</span>
+    </div>
+    <div class="quiet">
+      <div class="quiet-dot"></div>
+      <div class="quiet-title">Altman Senate Testimony</div>
+      <span class="quiet-age">no change · 7d</span>
+      <span class="quiet-arrow">▸</span>
+    </div>
+  </div>
+
+  <!-- The signature footer — proves the system is watching even when nothing happened -->
+  <div class="watch-footer">
+    <strong>We checked 47 articles since your last visit.</strong><br/>
+    2 stories moved · 3 stayed quiet · 0 noise made it through the filter.
+  </div>
+
+</div>
+</body>
+</html>

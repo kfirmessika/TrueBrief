@@ -19,11 +19,80 @@ Usage from Python:
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import time
+import uuid
 
 from truebrief.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# ── Thread-based fallback (used when REDIS_URL is not set) ──────────────────
+# Maps task_id → {"state": "PENDING"|"STARTED"|"SUCCESS"|"FAILURE", "result": ...}
+_thread_tasks: dict[str, dict] = {}
+_thread_tasks_lock = threading.Lock()
+
+
+def _has_redis() -> bool:
+    return bool(os.getenv("REDIS_URL", "").strip())
+
+
+class _ThreadTaskHandle:
+    """Mimics the .id attribute of a Celery AsyncResult so callers are identical."""
+    def __init__(self, task_id: str):
+        self.id = task_id
+
+
+def enqueue_pipeline(topic_id: str, raw_query: str) -> _ThreadTaskHandle:
+    """
+    Queue the pipeline. Uses Celery when Redis is available, otherwise runs
+    in a background thread so the API process itself executes the work.
+    """
+    if _has_redis():
+        task = run_pipeline_task.delay(topic_id=topic_id, raw_query=raw_query)
+        return _ThreadTaskHandle(task.id)
+
+    task_id = str(uuid.uuid4())
+    with _thread_tasks_lock:
+        _thread_tasks[task_id] = {"state": "PENDING", "result": None}
+
+    def _run():
+        with _thread_tasks_lock:
+            _thread_tasks[task_id]["state"] = "STARTED"
+        try:
+            # Import here to avoid circular imports at module load time
+            from truebrief.pipeline.runner import PipelineRunner
+            runner = PipelineRunner()
+            brief_content = runner.run(raw_query, topic_id=topic_id)
+            if brief_content and not brief_content.startswith("Topic rejected:"):
+                _save_brief(topic_id, brief_content)
+            with _thread_tasks_lock:
+                _thread_tasks[task_id] = {"state": "SUCCESS", "result": {"status": "success"}}
+            # Update last_scan_at on the topic
+            try:
+                from truebrief.ledger.database import get_supabase
+                from datetime import datetime, timezone
+                get_supabase().table("topics").update(
+                    {"last_run_at": datetime.now(timezone.utc).isoformat()}
+                ).eq("id", topic_id).execute()
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.error(f"[THREAD] Pipeline FAILED for topic {topic_id}: {exc}", exc_info=True)
+            with _thread_tasks_lock:
+                _thread_tasks[task_id] = {"state": "FAILURE", "result": {"error": str(exc)}}
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    logger.info(f"[THREAD] Pipeline started in thread for topic {topic_id}, task_id={task_id}")
+    return _ThreadTaskHandle(task_id)
+
+
+def get_thread_task_state(task_id: str) -> dict | None:
+    """Return state dict for a thread-based task, or None if not found."""
+    with _thread_tasks_lock:
+        return _thread_tasks.get(task_id)
 
 
 @celery_app.task(
@@ -112,22 +181,34 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
         except Exception as ayr_err:
             logger.warning(f"[TASK] AYR recalibration skipped: {ayr_err}")
 
-        # Fire web push notification (fire-and-forget)
+        # Fire web push notification to all subscribers (fire-and-forget)
         try:
             from truebrief.ledger.database import get_supabase as _get_db
             from truebrief.tasks.push_task import send_push_notifications_task
 
             _db = _get_db()
-            _topic_res = _db.table("topics").select("user_id, raw_query").eq("id", topic_id).execute()
-            if _topic_res.data:
-                _row = _topic_res.data[0]
-                send_push_notifications_task.delay(
-                    user_id=str(_row["user_id"]),
-                    topic_name=_row["raw_query"],
-                    brief_id=str(brief_id) if brief_id else "",
-                )
+            _topic_res = _db.table("topics").select("raw_query").eq("id", topic_id).execute()
+            _subs_res = _db.table("topic_subscriptions").select("user_id").eq("topic_id", topic_id).execute()
+            if _topic_res.data and _subs_res.data:
+                _topic_name = _topic_res.data[0]["raw_query"]
+                for _sub in _subs_res.data:
+                    send_push_notifications_task.delay(
+                        user_id=str(_sub["user_id"]),
+                        topic_name=_topic_name,
+                        brief_id=str(brief_id) if brief_id else "",
+                    )
         except Exception as push_err:
             logger.warning(f"[TASK] Push notification skipped: {push_err}")
+
+        # Update last_run_at so the frontend can show "Last scanned X ago"
+        try:
+            from truebrief.ledger.database import get_supabase as _get_db2
+            from datetime import datetime, timezone
+            _get_db2().table("topics").update(
+                {"last_run_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("id", topic_id).execute()
+        except Exception as _ts_err:
+            logger.warning(f"[TASK] Could not update last_run_at: {_ts_err}")
 
         logger.info(f"[TASK] Pipeline SUCCESS for topic {topic_id}. Brief ID: {brief_id}")
         return {

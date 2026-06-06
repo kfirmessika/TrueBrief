@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrueBrief — Design Preview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #F9F8F5;
+    color: #1A1917;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar (unchanged) ── */
+  .sidebar {
+    width: 232px;
+    min-width: 232px;
+    background: #F1EFE8;
+    border-right: 1px solid #E5E3DC;
+    display: flex;
+    flex-direction: column;
+    padding: 10px 0;
+    gap: 2px;
+  }
+  .sidebar-logo {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px 12px;
+    font-size: 14px; font-weight: 600; color: #1A1917;
+  }
+  .logo-mark {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: #0F6E56; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; letter-spacing: -0.5px;
+  }
+  .sidebar-btn {
+    margin: 0 8px 8px;
+    padding: 7px 12px; border-radius: 8px;
+    background: #0F6E56; color: #fff;
+    font-size: 12px; font-weight: 500;
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+  }
+  .sidebar-section {
+    font-size: 10px; color: #9B9B9B;
+    padding: 8px 14px 3px; letter-spacing: 0.06em;
+    text-transform: uppercase; font-weight: 500;
+  }
+  .sidebar-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; margin: 1px 8px; border-radius: 8px;
+    font-size: 13px; color: #1A1917; cursor: pointer;
+  }
+  .sidebar-item.active { background: #fff; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: #D0CEC6;
+  }
+  .dot.green { background: #0F6E56; }
+
+  /* ── Main area ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  /* ── Sticky header ── */
+  .topic-header {
+    padding: 16px 32px 12px;
+    border-bottom: 1px solid #E5E3DC;
+    flex-shrink: 0;
+  }
+  .topic-title { font-size: 17px; font-weight: 500; margin-bottom: 4px; }
+  .topic-meta {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #9B9B9B;
+  }
+  .freq-badge {
+    font-size: 10px; border: 0.5px solid #D0CEC6;
+    color: #6B6963; padding: 1px 6px; border-radius: 10px;
+  }
+
+  /* ── DESIGN A: Current (bubbles) ── */
+  .design-label {
+    text-align: center;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #9B9B9B;
+    padding: 12px 0 6px;
+    border-bottom: 1px solid #E5E3DC;
+    background: #F9F8F5;
+    flex-shrink: 0;
+  }
+
+  .thread {
+    flex: 1; overflow-y: auto;
+    padding: 24px 32px 48px;
+  }
+
+  /* Current bubble style */
+  .date-sep {
+    display: flex; align-items: center; gap: 10px;
+    margin: 28px 0 20px; color: #9B9B9B; font-size: 11px;
+  }
+  .date-sep::before, .date-sep::after {
+    content: ''; flex: 1; height: 0.5px; background: #E5E3DC;
+  }
+
+  .bubble-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px 20px 14px;
+    border: 1px solid #E5E3DC;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    margin-bottom: 32px;
+  }
+  .badge-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 4px 0 14px;
+  }
+  .badge {
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px;
+  }
+  .badge.new { background: #E6F5EE; color: #1A7A52; }
+  .badge.update { background: #EEF3FB; color: #2B5FA5; }
+  .badge-line { flex: 1; height: 0.5px; background: #E5E3DC; }
+  .section-title { font-size: 13px; font-weight: 650; margin: 0 0 6px; }
+  .bullet {
+    font-size: 13px; color: #1A1917; line-height: 1.55;
+    margin-bottom: 6px; padding-left: 14px; position: relative;
+  }
+  .bullet::before { content: '•'; position: absolute; left: 0; color: #9B9B9B; }
+  .chip-row { display: flex; gap: 4px; margin: 6px 0 14px 14px; flex-wrap: wrap; }
+  .chip {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #6B6963;
+    border: 0.5px solid #D0CEC6; border-radius: 5px;
+    padding: 2px 7px;
+    background: #fff;
+  }
+  .chip img { width: 11px; height: 11px; border-radius: 2px; }
+  .brief-footer {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 8px; padding-left: 2px;
+  }
+  .brief-footer img { width: 14px; height: 14px; border-radius: 3px; opacity: 0.7; }
+  .brief-footer .ts { font-size: 11px; color: #9B9B9B; margin-left: auto; }
+
+  /* ══════════════════════════════════════════════════
+     DESIGN B: Timeline Feed
+  ══════════════════════════════════════════════════ */
+  .timeline {
+    flex: 1; overflow-y: auto;
+    padding: 0 0 48px;
+    position: relative;
+  }
+
+  .tl-day-header {
+    font-size: 11px; font-weight: 600; color: #9B9B9B;
+    letter-spacing: 0.07em; text-transform: uppercase;
+    padding: 28px 32px 16px 72px;
+  }
+
+  .tl-entry {
+    display: flex;
+    padding: 0 32px 0 0;
+    position: relative;
+  }
+
+  /* Left gutter: time + line + dot */
+  .tl-gutter {
+    width: 72px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding-top: 2px;
+  }
+  .tl-time {
+    font-size: 10px; color: #9B9B9B;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    margin-bottom: 8px;
+  }
+  .tl-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #0F6E56; flex-shrink: 0;
+    position: relative; z-index: 1;
+  }
+  .tl-line {
+    width: 1px;
+    flex: 1;
+    background: #E5E3DC;
+    margin-top: 4px;
+  }
+
+  /* Right content */
+  .tl-content {
+    flex: 1;
+    padding: 0 0 36px 16px;
+    border-bottom: none;
+  }
+  .tl-entry:not(:last-child) .tl-content {
+    border-bottom: none;
+  }
+
+  /* Section inside a timeline entry */
+  .tl-section {
+    margin-bottom: 18px;
+  }
+  .tl-section-title {
+    font-size: 13px; font-weight: 650;
+    color: #1A1917; margin: 0 0 5px;
+    letter-spacing: 0.01em;
+  }
+  .tl-bullet {
+    font-size: 13px; color: #3A3835; line-height: 1.58;
+    margin-bottom: 5px; padding-left: 14px; position: relative;
+  }
+  .tl-bullet::before { content: '•'; position: absolute; left: 0; color: #C0BDB5; }
+  .tl-chips { display: flex; gap: 4px; margin: 5px 0 0 14px; flex-wrap: wrap; }
+
+  /* New/update label in timeline — subtle, inline next to time */
+  .tl-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 12px;
+    margin-bottom: 14px;
+    letter-spacing: 0.02em;
+  }
+  .tl-badge.new { background: #E6F5EE; color: #1A7A52; }
+  .tl-badge.update { background: #EEF3FB; color: #2B5FA5; }
+
+  .tl-footer {
+    display: flex; align-items: center; gap: 5px;
+    margin-top: 10px;
+  }
+  .tl-footer img { width: 13px; height: 13px; border-radius: 2px; opacity: 0.65; }
+
+  /* ── Switcher tabs ── */
+  .switcher {
+    display: flex; gap: 0;
+    background: #F1EFE8;
+    border-bottom: 1px solid #E5E3DC;
+    flex-shrink: 0;
+  }
+  .sw-tab {
+    flex: 1; padding: 9px 0;
+    text-align: center;
+    font-size: 11px; font-weight: 500; color: #9B9B9B;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .sw-tab.active {
+    color: #0F6E56; border-bottom-color: #0F6E56;
+    background: #fff;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════ CURRENT DESIGN ══════════ -->
+<div style="display:flex; flex-direction:column; width:50%; border-right: 2px solid #D0CEC6;">
+
+  <!-- Sidebar + main side by side -->
+  <div style="display:flex; flex:1; overflow:hidden;">
+
+    <div class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-mark">TB</div>
+        TrueBrief
+      </div>
+      <div class="sidebar-btn">＋ New topic</div>
+      <div class="sidebar-section">My topics</div>
+      <div class="sidebar-item"><div class="dot green"></div>iran war</div>
+      <div class="sidebar-item active"><div class="dot"></div>trump</div>
+    </div>
+
+    <div class="main">
+      <div class="design-label">❌ Current — Chat Bubbles</div>
+      <div class="topic-header">
+        <div class="topic-title">iran war</div>
+        <div class="topic-meta">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9B9B9B" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Last scanned 22m ago
+          <span class="freq-badge">medium</span>
+        </div>
+      </div>
+
+      <div class="thread">
+        <div class="date-sep">Jun 5</div>
+
+        <div class="bubble-card">
+          <div class="badge-row">
+            <span class="badge new">6 new</span>
+            <div class="badge-line"></div>
+          </div>
+          <div class="section-title">Military Escalation: U.S.–Iran Hostilities</div>
+          <div class="bullet">U.S. Central Command conducted "self-defense" strikes on Iranian military infrastructure, targeting radar and command-and-control sites at Qeshm Island.</div>
+          <div class="chip-row">
+            <div class="chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />nytimes.com</div>
+            <div class="chip"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />reuters.com</div>
+          </div>
+          <div class="section-title">Regional Impact: Attack on Kuwait Airport</div>
+          <div class="bullet">An Iranian missile and drone attack on Kuwait's international airport resulted in one fatality and dozens of injuries.</div>
+          <div class="chip-row">
+            <div class="chip"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />ft.com</div>
+          </div>
+          <div class="section-title">Conflicting Narratives on Military Intent</div>
+          <div class="bullet">While U.S. Central Command justifies its actions as self-defense, Iran labels the strikes as unprovoked aggression.</div>
+          <div class="chip-row">
+            <div class="chip"><img src="https://www.google.com/s2/favicons?domain=bbc.com&sz=32" />bbc.com</div>
+          </div>
+          <div class="brief-footer">
+            <img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />
+            <img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />
+            <img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />
+            <img src="https://www.google.com/s2/favicons?domain=bbc.com&sz=32" />
+            <span class="ts">2:25 PM</span>
+          </div>
+        </div>
+
+        <div class="bubble-card">
+          <div class="badge-row">
+            <span class="badge update">2 updates</span>
+            <div class="badge-line"></div>
+          </div>
+          <div class="section-title">Ceasefire Talks Stall</div>
+          <div class="bullet">Mediation efforts led by Qatar have broken down following the Kuwait strike, with both sides refusing further dialogue.</div>
+          <div class="chip-row">
+            <div class="chip"><img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32" />washingtonpost.com</div>
+          </div>
+          <div class="brief-footer">
+            <img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32" />
+            <span class="ts">9:10 AM</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ NEW DESIGN ══════════ -->
+<div style="display:flex; flex-direction:column; width:50%;">
+
+  <div style="display:flex; flex:1; overflow:hidden;">
+
+    <div class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-mark">TB</div>
+        TrueBrief
+      </div>
+      <div class="sidebar-btn">＋ New topic</div>
+      <div class="sidebar-section">My topics</div>
+      <div class="sidebar-item"><div class="dot green"></div>iran war</div>
+      <div class="sidebar-item active"><div class="dot"></div>trump</div>
+    </div>
+
+    <div class="main">
+      <div class="design-label">✅ New — Timeline Feed</div>
+      <div class="topic-header">
+        <div class="topic-title">iran war</div>
+        <div class="topic-meta">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9B9B9B" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Last scanned 22m ago
+          <span class="freq-badge">medium</span>
+        </div>
+      </div>
+
+      <div class="timeline">
+        <div class="tl-day-header">Thursday, June 5</div>
+
+        <!-- Entry 1 -->
+        <div class="tl-entry">
+          <div class="tl-gutter">
+            <div class="tl-time">2:25 PM</div>
+            <div class="tl-dot"></div>
+            <div class="tl-line"></div>
+          </div>
+          <div class="tl-content">
+            <div class="tl-badge new">6 new stories</div>
+
+            <div class="tl-section">
+              <div class="tl-section-title">Military Escalation: U.S.–Iran Hostilities</div>
+              <div class="tl-bullet">U.S. Central Command conducted "self-defense" strikes on Iranian military infrastructure, targeting radar and command-and-control sites at Qeshm Island.</div>
+              <div class="tl-chips">
+                <div class="chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />nytimes.com</div>
+                <div class="chip"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />reuters.com</div>
+              </div>
+            </div>
+
+            <div class="tl-section">
+              <div class="tl-section-title">Regional Impact: Attack on Kuwait Airport</div>
+              <div class="tl-bullet">An Iranian missile and drone attack on Kuwait's international airport resulted in one fatality and dozens of injuries.</div>
+              <div class="tl-chips">
+                <div class="chip"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />ft.com</div>
+              </div>
+            </div>
+
+            <div class="tl-section">
+              <div class="tl-section-title">Conflicting Narratives on Military Intent</div>
+              <div class="tl-bullet">While U.S. Central Command justifies its actions as self-defense, Iran labels the strikes as unprovoked aggression.</div>
+              <div class="tl-chips">
+                <div class="chip"><img src="https://www.google.com/s2/favicons?domain=bbc.com&sz=32" />bbc.com</div>
+              </div>
+            </div>
+
+            <div class="tl-footer">
+              <img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />
+              <img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />
+              <img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />
+              <img src="https://www.google.com/s2/favicons?domain=bbc.com&sz=32" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Entry 2 -->
+        <div class="tl-entry">
+          <div class="tl-gutter">
+            <div class="tl-time">9:10 AM</div>
+            <div class="tl-dot"></div>
+            <div class="tl-line"></div>
+          </div>
+          <div class="tl-content">
+            <div class="tl-badge update">2 updates</div>
+
+            <div class="tl-section">
+              <div class="tl-section-title">Ceasefire Talks Stall</div>
+              <div class="tl-bullet">Mediation efforts led by Qatar have broken down following the Kuwait strike, with both sides refusing further dialogue.</div>
+              <div class="tl-chips">
+                <div class="chip"><img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32" />washingtonpost.com</div>
+              </div>
+            </div>
+
+            <div class="tl-footer">
+              <img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32" />
+            </div>
+          </div>
+        </div>
+
+        <div class="tl-day-header">Wednesday, June 4</div>
+
+        <!-- Entry 3 -->
+        <div class="tl-entry">
+          <div class="tl-gutter">
+            <div class="tl-time">6:00 PM</div>
+            <div class="tl-dot"></div>
+            <div class="tl-line"></div>
+          </div>
+          <div class="tl-content">
+            <div class="tl-badge new">4 new stories</div>
+
+            <div class="tl-section">
+              <div class="tl-section-title">Drone Interceptions Over Persian Gulf</div>
+              <div class="tl-bullet">U.S. Navy destroyers intercepted 14 Iranian drones in international waters over a 6-hour period, Pentagon confirms.</div>
+              <div class="tl-chips">
+                <div class="chip"><img src="https://www.google.com/s2/favicons?domain=apnews.com&sz=32" />apnews.com</div>
+                <div class="chip"><img src="https://www.google.com/s2/favicons?domain=military.com&sz=32" />military.com</div>
+              </div>
+            </div>
+
+            <div class="tl-footer">
+              <img src="https://www.google.com/s2/favicons?domain=apnews.com&sz=32" />
+              <img src="https://www.google.com/s2/favicons?domain=military.com&sz=32" />
+            </div>
+          </div>
+        </div>
+
+      </div><!-- end timeline -->
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

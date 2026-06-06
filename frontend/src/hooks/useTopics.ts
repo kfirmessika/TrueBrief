@@ -57,6 +57,22 @@ export function useDeleteTopic() {
 }
 
 /**
+ * Mark all unread briefs for a topic as read.
+ * Call when the user opens the topic page.
+ */
+export function useMarkBriefsRead() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (topicId: string) => api.post(`/topics/${topicId}/briefs/mark-read`),
+    onSuccess: () => {
+      // Refresh dashboard so the topic disappears (or new_count drops to 0)
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+/**
  * Hook to trigger a manual scan for a topic.
  */
 export function useTriggerScan() {
@@ -74,7 +90,7 @@ export function useTriggerScan() {
 /**
  * Hook to poll the status of a background scan task.
  */
-export function useScanStatus(taskId: string | null) {
+export function useScanStatus(taskId: string | null, topicId?: string) {
   const api = useApi();
   const queryClient = useQueryClient();
 
@@ -88,11 +104,15 @@ export function useScanStatus(taskId: string | null) {
     refetchInterval: (query) => {
       const data = query.state.data as any;
       if (data?.state === 'SUCCESS' || data?.state === 'FAILURE') {
-        // If finished, refresh the topics list to get updated last_scan_at
+        // Invalidate both the sidebar topics list AND the single topic + briefs
         queryClient.invalidateQueries({ queryKey: ['topics'] });
+        if (topicId) {
+          queryClient.invalidateQueries({ queryKey: ['topic', topicId] });
+          queryClient.invalidateQueries({ queryKey: ['topic-briefs', topicId] });
+        }
         return false;
       }
-      return 2000; // Poll every 2 seconds
+      return 2000;
     },
   });
 }

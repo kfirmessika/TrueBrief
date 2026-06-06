@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrueBrief — Concept C Full</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #F2F0EB;
+  color: #1A1917;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px 100px;
+}
+.shell { width: 100%; max-width: 580px; }
+
+/* ── Topic header */
+.topic-header {
+  padding: 0 4px 18px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+}
+.topic-name { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; color: #1A1917; }
+.topic-meta { font-size: 11px; color: #9B9B9B; }
+
+/* ── Progress row */
+.progress-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 4px 20px;
+  font-size: 10px; color: #9B9B9B; letter-spacing: 0.04em;
+}
+.prog-bar { flex:1; height: 2px; background: #E0DED6; border-radius: 1px; overflow: hidden; }
+.prog-fill { height: 100%; background: #0F6E56; border-radius: 1px; }
+.prog-label { white-space: nowrap; }
+
+/* ── Chapter card */
+.chapter {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #EDEAE2;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+/* Chapter header row */
+.ch-header {
+  padding: 13px 16px;
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.ch-header:hover { background: #FAFAF7; }
+
+.ch-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  font-size: 10px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ch-num.active { background: #0F6E56; color: #fff; }
+.ch-num.done   { background: #E6F5EE; color: #0F6E56; font-size: 13px; }
+.ch-num.old    { background: #F1EFE8; color: #B0AEA8; }
+
+.ch-info { flex: 1; min-width: 0; }
+.ch-date  { font-size: 10px; color: #9B9B9B; margin-bottom: 1px; }
+.ch-summary { font-size: 13px; font-weight: 500; color: #1A1917; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-summary.faded { color: #B0AEA8; font-weight: 400; }
+
+.ch-badge {
+  font-size: 9px; font-weight: 700; padding: 3px 8px;
+  border-radius: 10px; white-space: nowrap; flex-shrink: 0;
+}
+.ch-badge.new { background: #E6F5EE; color: #0F6E56; }
+.ch-badge.read { background: #F1EFE8; color: #B0AEA8; }
+
+.ch-arrow { font-size: 10px; color: #C4C0B8; flex-shrink: 0; transition: transform 0.2s; }
+.ch-arrow.open { transform: rotate(180deg); }
+
+/* Expanded body */
+.ch-body {
+  border-top: 1px solid #F1EFE8;
+  padding: 0 16px 16px;
+}
+
+/* Section inside expanded chapter */
+.section { margin-top: 14px; }
+.section-title {
+  font-size: 13px; font-weight: 650; color: #1A1917;
+  margin-bottom: 4px; line-height: 1.35;
+}
+.section-text {
+  font-size: 12.5px; color: #6B6963; line-height: 1.6; margin-bottom: 6px;
+}
+.section-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip {
+  font-size: 10px; color: #6B6963;
+  border: 0.5px solid #E0DED6; border-radius: 4px;
+  padding: 2px 7px; background: #FAFAF8;
+  display: flex; align-items: center; gap: 4px;
+}
+.chip img { width: 10px; height: 10px; border-radius: 2px; }
+
+/* Divider inside expanded chapter between sections */
+.section-divider { height: 1px; background: #F4F2EC; margin: 12px 0 0; }
+
+/* ── Scan button */
+.scan-row {
+  padding: 4px 4px 0;
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 4px;
+}
+.footer-stat { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #C4C0B8; }
+.scan-btn {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: #0F6E56; background: none; border: 1px solid #BBF7D0;
+  border-radius: 4px; padding: 6px 14px; cursor: pointer; transition: all 0.15s;
+}
+.scan-btn:hover { background: #E6F5EE; border-color: #0F6E56; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Topic header -->
+  <div class="topic-header">
+    <div class="topic-name">AI &amp; OpenAI</div>
+    <div class="topic-meta">Last updated 2h ago</div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-row">
+    <span class="prog-label">Chapter 3 of 3</span>
+    <div class="prog-bar"><div class="prog-fill" style="width:100%"></div></div>
+    <span class="prog-label" style="color:#0F6E56;">✓ All caught up</span>
+  </div>
+
+  <!-- ═══ CHAPTER 3 — latest, expanded ═══ -->
+  <div class="chapter" id="ch3">
+    <div class="ch-header" onclick="toggle('ch3-body','ch3-arrow')">
+      <div class="ch-num active">3</div>
+      <div class="ch-info">
+        <div class="ch-date">Today · Jun 5 · 2:25 PM</div>
+        <div class="ch-summary">OpenAI $40B raise · FTC probe · GPT-5 leak</div>
+      </div>
+      <div class="ch-badge new">4 new stories</div>
+      <div class="ch-arrow open" id="ch3-arrow">▾</div>
+    </div>
+    <div class="ch-body" id="ch3-body">
+
+      <div class="section">
+        <div class="section-title">OpenAI raises $40B at $300B valuation — largest private tech round ever</div>
+        <div class="section-text">SoftBank leads the round, valuing OpenAI above Meta. Sam Altman hints at IPO timeline of late 2026 pending regulatory clarity on AI liability.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32"/>nytimes.com</div>
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32"/>ft.com</div>
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32"/>reuters.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">FTC opens antitrust probe into Microsoft's OpenAI exclusivity deal</div>
+        <div class="section-text">Regulators focus on whether Azure's exclusive cloud rights block competition. First major AI antitrust case in the US; Lina Khan signals it's a priority.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32"/>washingtonpost.com</div>
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=bloomberg.com&sz=32"/>bloomberg.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">GPT-5 benchmark results leak ahead of official launch</div>
+        <div class="section-text">Internal evals show 40% improvement on MMLU vs GPT-4o. Multimodal reasoning beats Gemini 2.0 Ultra in 7 of 9 categories tested.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=theverge.com&sz=32"/>theverge.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">EU AI Act: OpenAI registers as "General Purpose AI" ahead of deadline</div>
+        <div class="section-text">Registration filed June 2. OpenAI, Google, and Anthropic submitted systemic risk self-assessments. Non-compliance fines reach €30M.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=politico.eu&sz=32"/>politico.eu</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ CHAPTER 2 — read, collapsed ═══ -->
+  <div class="chapter" id="ch2">
+    <div class="ch-header" onclick="toggle('ch2-body','ch2-arrow')">
+      <div class="ch-num done">✓</div>
+      <div class="ch-info">
+        <div class="ch-date">Yesterday · Jun 4</div>
+        <div class="ch-summary faded">Altman Senate hearing · Claude 4 Opus · o3 rollout · Gemini safety report</div>
+      </div>
+      <div class="ch-badge read">read</div>
+      <div class="ch-arrow" id="ch2-arrow">▾</div>
+    </div>
+    <div class="ch-body" id="ch2-body" style="display:none">
+
+      <div class="section">
+        <div class="section-title">Sam Altman testifies before Senate on AI safety and oversight</div>
+        <div class="section-text">Altman called for federal licensing of frontier models. Senators pressed on job displacement and China competition. Hearing lasted 4 hours.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32"/>nytimes.com</div>
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=cnn.com&sz=32"/>cnn.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">Anthropic releases Claude 4 Opus with 1M token context window</div>
+        <div class="section-text">Targets enterprise legal and financial document analysis. Pricing at $15/M input tokens. Context doubles the previous limit.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=techcrunch.com&sz=32"/>techcrunch.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">Altman confirms o3 available to all ChatGPT Plus users by June 20</div>
+        <div class="section-text">Free tier gets 5 queries/day. o3-mini stays default on mobile. Announced via X thread, no official blog post.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=theverge.com&sz=32"/>theverge.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">Google DeepMind publishes Gemini 2.5 safety report, scores "low risk"</div>
+        <div class="section-text">Self-assessed using METR and Apollo Research frameworks. EU regulators may require independent audits going forward.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32"/>reuters.com</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ CHAPTER 1 — read, collapsed ═══ -->
+  <div class="chapter" id="ch1">
+    <div class="ch-header" onclick="toggle('ch1-body','ch1-arrow')">
+      <div class="ch-num done">✓</div>
+      <div class="ch-info">
+        <div class="ch-date">Jun 3</div>
+        <div class="ch-summary faded">OpenAI nonprofit reversal · Apple on-device LLM · Stack Overflow -62%</div>
+      </div>
+      <div class="ch-badge read">read</div>
+      <div class="ch-arrow" id="ch1-arrow">▾</div>
+    </div>
+    <div class="ch-body" id="ch1-body" style="display:none">
+
+      <div class="section">
+        <div class="section-title">OpenAI board votes to reinstate nonprofit oversight structure</div>
+        <div class="section-text">Reversal of last year's restructuring following pressure from original donors and state attorneys general. Effective immediately.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32"/>nytimes.com</div>
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=bloomberg.com&sz=32"/>bloomberg.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">Apple announces on-device LLM for iOS 20, no cloud dependency</div>
+        <div class="section-text">Runs entirely on Neural Engine. Handles email drafting, summarization, and code completion offline. No data sent to Apple servers.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=macrumors.com&sz=32"/>macrumors.com</div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="section">
+        <div class="section-title">Stack Overflow traffic down 62% year-over-year as developers shift to AI tools</div>
+        <div class="section-text">CEO attributes decline entirely to LLM adoption. Site pivoting to verified expert answers for AI-resistant queries.</div>
+        <div class="section-chips">
+          <div class="chip"><img src="https://www.google.com/s2/favicons?domain=techcrunch.com&sz=32"/>techcrunch.com</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="scan-row">
+    <div class="footer-stat">3 chapters · 11 stories total</div>
+    <button class="scan-btn">↻ Scan now</button>
+  </div>
+
+</div>
+<script>
+function toggle(bodyId, arrowId) {
+  const body = document.getElementById(bodyId);
+  const arrow = document.getElementById(arrowId);
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  arrow.classList.toggle('open', !isOpen);
+}
+</script>
+</body>
+</html>

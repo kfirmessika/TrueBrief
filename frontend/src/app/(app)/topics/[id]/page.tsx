@@ -2,8 +2,9 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
-import { useEffect, useRef, use } from 'react';
+import { useCallback, useContext, useEffect, useRef, use, useState, useMemo, createContext } from 'react';
 import { Clock } from 'lucide-react';
+import { useScanStatus, useMarkBriefsRead } from '@/hooks/useTopics';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -41,257 +42,387 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-// Strip the TrueBrief header line (first line like "🔎 TrueBrief | Bitcoin | May 30, 2026")
-// and render the markdown body cleanly
+// Strip the TrueBrief header line ("📋 TrueBrief | Topic | Date")
 function parseContent(raw: string): string {
   const lines = raw.split('\n');
-  // Drop the first line if it looks like a header (contains "TrueBrief |")
   const start = lines[0]?.includes('TrueBrief') ? 1 : 0;
   return lines.slice(start).join('\n').trim();
 }
 
-// Extract domain names from markdown links: [text](url)
-function extractDomains(content: string): string[] {
-  const urlRegex = /\[.*?\]\((https?:\/\/[^)]+)\)/g;
-  const domains = new Set<string>();
-  let match;
-  while ((match = urlRegex.exec(content)) !== null) {
-    try {
-      const domain = new URL(match[1]).hostname.replace(/^www\./, '');
-      domains.add(domain);
-    } catch { /* skip invalid URLs */ }
-  }
-  // Also match "Source: domain.com" patterns
-  const srcRegex = /[Ss]ource[s]?:\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-  while ((match = srcRegex.exec(content)) !== null) {
-    const d = match[1].toLowerCase();
-    if (!d.startsWith('http')) domains.add(d);
-  }
-  return Array.from(domains).slice(0, 6);
+// ── Source chip data ────────────────────────────────────────────────────────
+
+interface SourceChip {
+  domain: string;
+  label: string;
+  url?: string; // full article URL if available
 }
 
-const SOURCE_COLORS: Record<string, string> = {
-  'reuters.com':     '#1961A5',
-  'politico.com':    '#1C3E6E',
-  'euractiv.com':    '#0A7B6A',
-  'ft.com':          '#BE431B',
-  'markets.ft.com':  '#BE431B',
-  'arstechnica.com': '#EA6B1F',
-  'bbc.com':         '#B4071A',
-  'bbc.co.uk':       '#B4071A',
-  'bloomberg.com':   '#1A1A1A',
-  'techcrunch.com':  '#0A84FF',
-  'cnbc.com':        '#005594',
-  'nytimes.com':     '#1A1A1A',
-  'wsj.com':         '#0274B6',
-  'forbes.com':      '#CC2529',
-  'wired.com':       '#1A1A1A',
-  'theverge.com':    '#FF3B30',
-  'axios.com':       '#FF3B30',
-  'yahoo.com':       '#720E9E',
-  'bitget.com':      '#00C087',
-  'gizmodo.com':     '#FF6900',
-};
+interface AlphaItem {
+  source_domain: string;
+  source_url: string | null;
+  alpha_text: string;
+  first_seen_at: string;
+}
 
-function domainColor(d: string): string {
-  for (const [k, c] of Object.entries(SOURCE_COLORS)) {
-    if (d.includes(k) || k.includes(d)) return c;
+// Domain → alpha articles collected for this topic (page-level, read in SourcePill)
+const DomainAlphasCtx = createContext<Map<string, AlphaItem[]>>(new Map());
+
+function parseSourceLine(line: string): SourceChip[] {
+  const after = line.replace(/^[→↳✓\s]*[Ss]ources?:\s*/i, '');
+  // Split on ", [" boundary to handle "[Name](url), [Name](url)" format
+  const parts = after.split(/,\s*(?=\[|\S)/).map(s => s.trim()).filter(Boolean);
+  return parts.map(part => {
+    // "[Source Name](https://...)" format
+    const mdLink = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
+    if (mdLink) {
+      const [, name, url] = mdLink;
+      let domain: string;
+      try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch { domain = name; }
+      return { domain, label: name, url };
+    }
+    // Legacy: plain domain name
+    const domain = part.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
+    return {
+      domain,
+      label: domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1),
+    };
+  });
+}
+
+// ── Parse brief into sections ───────────────────────────────────────────────
+
+interface BriefSection {
+  heading: string | null;    // null = intro/badge line
+  body: string;
+  sources: SourceChip[];
+  isBadge?: boolean;         // "6 new" / "2 updates" pill
+  badgeType?: 'new' | 'update';
+  badgeCount?: string;
+}
+
+function parseBriefSections(md: string): BriefSection[] {
+  const lines = md.split('\n');
+  const sections: BriefSection[] = [];
+  let currentHeading: string | null = null;
+  let currentBody: string[] = [];
+  let currentSources: SourceChip[] = [];
+
+  const flush = () => {
+    const body = currentBody.join('\n').trim();
+    if (body || currentSources.length) {
+      sections.push({ heading: currentHeading, body, sources: currentSources });
+    }
+    currentHeading = null;
+    currentBody = [];
+    currentSources = [];
+  };
+
+  for (const line of lines) {
+    const t = line.trim();
+
+    // Skip dividers
+    if (!t || /^[━─=\-]{4,}$/.test(t)) continue;
+
+    // Badge lines: "🆕 NEW STORIES (6)" or "🔄 UPDATES (2)"
+    if (/NEW STORIES|UPDATES/.test(t) && /\(\d+\)/.test(t)) {
+      flush();
+      const isNew = /NEW STORIES/.test(t);
+      const count = t.match(/\((\d+)\)/)?.[1] ?? '';
+      sections.push({
+        heading: null, body: '', sources: [],
+        isBadge: true,
+        badgeType: isNew ? 'new' : 'update',
+        badgeCount: count,
+      });
+      continue;
+    }
+
+    // Section heading: **Title** alone on a line
+    if (/^\*\*[^*]+\*\*$/.test(t)) {
+      flush();
+      currentHeading = t.replace(/^\*\*|\*\*$/g, '');
+      continue;
+    }
+
+    // Source line attached to current section
+    if (/^[→↳✓]\s*[Ss]ource/i.test(t) || /^[Ss]ources?:/i.test(t)) {
+      currentSources = parseSourceLine(t);
+      continue;
+    }
+
+    // Paragraph / bullet body
+    currentBody.push(line);
   }
-  let h = 0;
-  for (let i = 0; i < d.length; i++) h = d.charCodeAt(i) + ((h << 5) - h);
-  return ['#4A6FA5', '#6B4FA5', '#A54F4F', '#4FA57A', '#A5834F'][Math.abs(h) % 5];
+  flush();
+  return sections;
 }
 
-function domainInitials(d: string): string {
-  const clean = d.split('.')[0].toUpperCase();
-  return clean.length <= 2 ? clean : clean.slice(0, 2);
+// ── Inline formatter ────────────────────────────────────────────────────────
+
+function inlineFormat(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|`[^`]+`)/g;
+  let last = 0, match, idx = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push(<span key={idx++}>{text.slice(last, match.index)}</span>);
+    const tok = match[0];
+    if (tok.startsWith('**')) {
+      parts.push(<strong key={idx++} style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{tok.slice(2, -2)}</strong>);
+    } else if (tok.startsWith('*')) {
+      parts.push(<em key={idx++}>{tok.slice(1, -1)}</em>);
+    } else if (tok.startsWith('[')) {
+      const linkText = tok.match(/\[([^\]]+)\]/)?.[1] ?? '';
+      const href = tok.match(/\(([^)]+)\)/)?.[1] ?? '#';
+      parts.push(
+        <a key={idx++} href={href} target="_blank" rel="noopener noreferrer"
+          style={{ color: 'inherit', textDecoration: 'underline', textDecorationColor: 'var(--color-border-secondary)', textUnderlineOffset: 2 }}>
+          {linkText}
+        </a>
+      );
+    } else if (tok.startsWith('`')) {
+      parts.push(<code key={idx++} style={{ fontSize: 12, background: 'var(--color-background-tertiary)', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>{tok.slice(1, -1)}</code>);
+    }
+    last = match.index + tok.length;
+  }
+  if (last < text.length) parts.push(<span key={idx++}>{text.slice(last)}</span>);
+  return <>{parts}</>;
 }
 
-// ── Source dot ─────────────────────────────────────────────────────────────
+function renderBodyLine(line: string, key: number): React.ReactNode {
+  const t = line.trim();
+  if (!t) return null;
 
-function SourceDot({ domain }: { domain: string }) {
-  const bg = domainColor(domain);
-  const initials = domainInitials(domain);
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  // Split inline " → Sources: ..." from end of line (works for bullets and paragraphs)
+  const srcSplit = t.match(/^(.*?)\s+(→\s*[Ss]ources?:.+)$/);
+  const mainText = srcSplit ? srcSplit[1] : t;
+  const inlineSources = srcSplit ? parseSourceLine(srcSplit[2]) : [];
+
+  // Bullet
+  if (/^[\*\-•]\s+/.test(mainText)) {
+    const bulletContent = mainText.replace(/^[\*\-•]\s+/, '');
+    return (
+      <div key={key} style={{ display: 'flex', gap: 10, margin: '2px 0' }}>
+        <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0, fontSize: 16, lineHeight: '1.55' }}>·</span>
+        <span style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.6 }}>
+          {inlineFormat(bulletContent)}
+          {inlineSources.length > 0 && (
+            <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, marginLeft: 5, verticalAlign: 'middle' }}>
+              {inlineSources.map((chip, ci) => <SourcePill key={ci} chip={chip} />)}
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <div
-      title={domain}
-      style={{
-        width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-        background: bg, overflow: 'hidden', display: 'flex',
-        alignItems: 'center', justifyContent: 'center',
-      }}
-    >
-      <img
-        src={faviconUrl}
-        alt={domain}
-        width={20} height={20}
-        style={{ objectFit: 'cover', borderRadius: '50%' }}
-        onError={e => {
-          const img = e.currentTarget as HTMLImageElement;
-          img.style.display = 'none';
-          const parent = img.parentElement!;
-          parent.innerHTML = `<span style="font-size:${initials.length > 1 ? 7 : 8}px;color:#fff;font-weight:600;line-height:1">${initials}</span>`;
+    <p key={key} style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.65, margin: '0' }}>
+      {inlineFormat(mainText)}
+      {inlineSources.length > 0 && (
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, marginLeft: 5, verticalAlign: 'middle' }}>
+          {inlineSources.map((chip, ci) => <SourcePill key={ci} chip={chip} />)}
+        </span>
+      )}
+    </p>
+  );
+}
+
+// ── Source chip component ───────────────────────────────────────────────────
+
+function SourcePill({ chip }: { chip: SourceChip }) {
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${chip.domain}&sz=32`;
+  const [showTooltip, setShowTooltip] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const domainAlphas = useContext(DomainAlphasCtx);
+  const alphas = domainAlphas.get(chip.domain) ?? [];
+  const href = chip.url ?? `https://${chip.domain}`;
+
+  const showIt = () => { if (hideTimer.current) clearTimeout(hideTimer.current); setShowTooltip(true); };
+  const hideIt = () => { hideTimer.current = setTimeout(() => setShowTooltip(false), 200); };
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex' }}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onMouseEnter={showIt}
+        onMouseLeave={hideIt}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 11.5, color: 'var(--color-text-secondary)',
+          background: 'var(--color-background-primary)',
+          border: '1px solid var(--color-border-secondary)',
+          borderRadius: 5, padding: '1px 6px 1px 4px',
+          textDecoration: 'none', cursor: 'pointer',
+          transition: 'border-color 0.1s',
+          verticalAlign: 'middle',
         }}
-      />
+      >
+        <img
+          src={faviconUrl}
+          alt={chip.domain}
+          width={12} height={12}
+          style={{ borderRadius: 2, flexShrink: 0 }}
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+        />
+        {chip.domain}
+      </a>
+      {showTooltip && (
+        <div
+          onMouseEnter={showIt}
+          onMouseLeave={hideIt}
+          style={{
+            position: 'absolute', bottom: '100%', left: 0,
+            marginBottom: 6, zIndex: 50,
+            background: 'var(--color-background-primary)',
+            border: '1px solid var(--color-border-secondary)',
+            borderRadius: 8, padding: '10px 12px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+            pointerEvents: 'auto',
+            minWidth: 280, maxWidth: 380,
+            maxHeight: 340, overflowY: 'auto',
+            display: 'flex', flexDirection: 'column', gap: 0,
+          }}
+        >
+          {/* Source header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: alphas.length > 0 ? 8 : 0 }}>
+            <img src={faviconUrl} alt={chip.domain} width={14} height={14} style={{ borderRadius: 3, flexShrink: 0 }} />
+            <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--color-text-primary)' }}>
+              {chip.domain}
+            </span>
+            {alphas.length > 0 && (
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
+                {alphas.length} {alphas.length === 1 ? 'article' : 'articles'}
+              </span>
+            )}
+          </div>
+
+          {/* Alpha articles */}
+          {alphas.map((a, i) => (
+            <div key={i} style={{
+              borderTop: '0.5px solid var(--color-border-tertiary)',
+              paddingTop: 8, marginTop: 2, paddingBottom: i < alphas.length - 1 ? 4 : 0,
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', lineHeight: 1.5, whiteSpace: 'normal' }}>
+                {a.alpha_text.length > 180 ? a.alpha_text.slice(0, 177) + '…' : a.alpha_text}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
+                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                  {formatDate(a.first_seen_at)}
+                </span>
+                {a.source_url && (
+                  <a
+                    href={a.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: 10, color: 'var(--tb-green)', textDecoration: 'none', flexShrink: 0 }}
+                  >
+                    View article →
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {alphas.length === 0 && (
+            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>No articles collected yet</span>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ── Brief section renderer ──────────────────────────────────────────────────
+
+function BriefSection({ section, idx, seen }: { section: BriefSection; idx: number; seen: boolean }) {
+  if (section.isBadge) {
+    // Hide the "X new / X updates" badge once the user has already seen this brief
+    if (seen) return null;
+    const isNew = section.badgeType === 'new';
+    return (
+      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 14px' }}>
+        <span style={{
+          fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 20,
+          background: isNew ? '#E6F5EE' : '#EEF3FB',
+          color: isNew ? '#1A7A52' : '#2B5FA5',
+          letterSpacing: '0.01em',
+        }}>
+          {isNew ? `${section.badgeCount} new` : `${section.badgeCount} updates`}
+        </span>
+        <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
+      </div>
+    );
+  }
+
+  const bodyLines = section.body.split('\n');
+
+  return (
+    <div key={idx} style={{ marginBottom: 18 }}>
+      {section.heading && (
+        <p style={{
+          fontSize: 13, fontWeight: 650, color: 'var(--color-text-primary)',
+          margin: '0 0 6px', letterSpacing: '0.01em',
+        }}>
+          {section.heading}
+        </p>
+      )}
+      <div style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.65 }}>
+        {bodyLines.map((line, li) => renderBodyLine(line, li))}
+        {/* Inline source chips after the paragraph */}
+        {section.sources.length > 0 && (
+          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, marginLeft: 5, verticalAlign: 'middle' }}>
+            {section.sources.map((chip, ci) => <SourcePill key={`${chip.domain}-${ci}`} chip={chip} />)}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Markdown renderer ──────────────────────────────────────────────────────
-// Renders the pipeline's markdown output: bold, bullets, links, section headers
-
-function renderMarkdown(md: string): React.ReactNode[] {
-  const lines = md.split('\n');
-  const nodes: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // Skip empty-ish lines
-    if (!line.trim() || line.trim() === '---' || /^[─=]{4,}/.test(line.trim())) {
-      i++;
-      continue;
-    }
-
-    // Section header: **Title** on its own line (not a bullet)
-    if (/^\*\*[^*]+\*\*$/.test(line.trim())) {
-      const text = line.trim().replace(/^\*\*|\*\*$/g, '');
-      nodes.push(
-        <p key={i} style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          {text}
-        </p>
-      );
-      i++;
-      continue;
-    }
-
-    // Bullet: starts with * or - or •
-    if (/^[\*\-•]\s+/.test(line.trim())) {
-      const text = line.trim().replace(/^[\*\-•]\s+/, '');
-      nodes.push(
-        <div key={i} style={{ display: 'flex', gap: 8, margin: '3px 0' }}>
-          <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0, marginTop: 1 }}>·</span>
-          <span style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.6, flex: 1 }}>
-            {inlineFormat(text)}
-          </span>
-        </div>
-      );
-      i++;
-      continue;
-    }
-
-    // Source attribution line: "↳ Source: ..." or "↳ Sources: ..."
-    if (/^[↳✓→]\s*[Ss]ource/.test(line.trim()) || /^[Ss]ource[s]?:/.test(line.trim())) {
-      i++;
-      continue; // source dots are shown separately below the bubble
-    }
-
-    // Section header lines like "🔔 NEW STORIES (4)" or "🔄 UPDATES (2)"
-    if (/^[🔔🔄📌🚨ð]\s/.test(line) || /NEW STORIES|UPDATES|NO NEW/.test(line)) {
-      const isNew = /NEW STORIES/.test(line);
-      const isUpdate = /UPDATE/.test(line);
-      const match = line.match(/\((\d+)\)/);
-      const count = match ? match[1] : '';
-      if (/NO NEW/.test(line)) {
-        i++;
-        continue;
-      }
-      nodes.push(
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '14px 0 6px' }}>
-          <span style={{
-            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
-            background: isNew ? '#E1F5EE' : isUpdate ? '#E6F1FB' : 'var(--color-background-tertiary)',
-            color: isNew ? '#085041' : isUpdate ? '#185FA5' : 'var(--color-text-secondary)',
-          }}>
-            {isNew ? `${count} new` : isUpdate ? `${count} updates` : line.trim().replace(/^[🔔🔄📌🚨ð]\s*/, '')}
-          </span>
-        </div>
-      );
-      i++;
-      continue;
-    }
-
-    // Regular paragraph
-    const text = line.trim();
-    if (text) {
-      nodes.push(
-        <p key={i} style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.6, margin: '4px 0' }}>
-          {inlineFormat(text)}
-        </p>
-      );
-    }
-    i++;
-  }
-
-  return nodes;
-}
-
-// Handle inline **bold**, *italic*, [link](url), `code`
-function inlineFormat(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|`[^`]+`)/g;
-  let last = 0;
-  let match;
-  let idx = 0;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > last) {
-      parts.push(<span key={idx++}>{text.slice(last, match.index)}</span>);
-    }
-    const token = match[0];
-    if (token.startsWith('**')) {
-      parts.push(<strong key={idx++} style={{ fontWeight: 600 }}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith('*')) {
-      parts.push(<em key={idx++}>{token.slice(1, -1)}</em>);
-    } else if (token.startsWith('[')) {
-      const linkText = token.match(/\[([^\]]+)\]/)?.[1] ?? '';
-      const href = token.match(/\(([^)]+)\)/)?.[1] ?? '#';
-      parts.push(
-        <a key={idx++} href={href} target="_blank" rel="noopener noreferrer"
-          style={{ color: 'var(--color-text-info)', textDecoration: 'none', borderBottom: '0.5px solid var(--color-text-info)' }}>
-          {linkText}
-        </a>
-      );
-    } else if (token.startsWith('`')) {
-      parts.push(<code key={idx++} style={{ fontSize: 12, background: 'var(--color-background-tertiary)', padding: '1px 4px', borderRadius: 3 }}>{token.slice(1, -1)}</code>);
-    }
-    last = match.index + token.length;
-  }
-  if (last < text.length) parts.push(<span key={idx++}>{text.slice(last)}</span>);
-  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>;
-}
-
 // ── Brief bubble ───────────────────────────────────────────────────────────
 
-function BriefBubble({ brief, isLast }: { brief: Brief; isLast: boolean }) {
+function BriefBubble({ brief, isLast, seen }: { brief: Brief; isLast: boolean; seen: boolean }) {
   const body = parseContent(brief.content);
   const isError = body.toLowerCase().includes('error generating') || body.length < 30;
-  const domains = extractDomains(brief.content);
 
-  if (isError) return null; // skip error briefs silently
+  if (isError) return null;
+
+  const sections = parseBriefSections(body);
+  // Collect all unique domains for the footer
+  const allDomains = Array.from(new Set(sections.flatMap(s => s.sources.map(c => c.domain)))).slice(0, 8);
 
   return (
     <div style={{
-      marginBottom: isLast ? 0 : 24,
-      paddingBottom: isLast ? 0 : 24,
+      marginBottom: isLast ? 0 : 32,
+      paddingBottom: isLast ? 0 : 32,
       borderBottom: isLast ? 'none' : '0.5px solid var(--color-border-tertiary)',
     }}>
-      {/* Content */}
+      {/* Card */}
       <div style={{
-        background: 'var(--color-background-secondary)',
-        borderRadius: 12, padding: '14px 16px',
-        borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-tertiary)',
+        background: 'var(--color-background-primary)',
+        borderRadius: 12, padding: '18px 20px 14px',
+        border: '1px solid var(--color-border-tertiary)',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
       }}>
-        {renderMarkdown(body)}
+        {sections.map((s, i) => <BriefSection key={i} section={s} idx={i} seen={seen} />)}
       </div>
 
-      {/* Footer: source dots + timestamp */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, paddingLeft: 2 }}>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {domains.map(d => <SourceDot key={d} domain={d} />)}
+      {/* Footer: all source favicons + timestamp */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, paddingLeft: 2 }}>
+        <div style={{ display: 'flex', gap: 3 }}>
+          {allDomains.map(d => (
+            <img
+              key={d}
+              src={`https://www.google.com/s2/favicons?domain=${d}&sz=32`}
+              alt={d}
+              title={d}
+              width={14} height={14}
+              style={{ borderRadius: 3, opacity: 0.7 }}
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            />
+          ))}
         </div>
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
           {formatTime(brief.delivered_at)}
@@ -335,6 +466,80 @@ function Skeleton() {
   );
 }
 
+// ── Scan progress bar ──────────────────────────────────────────────────────
+
+const SCAN_STEPS = [
+  'Searching the web…',
+  'Collecting articles…',
+  'Reading sources…',
+  'Filtering relevant content…',
+  'Analyzing what matters…',
+  'Connecting the dots…',
+  'Writing your brief…',
+  'Almost done…',
+];
+
+function ScanProgressBar({ topicId, taskId, onDone }: { topicId: string; taskId: string; onDone: () => void }) {
+  const { data: status } = useScanStatus(taskId, topicId);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const calledDone = useRef(false);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
+  const state = status?.state ?? 'PENDING';
+  const isDone = state === 'SUCCESS' || state === 'FAILURE';
+
+  useEffect(() => {
+    if (isDone) {
+      setProgress(100);
+      if (!calledDone.current) {
+        calledDone.current = true;
+        const t = setTimeout(() => {
+          localStorage.removeItem(`scan_task_${topicId}`);
+          onDoneRef.current();
+        }, 800);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
+
+    // Advance step label every ~4s, cap at second-to-last until done
+    const stepTimer = setInterval(() => {
+      setStepIdx(i => Math.min(i + 1, SCAN_STEPS.length - 2));
+    }, 4000);
+
+    // Animate progress bar: grow fast at start, slow near 90%
+    const progressTimer = setInterval(() => {
+      setProgress(p => {
+        if (p >= 90) return p + 0.3;
+        return p + (90 - p) * 0.04;
+      });
+    }, 200);
+
+    return () => { clearInterval(stepTimer); clearInterval(progressTimer); };
+  }, [isDone, topicId]);
+
+  const displayStep = isDone ? 'Done!' : SCAN_STEPS[stepIdx];
+  const cappedProgress = Math.min(progress, isDone ? 100 : 90);
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+      <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', minWidth: 170 }}>
+        {displayStep}
+      </span>
+      <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'var(--color-border-secondary)', overflow: 'hidden', maxWidth: 160 }}>
+        <div style={{
+          height: '100%', borderRadius: 2,
+          background: 'var(--tb-green)',
+          width: `${cappedProgress}%`,
+          transition: isDone ? 'width 0.4s ease' : 'width 0.2s linear',
+        }} />
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function TopicViewPage({ params }: { params: Promise<{ id: string }> }) {
@@ -343,21 +548,96 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const qc = useQueryClient();
   const threadRef = useRef<HTMLDivElement>(null);
 
+  // Track the active scan task ID (null = no scan running)
+  const [scanTaskId, setScanTaskId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(`scan_task_${id}`);
+  });
+
+  // When scan finishes, refresh topic + briefs (stable ref so ScanProgressBar effect doesn't re-fire)
+  const handleScanDone = useCallback(() => {
+    setScanTaskId(null);
+    qc.invalidateQueries({ queryKey: ['topic', id] });
+    qc.invalidateQueries({ queryKey: ['topic-briefs', id] });
+    qc.invalidateQueries({ queryKey: ['topics'] });
+  }, [qc, id]);
+
+  // Mark all unread briefs as read when the user opens the topic page
+  const { mutate: markRead } = useMarkBriefsRead();
+  useEffect(() => { markRead(id); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Track which brief IDs this user has already seen (persisted in localStorage)
+  const [seenBriefIds, setSeenBriefIds] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const raw = localStorage.getItem(`seen_briefs_${id}`);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  });
+
+  // Poll localStorage every 500ms to catch scan tasks set by the sidebar
+  useEffect(() => {
+    const check = () => {
+      const id_ = localStorage.getItem(`scan_task_${id}`);
+      setScanTaskId(prev => prev !== id_ ? id_ : prev);
+    };
+    check(); // run immediately on mount
+    const interval = setInterval(check, 500);
+    // also catch cross-tab changes
+    window.addEventListener('storage', check);
+    return () => { clearInterval(interval); window.removeEventListener('storage', check); };
+  }, [id]);
+
   const { data: topic } = useQuery<Topic>({
     queryKey: ['topic', id],
     queryFn: async () => (await api.get(`/topics/${id}`)).data,
-    staleTime: 60_000,
+    staleTime: 0,               // always treat as stale → re-fetch on every mount
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    refetchInterval: 60_000,    // silently keep last_scan_at up to date
   });
 
   const { data: briefs = [], isLoading } = useQuery<Brief[]>({
     queryKey: ['topic-briefs', id],
     queryFn: async () => {
       const res = await api.get(`/topics/${id}/briefs`);
-      // API returns newest first — reverse for chat order (oldest at top)
       return [...res.data].reverse();
     },
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    refetchInterval: scanTaskId ? 5_000 : 60_000, // fast poll when scanning, slow otherwise
   });
+
+  // Fetch known_facts (alpha articles) for this topic — powers the source chip tooltips
+  const { data: knownFacts = [] } = useQuery<AlphaItem[]>({
+    queryKey: ['topic-known-facts', id],
+    queryFn: async () => (await api.get(`/topics/${id}/known-facts`)).data,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Group alphas by source domain
+  const domainAlphas = useMemo(() => {
+    const map = new Map<string, AlphaItem[]>();
+    for (const item of knownFacts) {
+      const d = item.source_domain ?? '';
+      if (!d) continue;
+      if (!map.has(d)) map.set(d, []);
+      map.get(d)!.push(item);
+    }
+    return map;
+  }, [knownFacts]);
+
+  // When briefs load, record all current brief IDs as seen
+  useEffect(() => {
+    if (isLoading || briefs.length === 0) return;
+    setSeenBriefIds(prev => {
+      const next = new Set([...prev, ...briefs.map(b => b.id)]);
+      try { localStorage.setItem(`seen_briefs_${id}`, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, [isLoading, briefs, id]);
 
   // Auto-scroll to bottom (newest brief) on load
   useEffect(() => {
@@ -379,9 +659,8 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     return !(body.toLowerCase().includes('error generating') || body.length < 30);
   });
 
-  void qc; // suppress unused warning
-
   return (
+    <DomainAlphasCtx.Provider value={domainAlphas}>
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Sticky header */}
       <div style={{
@@ -395,9 +674,13 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Clock size={11} color="var(--color-text-tertiary)" />
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-            Last scanned {timeAgo(topic?.last_scan_at ?? null)}
-          </span>
+          {scanTaskId ? (
+            <ScanProgressBar topicId={id} taskId={scanTaskId} onDone={handleScanDone} />
+          ) : (
+            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+              Last scanned {timeAgo(topic?.last_scan_at ?? null)}
+            </span>
+          )}
           {topic?.frequency && (
             <span style={{
               fontSize: 10, borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-secondary)',
@@ -445,6 +728,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                   key={brief.id}
                   brief={brief}
                   isLast={isLastGroup && bi === visible.length - 1}
+                  seen={seenBriefIds.has(brief.id)}
                 />
               ))}
             </div>
@@ -452,5 +736,6 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         })}
       </div>
     </div>
+    </DomainAlphasCtx.Provider>
   );
 }

@@ -5,7 +5,7 @@ Topic CRUD and pipeline triggers.
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import List, Optional
 import logging
 import re
@@ -70,9 +70,17 @@ class TopicCreate(BaseModel):
 class TopicResponse(BaseModel):
     id: str
     raw_query: str
-    frequency: str
+    frequency: Optional[str] = None
     is_active: bool
     last_scan_at: Optional[str] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _map_last_run_at(cls, data):
+        if isinstance(data, dict) and 'last_run_at' in data and 'last_scan_at' not in data:
+            data = dict(data)
+            data['last_scan_at'] = data.get('last_run_at')
+        return data
 
 class BriefResponse(BaseModel):
     id: str
@@ -133,12 +141,21 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
                 raise HTTPException(status_code=500, detail="Database failed to return the created topic.")
             topic_record = res.data[0]
 
-            # Schedule the first scan immediately
+            # Fire the first scan immediately
+            _first_task_id = None
             try:
-                from truebrief.tasks.scheduler import set_next_run
-                set_next_run(topic_record["id"], interval_seconds=0)
+                from truebrief.tasks.pipeline_task import enqueue_pipeline
+                _task = enqueue_pipeline(
+                    topic_id=topic_record["id"],
+                    raw_query=topic_record["raw_query"],
+                )
+                _first_task_id = _task.id
+                logger.info(f"First scan enqueued for new topic {topic_record['id']} task={_first_task_id}")
             except Exception as sched_err:
-                logger.warning(f"Could not auto-schedule first scan: {sched_err}")
+                logger.warning(f"Could not enqueue first scan: {sched_err}")
+            # Attach task_id to response so frontend can show progress bar
+            topic_record = dict(topic_record)
+            topic_record["scan_task_id"] = _first_task_id
 
         except Exception as e:
             error_msg = str(e)
@@ -182,6 +199,23 @@ def get_topic(topic_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Topic not found")
     return res.data[0]
 
+@router.get("/topics/{topic_id}/known-facts")
+def get_known_facts(topic_id: str, user: User = Depends(get_current_user)):
+    """Return all known_facts for a topic (source domain, URL, text snippet, date)."""
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+    res = (
+        db.table("known_facts")
+        .select("source_domain, source_url, alpha_text, first_seen_at")
+        .eq("topic_id", topic_id)
+        .order("first_seen_at", desc=True)
+        .limit(300)
+        .execute()
+    )
+    return res.data
+
+
 @router.delete("/topics/{topic_id}")
 @limiter.limit("30/hour")
 def delete_topic(request: Request, topic_id: str, user: User = Depends(get_current_user)):
@@ -222,7 +256,7 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
     """
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
-    res = db.table("topics").select("id, raw_query, last_scan_at").eq("id", topic_id).execute()
+    res = db.table("topics").select("id, raw_query, last_run_at").eq("id", topic_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
 
@@ -241,7 +275,7 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
         tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
 
         last_scan_at: Optional[datetime] = None
-        raw_last = topic_row.get("last_scan_at")
+        raw_last = topic_row.get("last_run_at")
         if raw_last:
             try:
                 last_scan_at = datetime.fromisoformat(raw_last.replace("Z", "+00:00")).replace(tzinfo=None)
@@ -254,8 +288,8 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
     except Exception as e:
         logger.warning("Speed limit check skipped due to error: %s", e)
 
-    from truebrief.tasks.pipeline_task import run_pipeline_task
-    task = run_pipeline_task.delay(topic_id=topic_id, raw_query=raw_query)
+    from truebrief.tasks.pipeline_task import enqueue_pipeline
+    task = enqueue_pipeline(topic_id=topic_id, raw_query=raw_query)
 
     logger.info(f"Scan queued: topic_id={topic_id} task_id={task.id}")
     return {
@@ -277,28 +311,44 @@ def get_scan_status(task_id: str, _user: User = Depends(get_current_user)):
       SUCCESS  - complete, result contains the brief
       FAILURE  - pipeline crashed, result contains the error
     """
+    from truebrief.tasks.pipeline_task import get_thread_task_state
+
+    # Thread-based tasks (no Redis) take priority
+    thread_state = get_thread_task_state(task_id)
+    if thread_state is not None:
+        state = thread_state["state"]
+        response: dict = {"task_id": task_id, "state": state}
+        if state == "PENDING":
+            response["message"] = "Task is queued and waiting."
+        elif state == "STARTED":
+            response["message"] = "Pipeline is running..."
+        elif state == "SUCCESS":
+            response["message"] = "Pipeline complete."
+            response["result"] = thread_state.get("result")
+        elif state == "FAILURE":
+            response["message"] = "Pipeline failed."
+            response["error"] = str(thread_state.get("result", {}).get("error", ""))
+        return response
+
+    # Celery-based tasks (Redis available)
     from truebrief.tasks.celery_app import celery_app
     from celery.result import AsyncResult
 
     result = AsyncResult(task_id, app=celery_app)
     state = result.state
 
-    response: dict = {"task_id": task_id, "state": state}
+    response = {"task_id": task_id, "state": state}
 
     if state == "PENDING":
         response["message"] = "Task is queued and waiting for a worker."
-
     elif state == "STARTED":
         response["message"] = "Pipeline is running..."
-
     elif state == "SUCCESS":
         response["message"] = "Pipeline complete."
-        response["result"] = result.result  # dict: {status, content, brief_id}
-
+        response["result"] = result.result
     elif state == "FAILURE":
         response["message"] = "Pipeline failed."
         response["error"] = str(result.result)
-
     else:
         response["message"] = f"Unknown state: {state}"
 
@@ -312,6 +362,16 @@ def list_topic_briefs(topic_id: str, user: User = Depends(get_current_user)):
     _require_subscription(db, topic_id, user.id)
     res = db.table("briefs").select("*").eq("topic_id", topic_id).order("delivered_at", desc=True).execute()
     return res.data
+
+
+@router.post("/topics/{topic_id}/briefs/mark-read")
+def mark_topic_briefs_read(topic_id: str, user: User = Depends(get_current_user)):
+    """Mark all unread briefs for a topic as read. Called when user opens the topic page."""
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+    db.table("briefs").update({"is_read": True}).eq("topic_id", topic_id).eq("is_read", False).execute()
+    return {"status": "ok"}
 
 class BriefHistoryResponse(BaseModel):
     topic_id: str
@@ -721,16 +781,29 @@ def get_dashboard(user: User = Depends(get_current_user)):
         if new_count == 0:
             continue
 
-        latest = briefs_res.data[0]
-        raw = latest["content"].replace("#", "").replace("*", "").replace("`", "").replace("_", "").strip()
-        sentences = [s.strip() for s in raw.replace("\n", " ").split(".") if len(s.strip()) > 10]
+        # Find the most recent brief that isn't an error/empty
+        usable = next(
+            (b for b in briefs_res.data
+             if b["content"] and not b["content"].strip().lower().startswith("error")),
+            None,
+        )
+        if not usable:
+            continue
+
+        # Strip markdown and the TrueBrief header line, then extract first real sentence
+        lines = usable["content"].splitlines()
+        body_lines = [l for l in lines if l.strip() and "TrueBrief" not in l and not l.strip().startswith("📋")]
+        raw = " ".join(body_lines).replace("*", "").replace("#", "").replace("`", "").replace("_", "").strip()
+        # Remove emoji section headers like "🆕 NEW STORIES (4)"
+        raw = re.sub(r'[^\x00-\x7F\s\w.,!?\'\"()\-:;]+\s*\w*\s*\(\d+\)', '', raw).strip()
+        sentences = [s.strip() for s in raw.split(".") if len(s.strip()) > 15]
         preview = (sentences[0] + ".") if sentences else raw[:200]
 
         result.append({
             "topic_id": topic["id"],
             "topic_name": topic["raw_query"],
             "frequency": topic.get("frequency", "Auto"),
-            "last_scanned_at": topic.get("last_checked_at"),
+            "last_scanned_at": topic.get("last_run_at"),
             "new_count": new_count,
             "update_count": 0,
             "preview_text": preview,

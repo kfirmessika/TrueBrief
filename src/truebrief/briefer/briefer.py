@@ -50,7 +50,7 @@ class Briefer:
             return response_text.strip()
         except Exception as e:
             logger.error(f"Failed to generate brief: {e}")
-            return "Error generating brief. Check logs for details."
+            raise
 
 
     def _get_prompt(self, decisions: List[AlphaDecision], topic_name: str) -> str:
@@ -92,22 +92,23 @@ Follow this EXACT structure:
 
 🆕 NEW STORIES ([Count])
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-[For each new story, group related facts together if possible]
-Fact summary or bullet points.
-→ Sources: [Source 1], [Source 2]
+**Story Title**
+• Bullet fact one sentence. → Sources: [Source Name](url)
+• Bullet fact two sentence. → Sources: [Source Name 1](url1), [Source Name 2](url2)
 
 📈 UPDATES ([Count])
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-[For each update, group related facts together if possible]
-[Headline of the updating story]
-WHAT'S NEW: [The new delta fact]
-FULL CONTEXT: [The broader context of why this matters]
-→ Sources: [Source 1], [Source 2]
+**Story Title**
+• WHAT'S NEW: The new delta fact. → Sources: [Source Name](url)
+• FULL CONTEXT: Why this matters. → Sources: [Source Name](url)
 
 RULES:
 - Do NOT hallucinate. Use ONLY the facts provided in the JSON payload.
+- EVERY bullet point MUST end with → Sources: [Source Name](url) — one per bullet, using the exact name and url from the "source" field of the fact that bullet is based on.
+- Multiple sources for one bullet: → Sources: [Name 1](url1), [Name 2](url2)
+- Each source must use the markdown link format [Name](url) with both name and url.
 - If a section (NEW STORIES or UPDATES) has 0 items, omit that section entirely.
-- Combine facts from the same source into a cohesive sentence when they belong to the same event.
+- Combine closely related facts from the same story under one **heading**, each as its own bullet with its own source.
 - Keep it concise, punchy, and professional. NO filler text.
 """
 

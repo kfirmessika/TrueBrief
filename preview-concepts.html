@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrueBrief — 3 Concepts</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #111;
+  color: #1A1917;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px 80px;
+  gap: 60px;
+}
+
+h2 {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #666;
+  margin-bottom: 6px;
+}
+p.desc {
+  font-size: 13px; color: #888; max-width: 560px;
+  text-align: center; line-height: 1.6; margin-bottom: 24px;
+}
+
+.concept-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; max-width: 680px;
+}
+
+/* ═══════════════════════════════════════════
+   CONCEPT A — "Intel Briefing"
+   Psychology: Authority, Urgency, Clarity
+   Feels like: CIA daily brief / Bloomberg terminal
+   ═══════════════════════════════════════════ */
+.concept-a {
+  width: 100%;
+  background: #0E0E0E;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #222;
+}
+.ca-header {
+  background: #0F6E56;
+  padding: 12px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.ca-header-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: rgba(255,255,255,0.9);
+}
+.ca-header-meta {
+  font-size: 10px; color: rgba(255,255,255,0.55);
+  font-variant-numeric: tabular-nums;
+}
+.ca-body { padding: 0; }
+
+.ca-entry {
+  border-bottom: 1px solid #1A1A1A;
+  padding: 18px 24px;
+  display: flex; gap: 20px;
+}
+.ca-entry:last-child { border-bottom: none; }
+
+.ca-left {
+  display: flex; flex-direction: column;
+  align-items: center; width: 40px; flex-shrink: 0;
+  padding-top: 3px;
+}
+.ca-time {
+  font-size: 9px; color: #555; font-variant-numeric: tabular-nums;
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  letter-spacing: 0.04em; margin-bottom: 8px;
+}
+.ca-indicator {
+  width: 2px; flex: 1; border-radius: 1px;
+}
+.ca-indicator.hot { background: #EF9F27; }
+.ca-indicator.new { background: #0F6E56; }
+.ca-indicator.update { background: #2B5FA5; }
+
+.ca-content { flex: 1; }
+.ca-tag {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; margin-bottom: 8px;
+}
+.ca-tag.hot { color: #EF9F27; }
+.ca-tag.new { color: #4CAF82; }
+.ca-tag.update { color: #5B8FD4; }
+
+.ca-title {
+  font-size: 13px; font-weight: 600; color: #E8E6E0;
+  margin-bottom: 5px; line-height: 1.4;
+}
+.ca-body-text {
+  font-size: 12px; color: #888; line-height: 1.6; margin-bottom: 8px;
+}
+.ca-sources {
+  display: flex; gap: 5px;
+}
+.ca-source {
+  font-size: 10px; color: #555;
+  border: 1px solid #2A2A2A; border-radius: 4px;
+  padding: 2px 6px; display: flex; align-items: center; gap: 4px;
+}
+.ca-source img { width: 10px; height: 10px; border-radius: 2px; opacity: 0.6; }
+
+
+/* ═══════════════════════════════════════════
+   CONCEPT B — "Pulse"
+   Psychology: Alive, real-time, heartbeat
+   Feels like: a live signal. Each brief = a pulse event.
+   Left side = importance bar. Right = content.
+   ═══════════════════════════════════════════ */
+.concept-b {
+  width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #E5E3DC;
+}
+.cb-header {
+  padding: 14px 24px;
+  border-bottom: 1px solid #E5E3DC;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.cb-title { font-size: 14px; font-weight: 600; }
+.cb-meta { font-size: 11px; color: #9B9B9B; display: flex; align-items: center; gap: 5px; }
+.cb-live {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #0F6E56;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.cb-feed { padding: 0; }
+
+.cb-item {
+  display: flex;
+  border-bottom: 1px solid #F1EFE8;
+  position: relative;
+  transition: background 0.15s;
+}
+.cb-item:last-child { border-bottom: none; }
+.cb-item:hover { background: #FAFAF8; }
+
+/* Importance bar on the far left */
+.cb-bar {
+  width: 3px; flex-shrink: 0; align-self: stretch;
+}
+.cb-bar.high { background: #EF9F27; }
+.cb-bar.med  { background: #0F6E56; }
+.cb-bar.low  { background: #D0CEC6; }
+
+.cb-inner {
+  flex: 1; padding: 16px 20px;
+  display: flex; gap: 16px; align-items: flex-start;
+}
+
+.cb-time-col {
+  width: 38px; flex-shrink: 0;
+  text-align: right;
+  padding-top: 2px;
+}
+.cb-time { font-size: 10px; color: #B0AEA8; font-variant-numeric: tabular-nums; }
+.cb-date-small { font-size: 9px; color: #D0CEC6; margin-top: 2px; }
+
+.cb-divider { width: 1px; background: #F1EFE8; align-self: stretch; flex-shrink: 0; }
+
+.cb-main { flex: 1; }
+.cb-headline {
+  font-size: 13px; font-weight: 600; color: #1A1917;
+  margin-bottom: 4px; line-height: 1.4;
+}
+.cb-snippet { font-size: 12px; color: #6B6963; line-height: 1.55; margin-bottom: 8px; }
+.cb-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.cb-chip {
+  font-size: 10px; color: #6B6963;
+  border: 0.5px solid #E0DED6; border-radius: 4px;
+  padding: 2px 6px; display: flex; align-items: center; gap: 3px;
+  background: #FAFAF8;
+}
+.cb-chip img { width: 10px; height: 10px; border-radius: 2px; }
+
+.cb-count {
+  font-size: 10px; font-weight: 600; padding: 2px 7px;
+  border-radius: 10px; white-space: nowrap; align-self: flex-start;
+  margin-top: 1px;
+}
+.cb-count.new { background: #E6F5EE; color: #1A7A52; }
+.cb-count.upd { background: #EEF3FB; color: #2B5FA5; }
+
+
+/* ═══════════════════════════════════════════
+   CONCEPT C — "Chapters"
+   Psychology: Progress, completion, narrative
+   Each brief = a chapter you've read.
+   Feels like: reading a story that keeps updating.
+   ═══════════════════════════════════════════ */
+.concept-c {
+  width: 100%;
+  background: #FAFAF7;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #E5E3DC;
+}
+.cc-header {
+  padding: 16px 28px 14px;
+  border-bottom: 1px solid #E5E3DC;
+  background: #fff;
+}
+.cc-title { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+.cc-subtitle { font-size: 11px; color: #9B9B9B; }
+
+.cc-body { padding: 8px 0; }
+
+.cc-chapter {
+  margin: 0 20px 4px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #EDEAE2;
+}
+
+/* Chapter header — collapsed style */
+.cc-ch-header {
+  padding: 13px 18px;
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer;
+}
+.cc-ch-num {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #0F6E56; color: #fff;
+  font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.cc-ch-num.old {
+  background: #F1EFE8; color: #9B9B9B;
+}
+.cc-ch-info { flex: 1; }
+.cc-ch-date { font-size: 10px; color: #9B9B9B; margin-bottom: 1px; }
+.cc-ch-summary { font-size: 12px; font-weight: 500; color: #1A1917; }
+.cc-ch-badge {
+  font-size: 9px; font-weight: 600; padding: 2px 7px;
+  border-radius: 8px; white-space: nowrap;
+}
+.cc-ch-badge.new { background: #E6F5EE; color: #1A7A52; }
+.cc-ch-badge.old { background: #F1EFE8; color: #B0AEA8; }
+
+/* Expanded chapter */
+.cc-ch-body {
+  padding: 0 18px 16px;
+  border-top: 1px solid #F1EFE8;
+}
+.cc-section { margin-top: 14px; }
+.cc-s-title { font-size: 12px; font-weight: 650; margin-bottom: 4px; color: #1A1917; }
+.cc-s-text { font-size: 12px; color: #6B6963; line-height: 1.55; margin-bottom: 5px; }
+.cc-s-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.cc-s-chip {
+  font-size: 10px; color: #6B6963;
+  border: 0.5px solid #E0DED6; border-radius: 4px;
+  padding: 2px 6px; background: #FAFAF8;
+  display: flex; align-items: center; gap: 3px;
+}
+.cc-s-chip img { width: 10px; height: 10px; border-radius: 2px; }
+
+.cc-progress {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 20px 6px;
+  font-size: 10px; color: #9B9B9B;
+}
+.cc-prog-bar {
+  flex: 1; height: 2px; background: #E5E3DC; border-radius: 1px; overflow: hidden;
+}
+.cc-prog-fill { height: 100%; background: #0F6E56; border-radius: 1px; }
+
+</style>
+</head>
+<body>
+
+<!-- ══════════ HEADER ══════════ -->
+<div style="text-align:center; color:#555;">
+  <div style="font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#888; margin-bottom:8px;">TrueBrief — Design Concepts</div>
+  <div style="font-size:13px; color:#666; line-height:1.6; max-width:500px;">
+    3 completely different directions. Each built on a different psychological idea.<br/>React, pick one, mix, or reject all.
+  </div>
+</div>
+
+
+<!-- ══════════ CONCEPT A ══════════ -->
+<div class="concept-wrap">
+  <h2>Concept A — "Intel Briefing"</h2>
+  <p class="desc">
+    Dark mode. Authority. Like a classified brief or Bloomberg terminal.<br/>
+    <strong style="color:#aaa">Psychology:</strong> makes the user feel informed, serious, expert. High signal-to-noise.
+  </p>
+
+  <div class="concept-a">
+    <div class="ca-header">
+      <div class="ca-header-title">⬡ Iran War — Intelligence Feed</div>
+      <div class="ca-header-meta">Last updated 22m ago · medium frequency</div>
+    </div>
+    <div class="ca-body">
+
+      <div class="ca-entry">
+        <div class="ca-left">
+          <div class="ca-time">2:25 PM</div>
+          <div class="ca-indicator hot"></div>
+        </div>
+        <div class="ca-content">
+          <div class="ca-tag hot">⚡ Breaking · 6 new</div>
+          <div class="ca-title">Military Escalation: U.S.–Iran Hostilities</div>
+          <div class="ca-body-text">U.S. Central Command conducted "self-defense" strikes on Iranian military infrastructure, targeting radar and command sites at Qeshm Island. Iran launched retaliatory strikes on a U.S. air base.</div>
+          <div class="ca-sources">
+            <div class="ca-source"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />nytimes.com</div>
+            <div class="ca-source"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />reuters.com</div>
+            <div class="ca-source"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />ft.com</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ca-entry">
+        <div class="ca-left">
+          <div class="ca-time">2:25 PM</div>
+          <div class="ca-indicator new"></div>
+        </div>
+        <div class="ca-content">
+          <div class="ca-tag new">● Regional Impact</div>
+          <div class="ca-title">Attack on Kuwait International Airport</div>
+          <div class="ca-body-text">Iranian missile and drone strike on Kuwait's airport: 1 fatality, dozens injured. Iran frames this as direct retaliation for U.S. military action.</div>
+          <div class="ca-sources">
+            <div class="ca-source"><img src="https://www.google.com/s2/favicons?domain=bbc.com&sz=32" />bbc.com</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ca-entry">
+        <div class="ca-left">
+          <div class="ca-time">9:10 AM</div>
+          <div class="ca-indicator update"></div>
+        </div>
+        <div class="ca-content">
+          <div class="ca-tag update">↻ Update · 2 updates</div>
+          <div class="ca-title">Ceasefire Talks Collapse</div>
+          <div class="ca-body-text">Qatar-led mediation has broken down. Both sides refuse further dialogue following the Kuwait strike.</div>
+          <div class="ca-sources">
+            <div class="ca-source"><img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32" />washingtonpost.com</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ CONCEPT B ══════════ -->
+<div class="concept-wrap">
+  <h2>Concept B — "Pulse"</h2>
+  <p class="desc">
+    Clean white. Left importance bar = how big is this story. Like a vitals monitor or Notion inbox.<br/>
+    <strong style="color:#aaa">Psychology:</strong> the eye immediately goes to the orange bar = "this one matters". Calm but alive.
+  </p>
+
+  <div class="concept-b">
+    <div class="cb-header">
+      <div class="cb-title">Iran War</div>
+      <div class="cb-meta">
+        <div class="cb-live"></div>
+        Live · 22m ago
+      </div>
+    </div>
+
+    <div class="cb-feed">
+
+      <div class="cb-item">
+        <div class="cb-bar high"></div>
+        <div class="cb-inner">
+          <div class="cb-time-col">
+            <div class="cb-time">2:25</div>
+            <div class="cb-date-small">Jun 5</div>
+          </div>
+          <div class="cb-divider"></div>
+          <div class="cb-main">
+            <div class="cb-headline">Military Escalation: U.S.–Iran Hostilities</div>
+            <div class="cb-snippet">U.S. strikes on Qeshm Island radar sites. Iran retaliates on U.S. air base. Kuwait airport hit by missile — 1 dead.</div>
+            <div class="cb-chips">
+              <div class="cb-chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />nytimes.com</div>
+              <div class="cb-chip"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />reuters.com</div>
+              <div class="cb-chip"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />ft.com</div>
+            </div>
+          </div>
+          <div class="cb-count new">6 new</div>
+        </div>
+      </div>
+
+      <div class="cb-item">
+        <div class="cb-bar med"></div>
+        <div class="cb-inner">
+          <div class="cb-time-col">
+            <div class="cb-time">9:10</div>
+            <div class="cb-date-small">Jun 5</div>
+          </div>
+          <div class="cb-divider"></div>
+          <div class="cb-main">
+            <div class="cb-headline">Ceasefire Talks Collapse</div>
+            <div class="cb-snippet">Qatar-led mediation breaks down. Both sides refuse dialogue following Kuwait strike.</div>
+            <div class="cb-chips">
+              <div class="cb-chip"><img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=32" />washingtonpost.com</div>
+            </div>
+          </div>
+          <div class="cb-count upd">2 updates</div>
+        </div>
+      </div>
+
+      <div class="cb-item">
+        <div class="cb-bar low"></div>
+        <div class="cb-inner">
+          <div class="cb-time-col">
+            <div class="cb-time">6:00</div>
+            <div class="cb-date-small">Jun 4</div>
+          </div>
+          <div class="cb-divider"></div>
+          <div class="cb-main">
+            <div class="cb-headline">Drone Interceptions Over Persian Gulf</div>
+            <div class="cb-snippet">U.S. Navy destroyers intercepted 14 Iranian drones in international waters over 6 hours.</div>
+            <div class="cb-chips">
+              <div class="cb-chip"><img src="https://www.google.com/s2/favicons?domain=apnews.com&sz=32" />apnews.com</div>
+            </div>
+          </div>
+          <div class="cb-count new">4 new</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ CONCEPT C ══════════ -->
+<div class="concept-wrap">
+  <h2>Concept C — "Chapters"</h2>
+  <p class="desc">
+    A story that keeps updating. Each brief = a chapter. New ones are open, old ones collapse.<br/>
+    <strong style="color:#aaa">Psychology:</strong> feels like you're reading a living book. The green number = "you're on chapter 3". Very satisfying to scroll back and see history stack up.
+  </p>
+
+  <div class="concept-c">
+    <div class="cc-header">
+      <div class="cc-title">Iran War</div>
+      <div class="cc-subtitle">3 chapters · Last updated 22m ago</div>
+    </div>
+
+    <div class="cc-progress">
+      <span>Chapter 3 of 3</span>
+      <div class="cc-prog-bar"><div class="cc-prog-fill" style="width:100%"></div></div>
+      <span>All caught up</span>
+    </div>
+
+    <div class="cc-body">
+
+      <!-- Latest chapter — expanded -->
+      <div class="cc-chapter">
+        <div class="cc-ch-header">
+          <div class="cc-ch-num">3</div>
+          <div class="cc-ch-info">
+            <div class="cc-ch-date">Jun 5 · 2:25 PM</div>
+            <div class="cc-ch-summary">U.S. strikes Iran · Kuwait airport attacked</div>
+          </div>
+          <div class="cc-ch-badge new">6 new stories</div>
+        </div>
+        <div class="cc-ch-body">
+          <div class="cc-section">
+            <div class="cc-s-title">Military Escalation: U.S.–Iran Hostilities</div>
+            <div class="cc-s-text">U.S. Central Command conducted strikes on Iranian radar sites at Qeshm Island. Iran launched retaliatory strikes on a U.S. air base.</div>
+            <div class="cc-s-chips">
+              <div class="cc-s-chip"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=32" />nytimes.com</div>
+              <div class="cc-s-chip"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=32" />reuters.com</div>
+            </div>
+          </div>
+          <div class="cc-section">
+            <div class="cc-s-title">Kuwait Airport Attack</div>
+            <div class="cc-s-text">Iranian missile and drone strike on Kuwait's international airport: 1 dead, dozens injured.</div>
+            <div class="cc-s-chips">
+              <div class="cc-s-chip"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=32" />ft.com</div>
+              <div class="cc-s-chip"><img src="https://www.google.com/s2/favicons?domain=bbc.com&sz=32" />bbc.com</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Older chapter — collapsed -->
+      <div class="cc-chapter">
+        <div class="cc-ch-header">
+          <div class="cc-ch-num old">2</div>
+          <div class="cc-ch-info">
+            <div class="cc-ch-date">Jun 5 · 9:10 AM</div>
+            <div class="cc-ch-summary">Ceasefire talks collapse · Qatar mediation ends</div>
+          </div>
+          <div class="cc-ch-badge old">read</div>
+        </div>
+      </div>
+
+      <!-- Older chapter — collapsed -->
+      <div class="cc-chapter" style="margin-bottom:16px;">
+        <div class="cc-ch-header">
+          <div class="cc-ch-num old">1</div>
+          <div class="cc-ch-info">
+            <div class="cc-ch-date">Jun 4 · 6:00 PM</div>
+            <div class="cc-ch-summary">14 Iranian drones intercepted over Persian Gulf</div>
+          </div>
+          <div class="cc-ch-badge old">read</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- footer note -->
+<div style="text-align:center; color:#555; font-size:12px; line-height:1.8;">
+  <strong style="color:#888">A</strong> = feels powerful, expert, serious (Bloomberg/CIA)<br/>
+  <strong style="color:#888">B</strong> = clean, fast to scan, importance is visual (Notion/Linear)<br/>
+  <strong style="color:#888">C</strong> = narrative, satisfying, story-like (unique, nothing like it exists)
+</div>
+
+</body>
+</html>
