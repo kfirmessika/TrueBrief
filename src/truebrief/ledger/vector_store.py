@@ -69,6 +69,29 @@ class VectorStore:
             logger.error(f"Failed to insert fact into Supabase: {e}")
             raise
 
+    def get_seen_urls(self, topic_id: Optional[str], days: int = 14) -> set:
+        """
+        Return the set of source_url values already stored for this topic
+        within the last `days` days.  Used to skip re-processing the same
+        articles across pipeline runs.
+        """
+        if not topic_id:
+            return set()
+        try:
+            from datetime import datetime, timedelta
+            cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+            response = (
+                self.db.table("known_facts")
+                .select("source_url")
+                .eq("topic_id", topic_id)
+                .gte("first_seen_at", cutoff)
+                .execute()
+            )
+            return {row["source_url"] for row in response.data if row.get("source_url")}
+        except Exception as e:
+            logger.warning(f"get_seen_urls failed (non-fatal): {e}")
+            return set()
+
     def find_similar(
         self, 
         embedding: list[float], 

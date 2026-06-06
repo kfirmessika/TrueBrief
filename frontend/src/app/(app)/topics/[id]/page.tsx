@@ -22,6 +22,17 @@ interface Topic {
   last_scan_at: string | null;
 }
 
+interface StoryNode {
+  id: string;
+  topic_id: string;
+  title: string | null;
+  summary: string;
+  status: string;
+  fact_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string | null): string {
@@ -466,6 +477,173 @@ function Skeleton() {
   );
 }
 
+// ── Story-native view ──────────────────────────────────────────────────────
+
+const ACTIVE_WINDOW_HOURS = 48;
+
+function timeAgoShort(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return `${Math.floor(diff / 60000)}m ago`;
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function StoriesView({ topicId }: { topicId: string }) {
+  const api = useApi();
+  const { data: stories = [], isLoading } = useQuery<StoryNode[]>({
+    queryKey: ['topic-stories', topicId],
+    queryFn: async () => (await api.get(`/topics/${topicId}/stories`)).data,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: '24px 22px' }}>
+        {[1, 2, 3].map(i => (
+          <div key={i} style={{ marginBottom: 12, background: 'var(--color-background-secondary)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--color-border-tertiary)' }}>
+            <div style={{ height: 11, width: '40%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 10 }} />
+            <div style={{ height: 12, width: '90%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 5 }} />
+            <div style={{ height: 12, width: '75%', background: 'var(--color-background-tertiary)', borderRadius: 4 }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (stories.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', paddingTop: 80 }}>
+        <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
+          No stories yet. Run a scan to start tracking.
+        </p>
+      </div>
+    );
+  }
+
+  const cutoff = Date.now() - ACTIVE_WINDOW_HOURS * 3600000;
+  const active = stories.filter(s => new Date(s.updated_at).getTime() >= cutoff);
+  const quiet = stories.filter(s => new Date(s.updated_at).getTime() < cutoff);
+
+  const sectionLabel = (text: string) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      margin: '20px 0 10px',
+    }}>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>
+        {text}
+      </span>
+      <div style={{ flex: 1, height: '0.5px', background: 'var(--color-border-tertiary)' }} />
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '4px 22px 48px' }}>
+
+      {/* Active stories */}
+      {active.length > 0 && (
+        <>
+          {sectionLabel(`Moved recently · ${active.length}`)}
+          {active.map(story => (
+            <div key={story.id} style={{
+              background: 'var(--color-background-primary)',
+              border: '1px solid var(--color-border-tertiary)',
+              borderRadius: 12,
+              marginBottom: 12,
+              overflow: 'hidden',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            }}>
+              {/* Story head */}
+              <div style={{
+                padding: '11px 16px 9px',
+                display: 'flex', alignItems: 'center', gap: 9,
+                borderBottom: '0.5px solid var(--color-border-tertiary)',
+                background: 'var(--color-background-secondary)',
+              }}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                  background: 'var(--tb-green)',
+                  boxShadow: '0 0 0 3px #E6F5EE',
+                }} />
+                <span style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                  textTransform: 'uppercase', color: 'var(--color-text-primary)', flex: 1,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {story.title ?? 'Untitled Story'}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
+                  updated {timeAgoShort(story.updated_at)}
+                </span>
+              </div>
+
+              {/* Story summary — the hidden asset made visible */}
+              <div style={{ padding: '12px 16px 14px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+                  Story so far
+                </div>
+                <p style={{ fontSize: 13.5, lineHeight: 1.6, color: 'var(--color-text-primary)', margin: 0 }}>
+                  {story.summary || 'No summary yet.'}
+                </p>
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                  <span>{story.fact_count} {story.fact_count === 1 ? 'fact' : 'facts'}</span>
+                  <span>·</span>
+                  <span>started {formatDate(story.created_at)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Quiet stories */}
+      {quiet.length > 0 && (
+        <>
+          {sectionLabel(`Quiet — no movement · ${quiet.length}`)}
+          {quiet.map(story => (
+            <div key={story.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 16px',
+              background: 'var(--color-background-primary)',
+              border: '1px solid var(--color-border-tertiary)',
+              borderRadius: 8,
+              marginBottom: 5,
+              cursor: 'default',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-border-secondary)', flexShrink: 0 }} />
+              <span style={{
+                fontSize: 11, fontWeight: 500, textTransform: 'uppercase',
+                letterSpacing: '0.03em', color: 'var(--color-text-secondary)',
+                flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>
+                {story.title ?? 'Untitled Story'}
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
+                {timeAgoShort(story.updated_at)}
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Watch footer */}
+      {stories.length > 0 && (
+        <div style={{
+          marginTop: 20, padding: '14px 16px',
+          background: 'var(--color-background-primary)',
+          border: '1px dashed var(--color-border-secondary)',
+          borderRadius: 10, textAlign: 'center',
+          fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.6,
+        }}>
+          <span style={{ color: 'var(--tb-green)', fontWeight: 600 }}>{active.length} of {stories.length} stories</span>
+          {' '}moved in the last 48h · {quiet.length} stayed quiet
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Scan progress bar ──────────────────────────────────────────────────────
 
 const SCAN_STEPS = [
@@ -547,6 +725,8 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const api = useApi();
   const qc = useQueryClient();
   const threadRef = useRef<HTMLDivElement>(null);
+
+  const [activeTab, setActiveTab] = useState<'briefs' | 'stories'>('briefs');
 
   // Track the active scan task ID (null = no scan running)
   const [scanTaskId, setScanTaskId] = useState<string | null>(() => {
@@ -690,51 +870,80 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
             </span>
           )}
         </div>
+
+        {/* Tab bar */}
+        <div style={{ display: 'flex', gap: 4, marginTop: 12, borderBottom: '0.5px solid var(--color-border-tertiary)', paddingBottom: 0 }}>
+          {(['briefs', 'stories'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: activeTab === tab ? 600 : 400,
+                color: activeTab === tab ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                padding: '4px 10px 8px',
+                borderBottom: activeTab === tab ? '2px solid var(--tb-green)' : '2px solid transparent',
+                marginBottom: -1,
+                textTransform: 'capitalize',
+                transition: 'color 0.1s',
+              }}
+            >
+              {tab === 'briefs' ? 'Briefs' : 'Stories'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Thread */}
-      <div ref={threadRef} style={{ flex: 1, overflowY: 'auto', padding: '0 22px 40px' }}>
-        {isLoading && (
-          <div style={{ paddingTop: 20 }}>
-            <Skeleton />
-          </div>
-        )}
-
-        {!isLoading && visibleBriefs.length === 0 && (
-          <div style={{ textAlign: 'center', paddingTop: 80 }}>
-            <div style={{
-              display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-              background: '#EF9F27', animation: 'tb-pulse 1.5s ease-in-out infinite',
-              marginBottom: 14,
-            }} />
-            <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
-              Your first scan is running. Check back in a few minutes.
-            </p>
-          </div>
-        )}
-
-        {Array.from(groups.entries()).map(([date, dayBriefs], gi) => {
-          const visible = dayBriefs.filter(b => {
-            const body = parseContent(b.content);
-            return !(body.toLowerCase().includes('error generating') || body.length < 30);
-          });
-          if (visible.length === 0) return null;
-          const isLastGroup = gi === groups.size - 1;
-          return (
-            <div key={date}>
-              <DateSeparator label={date} />
-              {visible.map((brief, bi) => (
-                <BriefBubble
-                  key={brief.id}
-                  brief={brief}
-                  isLast={isLastGroup && bi === visible.length - 1}
-                  seen={seenBriefIds.has(brief.id)}
-                />
-              ))}
+      {/* Content: Briefs thread or Stories view */}
+      {activeTab === 'stories' ? (
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <StoriesView topicId={id} />
+        </div>
+      ) : (
+        /* Thread */
+        <div ref={threadRef} style={{ flex: 1, overflowY: 'auto', padding: '0 22px 40px' }}>
+          {isLoading && (
+            <div style={{ paddingTop: 20 }}>
+              <Skeleton />
             </div>
-          );
-        })}
-      </div>
+          )}
+
+          {!isLoading && visibleBriefs.length === 0 && (
+            <div style={{ textAlign: 'center', paddingTop: 80 }}>
+              <div style={{
+                display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                background: '#EF9F27', animation: 'tb-pulse 1.5s ease-in-out infinite',
+                marginBottom: 14,
+              }} />
+              <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
+                Your first scan is running. Check back in a few minutes.
+              </p>
+            </div>
+          )}
+
+          {Array.from(groups.entries()).map(([date, dayBriefs], gi) => {
+            const visible = dayBriefs.filter(b => {
+              const body = parseContent(b.content);
+              return !(body.toLowerCase().includes('error generating') || body.length < 30);
+            });
+            if (visible.length === 0) return null;
+            const isLastGroup = gi === groups.size - 1;
+            return (
+              <div key={date}>
+                <DateSeparator label={date} />
+                {visible.map((brief, bi) => (
+                  <BriefBubble
+                    key={brief.id}
+                    brief={brief}
+                    isLast={isLastGroup && bi === visible.length - 1}
+                    seen={seenBriefIds.has(brief.id)}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
     </DomainAlphasCtx.Provider>
   );

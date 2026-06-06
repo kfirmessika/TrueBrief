@@ -621,7 +621,7 @@ def get_topic_stories(topic_id: str, limit: int = 50, user: User = Depends(get_c
 
     res = (
         db.table("story_nodes")
-        .select("id, topic_id, summary, status, fact_count, created_at, updated_at")
+        .select("id, topic_id, title, summary, status, fact_count, created_at, updated_at")
         .eq("topic_id", topic_id)
         .order("updated_at", desc=True)
         .limit(limit)

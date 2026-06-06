@@ -27,18 +27,22 @@ class Harvester:
     def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
         self.llm = llm_client or LLMClient()
 
+    # Maximum days an event_date may differ from article.published_at before the fact is dropped.
+    _MAX_DATE_DELTA_DAYS = 365
+
     def extract(self, article: RawArticle, topic_id: Optional[str] = None) -> List[Alpha]:
         """
         Extract facts from a single article.
         Returns a list of Alpha objects.
         Facts with confidence < 0.6 are dropped.
+        Facts whose event_date is missing or >365 days from article publish date are dropped.
         """
         if not article.text:
             logger.warning(f"No text to harvest for article: {article.url}")
             return []
 
         prompt = self._get_prompt(article)
-        
+
         try:
             response_text = self.llm.call(
                 step_name="harvester",
@@ -46,42 +50,63 @@ class Harvester:
                 json_mode=True,
                 system_prompt="You are a precision intelligence analyst. Extract every atomic, verifiable fact from this article into a structured JSON list."
             )
-            
-            # The LLM should return a JSON list of fact objects.
-            # Handle potential dictionary wrapping if the model doesn't follow instructions perfectly.
+
             data = json.loads(response_text)
-            
+
             fact_list = data
             if isinstance(data, dict):
-                # Sometimes models wrap the list in a key like "facts" or "alphas"
                 for key in ["facts", "alphas", "data"]:
                     if key in data and isinstance(data[key], list):
                         fact_list = data[key]
                         break
-            
+
             if not isinstance(fact_list, list):
                 logger.error(f"Harvester LLM did not return a list. Type: {type(fact_list)}")
                 return []
 
             alphas: List[Alpha] = []
+            dropped_no_date = 0
+            dropped_bad_date = 0
+
             for item in fact_list:
                 if not isinstance(item, dict):
                     continue
-                    
+
                 confidence = float(item.get("confidence", 1.0))
                 if confidence < 0.6:
-                    continue  # Drop low confidence facts
-                    
-                # Parse the event date if provided and valid
-                event_date = None
-                raw_event_date = item.get("event_date")
-                if raw_event_date and raw_event_date.lower() != "unknown":
-                    try:
-                        event_date = parse_date(raw_event_date)
-                    except Exception:
-                        pass # Keep it as None if unparseable
+                    continue
 
-                # Create the Alpha model
+                # event_date is now REQUIRED — drop any fact that can't be dated.
+                raw_event_date = item.get("event_date")
+                if not raw_event_date or str(raw_event_date).strip().lower() in ("unknown", "null", "none", ""):
+                    dropped_no_date += 1
+                    continue
+
+                event_date = None
+                try:
+                    event_date = parse_date(str(raw_event_date))
+                    # Make timezone-naive for comparison
+                    if event_date.tzinfo is not None:
+                        event_date = event_date.replace(tzinfo=None)
+                except Exception:
+                    dropped_no_date += 1
+                    continue
+
+                # Date-sanity check: reject stale/future dates far from article publish date.
+                if article.published_at:
+                    anchor = article.published_at
+                    if anchor.tzinfo is not None:
+                        anchor = anchor.replace(tzinfo=None)
+                    delta = abs((event_date - anchor).days)
+                    if delta > self._MAX_DATE_DELTA_DAYS:
+                        dropped_bad_date += 1
+                        logger.debug(
+                            f"Dropped fact with out-of-range event_date "
+                            f"({event_date.date()} vs article {anchor.date()}, delta={delta}d): "
+                            f"{item.get('alpha_text', '')[:60]}"
+                        )
+                        continue
+
                 alpha = Alpha(
                     alpha_text=item.get("alpha_text", "").strip(),
                     entities=item.get("entities", []),
@@ -92,9 +117,15 @@ class Harvester:
                     confidence=confidence,
                     topic_id=topic_id
                 )
-                
+
                 if alpha.alpha_text:
                     alphas.append(alpha)
+
+            if dropped_no_date or dropped_bad_date:
+                logger.info(
+                    f"Harvester date filter: kept {len(alphas)}, "
+                    f"dropped {dropped_no_date} (no date), {dropped_bad_date} (bad date)"
+                )
 
             return alphas
 
@@ -119,9 +150,10 @@ Extract every atomic, verifiable fact from this article into a structured JSON l
 For each fact extract:
 1. "alpha_text": The fact as one clean standalone sentence.
 2. "entities": List of named entities (companies, people, countries, products).
-3. "event_date": When this HAPPENED (not when it was published).
-   Convert relative dates ("yesterday", "last quarter") to YYYY-MM-DD
-   using the ARTICLE PUBLISHED DATE as an anchor. If unknown, return "unknown".
+3. "event_date": REQUIRED. The date the event HAPPENED in ISO format (YYYY-MM-DD).
+   Use the ARTICLE PUBLISHED DATE as anchor for relative phrases ("yesterday", "last quarter").
+   If the article does not anchor the event in time, do NOT extract the fact.
+   This field is non-optional — facts without a verifiable event date are not facts.
 4. "context": 20-40 words - why does this fact matter? What story does it belong to?
 5. "confidence": How verifiable is this? (0.0-1.0)
 
@@ -129,6 +161,7 @@ RULES:
 - NEVER extract opinions, predictions, or editorial commentary.
 - NEVER extract meta-information about the article itself.
 - Drop anything with confidence < 0.6.
+- DROP any fact where you cannot determine a specific event_date — omit it entirely.
 - Each fact must stand alone - a reader with no other context should understand it.
 - Output ONLY a valid JSON list.
 

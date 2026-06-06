@@ -136,6 +136,22 @@ class PipelineRunner:
                 logger.info("    No articles found. Ending early.")
                 return ""
 
+            # 2b. URL dedup: skip articles already processed for this topic in the last 14 days
+            if topic_id:
+                try:
+                    seen_urls = self.vector_store.get_seen_urls(topic_id, days=14)
+                    before = len(raw_articles)
+                    raw_articles = [a for a in raw_articles if a.url not in seen_urls]
+                    skipped = before - len(raw_articles)
+                    if skipped:
+                        logger.info(f"    URL dedup: skipped {skipped} already-processed articles.")
+                except Exception as dedup_err:
+                    logger.warning(f"    URL dedup failed (non-fatal): {dedup_err}")
+
+            if not raw_articles:
+                logger.info("    All articles already processed. Ending early.")
+                return ""
+
             # 3. MMR Selection
             logger.info(f"[3] Selecting top {MAX_ARTICLES} diverse articles via MMR...")
             selected = self._mmr_select(query=query, articles=raw_articles, limit=MAX_ARTICLES)
