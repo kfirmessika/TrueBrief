@@ -95,57 +95,48 @@ class VectorStore:
             return set()
 
     def find_similar(
-        self, 
-        embedding: list[float], 
-        topic_id: Optional[str] = None, 
+        self,
+        embedding: list[float],
+        topic_id: Optional[str] = None,
         limit: int = 5,
         threshold: float = 0.70
     ) -> List[Tuple[Alpha, float]]:
         """
-        Find similar known facts using pgvector cosine distance.
-        Supabase requires an RPC call to do distance calculations efficiently.
+        Find similar known facts using pgvector cosine distance via match_facts RPC.
+
+        PostgREST cannot cast a JSON array to pgvector's vector type — there is no
+        implicit json→vector cast registered in PostgreSQL. Passing embedding as a
+        pgvector-format string ("[0.1,0.2,...]") triggers the text→vector input
+        function instead, which works correctly.
         """
-        try:
-            # Note: For production pgvector queries in Supabase, you usually create a matching function (RPC).
-            # To avoid requiring the user to run complex SQL RPC definitions right now, 
-            # we will do a basic threshold match using a standard RPC if available, or just fetch and compare in Python
-            # as a fallback if the RPC is missing.
-            
-            # Assuming an RPC `match_facts` exists:
-            # create or replace function match_facts(query_embedding vector(768), match_threshold float, match_count int, filter_topic_id uuid)
-            
-            # Since we can't guarantee the RPC exists yet without running it, we'll try the RPC first.
-            rpc_params = {
-                "query_embedding": embedding,
-                "match_threshold": threshold,
-                "match_count": limit,
-                "filter_topic_id": topic_id
-            }
-            
-            response = self.db.rpc("match_facts", rpc_params).execute()
-            
-            results = []
-            for item in response.data:
-                # Reconstruct Alpha
-                alpha = Alpha(
-                    id=item.get("id"),
-                    topic_id=item.get("topic_id"),
-                    alpha_text=item.get("alpha_text"),
-                    entities=item.get("entities", []),
-                    source_url=item.get("source_url", ""),
-                    source_name=item.get("source_domain", ""),
-                    event_date=item.get("event_date"), # Requires parsing in real app
-                    context=item.get("context"),
-                    confidence=item.get("confidence", 1.0)
-                )
-                score = item.get("similarity", 0.0)
-                results.append((alpha, score))
-                
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error querying similar facts: {e}")
-            # If RPC fails (likely because it's not created), return empty list for now.
-            # In a real setup we'd instruct the user to run the migration.
-            logger.warning("Make sure you have created the `match_facts` RPC in Supabase.")
-            return []
+        # Serialize to pgvector text format: "[v1,v2,...]"
+        # Using list() first handles Gemini's RepeatedScalarFieldContainer.
+        embedding_str = "[" + ",".join(f"{float(v):.8f}" for v in list(embedding)) + "]"
+
+        rpc_params = {
+            "query_embedding": embedding_str,
+            "match_threshold": threshold,
+            "match_count": limit,
+            "filter_topic_id": topic_id,
+        }
+
+        response = self.db.rpc("match_facts", rpc_params).execute()
+
+        results = []
+        for item in response.data:
+            alpha = Alpha(
+                id=item.get("id"),
+                topic_id=item.get("topic_id"),
+                alpha_text=item.get("alpha_text"),
+                entities=item.get("entities", []),
+                source_url=item.get("source_url", ""),
+                source_name=item.get("source_domain", ""),
+                event_date=item.get("event_date"),
+                context=item.get("context"),
+                confidence=item.get("confidence", 1.0),
+            )
+            score = item.get("similarity", 0.0)
+            results.append((alpha, score))
+
+        logger.debug(f"find_similar: {len(results)} matches (threshold={threshold}, topic={topic_id})")
+        return results

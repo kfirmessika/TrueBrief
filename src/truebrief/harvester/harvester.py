@@ -30,18 +30,24 @@ class Harvester:
     # Maximum days an event_date may differ from article.published_at before the fact is dropped.
     _MAX_DATE_DELTA_DAYS = 365
 
-    def extract(self, article: RawArticle, topic_id: Optional[str] = None) -> List[Alpha]:
+    def extract(
+        self,
+        article: RawArticle,
+        topic_id: Optional[str] = None,
+        topic_context: Optional[str] = None,
+    ) -> List[Alpha]:
         """
         Extract facts from a single article.
         Returns a list of Alpha objects.
         Facts with confidence < 0.6 are dropped.
         Facts whose event_date is missing or >365 days from article publish date are dropped.
+        Off-topic facts (when topic_context is provided) are dropped by the LLM prompt.
         """
         if not article.text:
             logger.warning(f"No text to harvest for article: {article.url}")
             return []
 
-        prompt = self._get_prompt(article)
+        prompt = self._get_prompt(article, topic_context=topic_context)
 
         try:
             response_text = self.llm.call(
@@ -133,14 +139,23 @@ class Harvester:
             logger.error(f"Harvester failed for article {article.url}: {e}")
             return []
 
-    def _get_prompt(self, article: RawArticle) -> str:
+    def _get_prompt(self, article: RawArticle, topic_context: Optional[str] = None) -> str:
         """Construct the prompt for fact extraction."""
-        
+
         pub_date_str = article.published_at.strftime("%Y-%m-%d") if article.published_at else "Unknown"
-        
+
+        topic_block = ""
+        if topic_context:
+            topic_block = f"""
+TOPIC FILTER: {topic_context}
+Only extract facts that are directly and specifically relevant to this topic.
+Ignore any facts about unrelated events, people, or subjects — even if they appear in the same article.
+
+"""
+
         return f"""
 ARTICLE PUBLISHED DATE: {pub_date_str}
-
+{topic_block}
 ARTICLE TEXT:
 {article.text}
 
@@ -158,8 +173,9 @@ For each fact extract:
 5. "confidence": How verifiable is this? (0.0-1.0)
 
 RULES:
+- ONLY extract facts relevant to the TOPIC FILTER above (if specified).
 - NEVER extract opinions, predictions, or editorial commentary.
-- NEVER extract meta-information about the article itself.
+- NEVER extract meta-information about the article itself (download links, app info, copyright notices).
 - Drop anything with confidence < 0.6.
 - DROP any fact where you cannot determine a specific event_date — omit it entirely.
 - Each fact must stand alone - a reader with no other context should understand it.

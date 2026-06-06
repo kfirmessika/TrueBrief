@@ -169,7 +169,11 @@ class PipelineRunner:
                 if not article.text:
                     continue
                 article_texts[article.url] = article.text
-                alphas = self.harvester.extract(article, topic_id=topic_id)
+                alphas = self.harvester.extract(
+                    article,
+                    topic_id=topic_id,
+                    topic_context=query.topic_name or topic_input,
+                )
                 all_alphas.extend(alphas)
                 if i < len(selected) - 1:
                     time.sleep(2)
