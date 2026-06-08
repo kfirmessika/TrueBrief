@@ -4,8 +4,8 @@
 A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 14 (App Router) + Clerk auth + Stripe billing. DB: Supabase (Postgres + pgvector). Deployed on Railway.
 
 ## Current Status
-- **Done:** Phases 0–2 complete. Phase 3 steps 3.4–3.9 complete.
-- **Next task:** Step 3.12 — Onboarding Flow
+- **Done:** Phases 0–2 complete. Phase 3 mostly complete (3.12 Onboarding is the only gap — page deleted during redesign, needs rebuild). Phase 3.5 A.1 and A.4 done. B.0 and B.1 done.
+- **Next candidates:** (1) Rebuild 3.12 Onboarding, (2) A.6 Admin Metrics Dashboard, (3) Fix stale tests (history.test.tsx + onboarding.test.tsx reference deleted routes), (4) B.REF then B.2 once design mockup is ready
 - **Full task list & status:** `docs/roadmap.md`
 
 ---

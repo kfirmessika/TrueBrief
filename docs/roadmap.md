@@ -28,17 +28,17 @@
 - [x] 3.7 Auth (Clerk/NextAuth)
 - [x] 3.8 Topic Management UI
 - [x] 3.9 Brief Display Page
-- [x] **3.10 Brief History Page** (C: 5 | M: **FLASH**)
+- [x] **3.10 Brief History Page** (C: 5 | M: **FLASH**) — note: standalone history route removed; history is now inline on the topic page. `history.test.tsx` is stale and tests a deleted route.
 - [x] 3.11 Landing Page (C: 5 | M: **FLASH**)
-- [x] 3.12 Onboarding Flow (C: 12 | M: **SONNET**)
+- [ ] **3.12 Onboarding Flow** (C: 12 | M: **SONNET**) — ⚠️ page was deleted during UI redesign. `src/app/onboarding/` directory is empty. `onboarding.test.tsx` tests a missing page. Needs to be rebuilt.
 - [x] 3.13 "Time Saved" Metric (C: 5 | M: **FLASH**)
 - [x] 3.14 Public Sharing Pages (C: 10 | M: **SONNET**)
-- [x] 3.15 Email Digest (C: 15 | M: **SONNET**) ← NEXT
+- [x] 3.15 Email Digest (C: 15 | M: **SONNET**)
 - [x] 3.16 Web Push Notifications (C: 15 | M: **SONNET**)
 - [x] 3.17 Mobile-Responsive Design (C: 8 | M: **FLASH**)
 - [x] 3.18 Rate Limiting & Abuse (C: 18 | M: **SONNET**)
 - [x] 3.19 Brave Search + Exa (C: 15 | M: **SONNET**)
-- [x] **3.20 Deployment — Railway (backend + Celery + Redis) + Vercel (frontend). Deploy FIRST so all A/B/C testing runs against live URLs, not localhost.** (C: 10 | M: **SONNET**)
+- [x] **3.20 Deployment — Railway (backend + Celery + Redis) + Vercel (frontend).** (C: 10 | M: **SONNET**)
 
 ---
 
@@ -70,13 +70,13 @@
 > 1. **Generate** — use Google AI Studio or Claude.ai (claude.ai Projects) to produce HTML/screenshot mockups of the redesigned dashboard and topic detail page. Upload current screenshots, prompt for a Linear/Vercel-style clean dark-first design.
 > 2. **Validate** — open the AI-generated HTML in a browser. Iterate prompts until it looks right to the founder.
 > 3. **Implement** — bring the approved screenshot/HTML to Claude Code. Implement it 1:1. No guessing.
-> Do NOT start B.0–B.5 until Step 1+2 are done and a design reference exists.
+> Do NOT start B.2–B.5 until Step 1+2 are done and a design reference exists.
 
 - [x] B.0 Design System Foundation — OKLCH tokens, dark mode (next-themes), Framer Motion primitives, Radix UI, EmptyState/Skeleton/ErrorBoundary (C: 15 | M: **SONNET**)
-- [x] B.1 Critical Gaps — Topic Detail (3-tab: Briefs/Stories/Insights + live scan button), Settings (account/billing/notifications/danger zone), ScanButton with polling (C: 18 | M: **SONNET**)
+- [x] B.1 Critical Gaps — Topic Detail (Briefs/Stories tabs + inline scan button + live scan progress bar), Settings (account/billing/danger zone), topic thread with source chips + tooltips (C: 18 | M: **SONNET**)
 - [ ] **B.REF Design Reference** — founder generates mockups via Google AI Studio / Claude.ai, validates visually, brings approved reference here (C: 0 | founder task, not AI)
-- [ ] B.2 New Surfaces — Story Node timeline, AYR insight, Query variants panel, Real-time scan progress, Command palette, Notification inbox — implement against B.REF (C: 20 | M: **SONNET**)
-- [ ] B.3 Polish Layer — Skeletons, optimistic mutations, page transitions, confetti, OG images — implement against B.REF (C: 10 | M: **FLASH**)
+- [ ] B.2 New Surfaces — Story Node timeline view, AYR insight panel, Query variants panel, Command palette, Notification inbox — implement against B.REF. *(Real-time scan progress already done in B.1.)* (C: 18 | M: **SONNET**)
+- [ ] B.3 Polish Layer — Optimistic mutations, page transitions, OG images — implement against B.REF (C: 8 | M: **FLASH**)
 - [ ] B.4 Copy & Brand — Empty states, onboarding interstitial, landing rewrite (C: 5 | M: **FLASH**)
 - [ ] B.5 Accessibility & Mobile — axe-core, ARIA, focus traps, reduced-motion, touch targets (C: 8 | M: **FLASH**)
 
