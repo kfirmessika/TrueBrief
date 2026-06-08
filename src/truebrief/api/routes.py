@@ -952,15 +952,19 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
     db = get_supabase()
 
     # ── Pipeline runs ────────────────────────────────────────────────────────
-    runs_res = (
-        db.table("pipeline_run")
-        .select("id, topic_id, started_at, duration_ms, exit_status, brief_length, "
-                "decisions_new, decisions_update, decisions_duplicate, error_message")
-        .order("started_at", desc=True)
-        .limit(200)
-        .execute()
-    )
-    runs = runs_res.data or []
+    runs: list = []
+    try:
+        runs_res = (
+            db.table("pipeline_run")
+            .select("id, topic_id, started_at, duration_ms, exit_status, brief_length, "
+                    "decisions_new, decisions_update, decisions_duplicate, error_message")
+            .order("started_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        runs = runs_res.data or []
+    except Exception:
+        pass  # table may not exist yet
 
     by_status: dict = {}
     total_dur = 0
