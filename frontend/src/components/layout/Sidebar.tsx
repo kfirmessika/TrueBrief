@@ -6,7 +6,7 @@ import { useUser } from '@clerk/nextjs';
 import { useApi } from '@/lib/useApi';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Plus, Search, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2,
+  Plus, Search, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2,
 } from 'lucide-react';
 
 interface Topic {
@@ -286,6 +286,15 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div style={{ marginTop: 'auto', borderTop: '0.5px solid var(--color-border-tertiary)', padding: 6 }}>
+        <div
+          onClick={() => router.push('/admin')}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: pathname === '/admin' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)', background: pathname === '/admin' ? 'var(--color-background-tertiary)' : 'transparent' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = pathname === '/admin' ? 'var(--color-background-tertiary)' : 'transparent'; }}
+        >
+          <BarChart2 size={14} />
+          Admin
+        </div>
         <div
           onClick={() => router.push('/settings')}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)' }}

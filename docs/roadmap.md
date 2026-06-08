@@ -30,7 +30,7 @@
 - [x] 3.9 Brief Display Page
 - [x] **3.10 Brief History Page** (C: 5 | M: **FLASH**) — note: standalone history route removed; history is now inline on the topic page. `history.test.tsx` is stale and tests a deleted route.
 - [x] 3.11 Landing Page (C: 5 | M: **FLASH**)
-- [ ] **3.12 Onboarding Flow** (C: 12 | M: **SONNET**) — ⚠️ page was deleted during UI redesign. `src/app/onboarding/` directory is empty. `onboarding.test.tsx` tests a missing page. Needs to be rebuilt.
+- ~~3.12 Onboarding Flow~~ — **CANCELLED** (decided unnecessary for this product)
 - [x] 3.13 "Time Saved" Metric (C: 5 | M: **FLASH**)
 - [x] 3.14 Public Sharing Pages (C: 10 | M: **SONNET**)
 - [x] 3.15 Email Digest (C: 15 | M: **SONNET**)
@@ -61,7 +61,7 @@
 - [ ] A.3 Longitudinal Stress Tests — 30-day fast-news sim, slow-burn, topic-overlap — run against Railway so it stays up 24/7 (C: 15 | M: **SONNET**)
 - [x] A.4 Failure-Mode Tests — 10 tests covering temporal boundary, story merge creep, orphaned fact, batch mismatch, idempotent schedule, hallucination smoke, rotator starvation, briefer zero alphas (C: 12 | M: **SONNET**)
 - [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**)
-- [ ] A.6 Admin Metrics Dashboard — /admin/metrics endpoint + UI (C: 8 | M: **FLASH**)
+- [x] A.6 Admin Metrics Dashboard — /admin/metrics endpoint + UI (C: 8 | M: **FLASH**)
 
 ### Phase B · UI/UX Redesign
 

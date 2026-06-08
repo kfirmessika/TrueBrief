@@ -925,3 +925,117 @@ def dismiss_fact(fact_id: str, user: User = Depends(get_current_user)):
     db = get_supabase()
     db.table("known_facts").delete().eq("id", fact_id).execute()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Admin Metrics (A.6)
+# ---------------------------------------------------------------------------
+
+def _is_admin(user: User) -> bool:
+    import os
+    raw = os.getenv("ADMIN_USER_IDS", "").strip()
+    if not raw:
+        return True  # dev mode: no restriction when env var is not set
+    return user.id in {x.strip() for x in raw.split(",") if x.strip()}
+
+
+@router.get("/admin/metrics")
+def get_admin_metrics(user: User = Depends(get_current_user)):
+    """
+    Pipeline health dashboard for admins.
+    Protected by ADMIN_USER_IDS env var (comma-separated Clerk user IDs).
+    If the env var is not set, any authenticated user can access (dev mode).
+    """
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    db = get_supabase()
+
+    # ── Pipeline runs ────────────────────────────────────────────────────────
+    runs_res = (
+        db.table("pipeline_run")
+        .select("id, topic_id, started_at, duration_ms, exit_status, brief_length, "
+                "decisions_new, decisions_update, decisions_duplicate, error_message")
+        .order("started_at", desc=True)
+        .limit(200)
+        .execute()
+    )
+    runs = runs_res.data or []
+
+    by_status: dict = {}
+    total_dur = 0
+    dur_count = 0
+    for r in runs:
+        s = r.get("exit_status", "unknown")
+        by_status[s] = by_status.get(s, 0) + 1
+        d = r.get("duration_ms")
+        if d:
+            total_dur += d
+            dur_count += 1
+
+    avg_duration_ms = int(total_dur / dur_count) if dur_count else 0
+
+    recent_runs = [
+        {
+            "id": r["id"],
+            "topic_id": r.get("topic_id"),
+            "started_at": r.get("started_at"),
+            "duration_s": round(r["duration_ms"] / 1000, 1) if r.get("duration_ms") else None,
+            "exit_status": r.get("exit_status"),
+            "brief_length": r.get("brief_length", 0),
+            "new": r.get("decisions_new", 0),
+            "update": r.get("decisions_update", 0),
+            "dupe": r.get("decisions_duplicate", 0),
+            "error": r.get("error_message"),
+        }
+        for r in runs[:25]
+    ]
+
+    # ── LLM costs ────────────────────────────────────────────────────────────
+    total_cost_usd = 0.0
+    cost_by_stage: dict = {}
+    total_tokens = 0
+
+    try:
+        cost_res = (
+            db.table("llm_call_log")
+            .select("stage, cost_usd, input_tokens, output_tokens")
+            .execute()
+        )
+        for row in (cost_res.data or []):
+            c = row.get("cost_usd") or 0.0
+            total_cost_usd += c
+            stage = row.get("stage", "unknown")
+            cost_by_stage[stage] = cost_by_stage.get(stage, 0.0) + c
+            total_tokens += (row.get("input_tokens") or 0) + (row.get("output_tokens") or 0)
+    except Exception:
+        pass  # table may not exist yet
+
+    # ── Global counts ─────────────────────────────────────────────────────────
+    total_topics = 0
+    total_briefs = 0
+    total_facts = 0
+    try:
+        total_topics = (db.table("topics").select("id", count="exact").execute().count or 0)
+        total_briefs = (db.table("briefs").select("id", count="exact").execute().count or 0)
+        total_facts  = (db.table("known_facts").select("id", count="exact").execute().count or 0)
+    except Exception:
+        pass
+
+    return {
+        "totals": {
+            "topics": total_topics,
+            "briefs": total_briefs,
+            "facts": total_facts,
+            "pipeline_runs": len(runs),
+            "total_cost_usd": round(total_cost_usd, 4),
+            "total_tokens": total_tokens,
+            "avg_duration_s": round(avg_duration_ms / 1000, 1),
+        },
+        "runs_by_status": by_status,
+        "cost_by_stage": {
+            k: round(v, 6)
+            for k, v in sorted(cost_by_stage.items(), key=lambda x: -x[1])
+        },
+        "recent_runs": recent_runs,
+    }
