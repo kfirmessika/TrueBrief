@@ -3,8 +3,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useCallback, useContext, useEffect, useRef, use, useState, useMemo, createContext } from 'react';
-import { Clock } from 'lucide-react';
-import { useScanStatus, useMarkBriefsRead } from '@/hooks/useTopics';
+import { Clock, ScanSearch } from 'lucide-react';
+import { useScanStatus, useMarkBriefsRead, useTriggerScan } from '@/hooks/useTopics';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -727,6 +727,37 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const threadRef = useRef<HTMLDivElement>(null);
 
   const [activeTab, setActiveTab] = useState<'briefs' | 'stories'>('briefs');
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const { mutate: triggerScan, isPending: isScanPending } = useTriggerScan();
+
+  const handleScanNow = () => {
+    if (isScanPending || scanTaskId) return;
+    setScanError(null);
+    triggerScan(id, {
+      onSuccess: (data) => {
+        if (data?.task_id) {
+          localStorage.setItem(`scan_task_${id}`, data.task_id);
+          setScanTaskId(data.task_id);
+        }
+      },
+      onError: (err: any) => {
+        const status = err?.response?.status;
+        if (status === 429) {
+          const detail = err?.response?.data?.detail ?? '';
+          const hoursMatch = detail.match(/(\d+(?:\.\d+)?)\s*hour/i);
+          const msg = hoursMatch
+            ? `Next scan in ${Math.ceil(parseFloat(hoursMatch[1]))}h`
+            : 'Rate limit reached';
+          setScanError(msg);
+          setTimeout(() => setScanError(null), 5000);
+        } else {
+          setScanError('Scan failed');
+          setTimeout(() => setScanError(null), 4000);
+        }
+      },
+    });
+  };
 
   // Track the active scan task ID (null = no scan running)
   const [scanTaskId, setScanTaskId] = useState<string | null>(() => {
@@ -860,6 +891,26 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
             <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
               Last scanned {timeAgo(topic?.last_scan_at ?? null)}
             </span>
+          )}
+          {!scanTaskId && (
+            <button
+              onClick={handleScanNow}
+              disabled={isScanPending}
+              title="Run a new scan"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: 11, color: isScanPending ? 'var(--color-text-tertiary)' : 'var(--tb-green)',
+                background: 'none', border: 'none', cursor: isScanPending ? 'default' : 'pointer',
+                padding: '1px 4px', borderRadius: 4,
+                opacity: isScanPending ? 0.5 : 1,
+              }}
+            >
+              <ScanSearch size={11} />
+              {isScanPending ? 'Starting…' : 'Scan now'}
+            </button>
+          )}
+          {scanError && (
+            <span style={{ fontSize: 11, color: '#B45309' }}>{scanError}</span>
           )}
           {topic?.frequency && (
             <span style={{

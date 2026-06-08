@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { Topic } from '@/lib/api';
@@ -94,7 +95,7 @@ export function useScanStatus(taskId: string | null, topicId?: string) {
   const api = useApi();
   const queryClient = useQueryClient();
 
-  return useQuery({
+  const result = useQuery({
     queryKey: ['scan-status', taskId],
     queryFn: async () => {
       const { data } = await api.get(`/scan-status/${taskId}`);
@@ -102,17 +103,20 @@ export function useScanStatus(taskId: string | null, topicId?: string) {
     },
     enabled: !!taskId,
     refetchInterval: (query) => {
-      const data = query.state.data as any;
-      if (data?.state === 'SUCCESS' || data?.state === 'FAILURE') {
-        // Invalidate both the sidebar topics list AND the single topic + briefs
-        queryClient.invalidateQueries({ queryKey: ['topics'] });
-        if (topicId) {
-          queryClient.invalidateQueries({ queryKey: ['topic', topicId] });
-          queryClient.invalidateQueries({ queryKey: ['topic-briefs', topicId] });
-        }
-        return false;
-      }
-      return 2000;
+      const state = (query.state.data as any)?.state;
+      return state === 'SUCCESS' || state === 'FAILURE' ? false : 2000;
     },
   });
+
+  const scanState = (result.data as any)?.state;
+  useEffect(() => {
+    if (scanState !== 'SUCCESS' && scanState !== 'FAILURE') return;
+    queryClient.invalidateQueries({ queryKey: ['topics'] });
+    if (topicId) {
+      queryClient.invalidateQueries({ queryKey: ['topic', topicId] });
+      queryClient.invalidateQueries({ queryKey: ['topic-briefs', topicId] });
+    }
+  }, [scanState, topicId, queryClient]);
+
+  return result;
 }

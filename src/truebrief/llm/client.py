@@ -11,10 +11,14 @@ Set the `pipeline_run_id` context var before calling to associate logs with a ru
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextvars
 import logging
 import time
 from typing import Optional, List, Any
+
+_GEMINI_GENERATE_TIMEOUT = 60   # seconds; 60s covers long-form briefs
+_GEMINI_EMBED_TIMEOUT = 30      # seconds; embeddings should be fast
 
 from truebrief.llm.pricing import compute_cost_usd
 
@@ -106,13 +110,17 @@ class LLMClient:
         client = self._get_gemini_client()
         from google.genai import types
         try:
-            res = client.models.embed_content(
-                model="models/gemini-embedding-2",
-                contents=[text],
-                config=types.EmbedContentConfig(
-                    output_dimensionality=768,
-                    task_type="RETRIEVAL_DOCUMENT"
-                )
+            embed_config = types.EmbedContentConfig(
+                output_dimensionality=768,
+                task_type="RETRIEVAL_DOCUMENT"
+            )
+            res = self._call_with_timeout(
+                lambda: client.models.embed_content(
+                    model="models/gemini-embedding-2",
+                    contents=[text],
+                    config=embed_config,
+                ),
+                _GEMINI_EMBED_TIMEOUT,
             )
             if not res or not res.embeddings:
                 raise LLMError("Gemini returned no embeddings for the provided text.")
@@ -131,13 +139,17 @@ class LLMClient:
         client = self._get_gemini_client()
         from google.genai import types
         try:
-            res = client.models.embed_content(
-                model="models/gemini-embedding-2",
-                contents=valid_texts,
-                config=types.EmbedContentConfig(
-                    output_dimensionality=768,
-                    task_type="RETRIEVAL_DOCUMENT"
-                )
+            embed_config = types.EmbedContentConfig(
+                output_dimensionality=768,
+                task_type="RETRIEVAL_DOCUMENT"
+            )
+            res = self._call_with_timeout(
+                lambda: client.models.embed_content(
+                    model="models/gemini-embedding-2",
+                    contents=valid_texts,
+                    config=embed_config,
+                ),
+                _GEMINI_EMBED_TIMEOUT,
             )
             if not res or not res.embeddings:
                 raise LLMError("Gemini returned no embeddings for the batch.")
@@ -172,10 +184,13 @@ class LLMClient:
         )
 
         try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=config
+            response = self._call_with_timeout(
+                lambda: client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                ),
+                _GEMINI_GENERATE_TIMEOUT,
             )
             if not response or not response.text:
                 logger.warning(f"Gemini returned empty text for model {model}. Possible safety block.")
@@ -271,6 +286,24 @@ class LLMClient:
             )
         except Exception as exc:
             logger.debug("LLM telemetry log failed (non-fatal): %s", exc)
+
+    @staticmethod
+    def _call_with_timeout(func, timeout_seconds: float):
+        """Run func() in a thread; raise LLMError if it exceeds timeout_seconds.
+
+        Python threads cannot be forcibly killed, but the calling stack unwinds
+        with a clean LLMError so the pipeline can handle it and the Celery task
+        can mark itself FAILURE instead of hanging forever.
+        """
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except concurrent.futures.TimeoutError:
+                raise LLMError(
+                    f"Gemini API call timed out after {timeout_seconds}s. "
+                    "The API may be slow or rate-limited."
+                )
 
     def _get_gemini_client(self) -> Any:
         if self._gemini_client is None:

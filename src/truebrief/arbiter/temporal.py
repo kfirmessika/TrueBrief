@@ -51,9 +51,24 @@ def temporal_overlap(
         # Unknown dates: be neutral - don't penalize, don't reward
         return 0.5
 
-    # Normalize to date objects for comparison
-    d1 = date1.date() if isinstance(date1, datetime) else date1
-    d2 = date2.date() if isinstance(date2, datetime) else date2
+    def _to_date(v):
+        """Accept datetime, date, or ISO-format string (from Supabase JSON)."""
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v.replace("Z", "+00:00")).date()
+            except Exception:
+                return None
+        return None
+
+    d1 = _to_date(date1)
+    d2 = _to_date(date2)
+
+    if d1 is None or d2 is None:
+        return 0.5
 
     delta_days = abs((d1 - d2).days)
 

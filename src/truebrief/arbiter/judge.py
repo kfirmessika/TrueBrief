@@ -19,12 +19,27 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, date
 from typing import List, Optional, Tuple
 
 from truebrief.llm.client import LLMClient, LLMError
 from truebrief.models.alpha import Alpha, DecisionType
 
 logger = logging.getLogger(__name__)
+
+
+def _format_event_date(event_date) -> str:
+    """Format event_date (datetime, date, or ISO string from DB) as YYYY-MM-DD."""
+    if event_date is None:
+        return "unknown"
+    if isinstance(event_date, (datetime, date)):
+        return event_date.strftime("%Y-%m-%d")
+    if isinstance(event_date, str):
+        try:
+            return datetime.fromisoformat(event_date.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+        except Exception:
+            return event_date
+    return str(event_date)
 
 # Label descriptions sent to the LLM alongside similarity scores
 _SCORE_LABELS = {
@@ -140,18 +155,14 @@ class JudgeLLM:
 
     def _build_prompt(self, new_alpha: Alpha, matches: List[Tuple[Alpha, float]]) -> str:
         """Construct the full classification prompt."""
-        new_date_str = (
-            new_alpha.event_date.strftime("%Y-%m-%d") if new_alpha.event_date else "unknown"
-        )
+        new_date_str = _format_event_date(new_alpha.event_date)
         new_entities_str = ", ".join(new_alpha.entities) if new_alpha.entities else "unknown"
 
         # Build the matches block (up to 3 shown for context)
         lines = []
         for i, (match, score) in enumerate(matches[:3], start=1):
             label = _score_label(score)
-            match_date = (
-                match.event_date.strftime("%Y-%m-%d") if match.event_date else "unknown"
-            )
+            match_date = _format_event_date(match.event_date)
             match_entities = ", ".join(match.entities) if match.entities else "unknown"
             lines.append(
                 f"  {i}. [{label} {score:.2f}] \"{match.alpha_text}\"\n"
