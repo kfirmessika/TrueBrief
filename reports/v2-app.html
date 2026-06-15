@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrueBrief v2 — The App</title>
+<style>
+/* ─────────────────────────────────────────────────────────
+   TrueBrief v2 — full app shell
+   Home = consume · Overlay = understand · Topic = manage
+   Tokens match frontend/src/app/globals.css → drop-in.
+   ───────────────────────────────────────────────────────── */
+:root{
+  --bg:#FAFAF8; --sidebar:#F4F2EC; --sunk:#F1EFE8;
+  --ink:#16150F; --ink2:#6B6963; --ink3:#A8A49C; --hair:#E8E5DD;
+  --green:#0F6E56; --green-wash:#E6F2EC; --amber:#C77F1A; --amber-wash:#FBF1DF;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;background:var(--bg);color:var(--ink);height:100vh;overflow:hidden;display:flex}
+
+/* ════ SIDEBAR ════ */
+.sidebar{width:248px;min-width:248px;background:var(--sidebar);border-right:1px solid var(--hair);display:flex;flex-direction:column;padding:14px 0}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 18px 16px;font-size:14px;font-weight:600}
+.brand .mark{width:24px;height:24px;border-radius:6px;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;letter-spacing:-.5px}
+.new-btn{margin:0 12px 14px;padding:9px 12px;border-radius:9px;background:#fff;border:1px solid var(--hair);color:var(--ink);font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:8px;cursor:pointer;transition:border-color .12s}
+.new-btn:hover{border-color:#D6D2C8}
+.nav-item{display:flex;align-items:center;gap:10px;margin:1px 10px;padding:8px 12px;border-radius:8px;font-size:13px;color:var(--ink2);cursor:pointer;transition:background .1s}
+.nav-item:hover{background:#fff}
+.nav-item.active{background:#fff;color:var(--ink);font-weight:600}
+.nav-item .ico{width:15px;height:15px;opacity:.6;flex-shrink:0}
+.side-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:18px 22px 6px}
+.topic-item{display:flex;align-items:center;gap:10px;margin:1px 10px;padding:7px 12px;border-radius:8px;font-size:13px;color:var(--ink2);cursor:pointer;transition:background .1s}
+.topic-item:hover{background:#fff}
+.topic-item.active{background:#fff;color:var(--ink)}
+.mv-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:#CFCBC2}
+.mv-dot.moved{background:var(--green);box-shadow:0 0 0 3px var(--green-wash)}
+.tname{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tcount{font-size:10px;font-weight:700;color:var(--green);background:var(--green-wash);border-radius:9px;padding:1px 6px}
+.side-foot{margin-top:auto;padding:12px 18px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--hair)}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--green);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.side-foot .who{font-size:12px;font-weight:500;line-height:1.3}
+.side-foot .tier{font-size:10px;color:var(--ink3)}
+
+/* ════ MAIN ════ */
+.main{flex:1;overflow-y:auto;position:relative}
+.canvas{max-width:600px;margin:0 auto;padding:46px 28px 120px}
+.view{display:none}
+.view.show{display:block}
+
+/* ── Home: the pulse */
+.pulse{display:flex;align-items:flex-start;gap:13px;margin-bottom:6px}
+.pulse-dot{width:9px;height:9px;border-radius:50%;margin-top:8px;background:var(--green);flex-shrink:0;box-shadow:0 0 0 5px var(--green-wash);animation:breathe 3.2s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 5px var(--green-wash)}50%{box-shadow:0 0 0 8px var(--green-wash)}}
+.pulse-line{font-size:23px;font-weight:600;letter-spacing:-.02em;line-height:1.3}
+.pulse-line .soft{color:var(--ink3);font-weight:500}
+.pulse-sub{margin:7px 0 0 22px;font-size:12.5px;color:var(--ink2);display:flex;gap:9px;align-items:center}
+.pulse-sub .sep{color:var(--hair)}
+.pulse-sub .q{color:var(--green);font-weight:600}
+
+/* ── signal stories */
+.signal{margin-top:42px}
+.story{padding-bottom:4px;margin-bottom:36px;cursor:pointer;opacity:0;transform:translateY(6px);animation:rise .5s cubic-bezier(.4,0,.2,1) forwards}
+.story:nth-child(1){animation-delay:.04s}.story:nth-child(2){animation-delay:.12s}.story:nth-child(3){animation-delay:.2s}
+@keyframes rise{to{opacity:1;transform:none}}
+.eyebrow{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.eb-tag{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+.eb-rule{flex:1;height:1px;background:var(--hair)}
+.eb-when{font-size:10px;color:var(--ink3)}
+.nm{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:9px}
+.nm::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green)}
+.nm.fresh{color:var(--amber)}.nm.fresh::before{background:var(--amber)}
+.delta{font-size:18.5px;font-weight:500;line-height:1.5;letter-spacing:-.012em;margin-bottom:12px}
+.prov{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:var(--ink3)}
+.favs{display:flex}.favs img{width:15px;height:15px;border-radius:3px;margin-left:-4px;border:1.5px solid var(--bg);background:#fff}.favs img:first-child{margin-left:0}
+.verified{color:var(--green);font-weight:600}
+.prov .sep{color:var(--hair)}
+.ctx-hint{margin-left:auto;font-size:11px;color:var(--ink3);font-weight:500}
+.story:hover .ctx-hint{color:var(--green)}
+
+/* ── quiet zone */
+.quiet{margin-top:8px;background:var(--sunk);border-radius:12px;padding:7px}
+.quiet-h{padding:8px 12px 9px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+.qrow{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:background .1s}
+.qrow:hover{background:#fff}
+.qrow .qd{width:5px;height:5px;border-radius:50%;background:#CFCBC2;flex-shrink:0}
+.qname{flex:1;font-size:12.5px;color:var(--ink2);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qstate{font-size:10.5px;color:var(--ink3)}
+
+/* ── closure */
+.closure{margin-top:48px;text-align:center}
+.cl-rule{width:28px;height:2px;background:var(--hair);margin:0 auto 18px;border-radius:1px}
+.cl-main{font-size:14px;font-weight:600;margin-bottom:5px}
+.cl-sub{font-size:11.5px;color:var(--ink3)}
+.cl-saved{margin-top:18px;display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--ink2);background:#fff;border:1px solid var(--hair);border-radius:20px;padding:7px 14px}
+.cl-saved b{color:var(--green);font-weight:700}
+
+/* ── all quiet */
+.allquiet{display:none;flex-direction:column;align-items:center;text-align:center;padding:70px 0 0}
+.allquiet.show{display:flex}
+.aq-orb{width:64px;height:64px;border-radius:50%;background:radial-gradient(circle at 50% 45%,#fff,var(--green-wash));border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;margin-bottom:30px;position:relative}
+.aq-orb::after{content:'';position:absolute;inset:-6px;border-radius:50%;border:1px solid var(--green-wash);animation:ring 3.4s ease-in-out infinite}
+@keyframes ring{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.12);opacity:.3}}
+.aq-check{color:var(--green);font-size:24px}
+.aq-title{font-size:26px;font-weight:600;letter-spacing:-.025em;margin-bottom:10px}
+.aq-sub{font-size:14px;color:var(--ink2);line-height:1.6;max-width:360px}
+.aq-stat{margin-top:26px;font-size:12px;color:var(--ink3);display:flex;gap:8px}.aq-stat b{color:var(--ink2);font-weight:600}.aq-stat .sep{color:var(--hair)}
+.aq-next{margin-top:32px;font-size:11px;color:var(--ink3)}
+
+/* ════ TOPIC VIEW ════ */
+.topic-head{margin-bottom:28px}
+.topic-title{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-bottom:7px}
+.topic-meta{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ink3)}
+.freq{font-size:10px;border:1px solid var(--hair);border-radius:11px;padding:2px 9px;color:var(--ink2);cursor:pointer}
+.tsec-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:26px 0 12px;display:flex;align-items:center;gap:10px}
+.tsec-label::after{content:'';flex:1;height:1px;background:var(--hair)}
+.tcard{background:#fff;border:1px solid var(--hair);border-radius:11px;padding:15px 17px;margin-bottom:9px;cursor:pointer;transition:transform .12s,box-shadow .12s}
+.tcard:hover{transform:translateY(-1px);box-shadow:0 4px 13px rgba(0,0,0,.05)}
+.tcard-top{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.tcard-pulse{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px var(--green-wash);flex-shrink:0}
+.tcard-pulse.q{background:#CFCBC2;box-shadow:none}
+.tcard-title{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;flex:1}
+.tcard-meta{font-size:10px;color:var(--ink3)}
+.tcard-sum{font-size:13px;line-height:1.55;color:var(--ink2)}
+.tcard.q .tcard-title{color:var(--ink2)}.tcard.q .tcard-sum{color:var(--ink3)}
+
+/* ════ THREAD OVERLAY ════ */
+.scrim{position:fixed;inset:0;background:rgba(20,18,12,.28);opacity:0;pointer-events:none;transition:opacity .25s;z-index:40}
+.scrim.show{opacity:1;pointer-events:auto}
+.panel{position:fixed;top:0;right:0;height:100vh;width:480px;max-width:92vw;background:var(--bg);border-left:1px solid var(--hair);box-shadow:-12px 0 40px rgba(0,0,0,.08);transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);z-index:41;overflow-y:auto}
+.panel.show{transform:none}
+.panel-head{position:sticky;top:0;background:var(--bg);padding:20px 26px 14px;border-bottom:1px solid var(--hair);display:flex;align-items:flex-start;gap:12px}
+.panel-eb{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:5px}
+.panel-title{font-size:18px;font-weight:650;letter-spacing:-.01em;line-height:1.3}
+.panel-x{margin-left:auto;width:28px;height:28px;border-radius:7px;border:1px solid var(--hair);background:#fff;color:var(--ink2);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.panel-x:hover{border-color:#D6D2C8}
+.panel-body{padding:20px 26px 60px}
+.sofar{background:#fff;border:1px solid var(--hair);border-radius:10px;padding:15px 17px;margin-bottom:8px}
+.sofar-lbl{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.sofar-lbl::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green)}
+.sofar p{font-size:13.5px;line-height:1.65;color:var(--ink)}
+.sofar-meta{margin-top:11px;padding-top:11px;border-top:1px solid var(--hair);font-size:11px;color:var(--ink3);display:flex;gap:10px;flex-wrap:wrap}
+.tl-lbl{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:26px 0 4px}
+.newline{display:flex;align-items:center;gap:9px;margin:14px 0 4px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--green)}
+.newline .l{flex:1;height:1px;background:var(--green-wash)}
+/* timeline */
+.tl{position:relative;padding-left:22px}
+.tl::before{content:'';position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--hair)}
+.fact{position:relative;padding:12px 0}
+.fact::before{content:'';position:absolute;left:-21px;top:16px;width:9px;height:9px;border-radius:50%;background:#CFCBC2;border:2px solid var(--bg)}
+.fact.new::before{background:var(--green)}
+.fact-date{font-size:10px;color:var(--ink3);letter-spacing:.03em;margin-bottom:3px;font-variant-numeric:tabular-nums}
+.fact-text{font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:6px}
+.fact.read .fact-text{color:var(--ink2)}
+.fact-src{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3)}
+.fact-src img{width:13px;height:13px;border-radius:2px}
+
+/* demo toolbar */
+.demobar{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:60;display:flex;gap:6px;background:#fff;border:1px solid var(--hair);border-radius:11px;padding:6px;box-shadow:0 6px 22px rgba(0,0,0,.1)}
+.demobar button{font-size:11px;font-weight:600;color:var(--ink2);background:var(--sunk);border:none;border-radius:7px;padding:7px 11px;cursor:pointer}
+.demobar button:hover{background:var(--green-wash);color:var(--green)}
+.demobar .grp{font-size:9px;color:var(--ink3);align-self:center;padding:0 4px;letter-spacing:.08em;text-transform:uppercase}
+</style>
+</head>
+<body>
+
+<!-- ════ SIDEBAR ════ -->
+<div class="sidebar">
+  <div class="brand"><div class="mark">TB</div> TrueBrief</div>
+  <div class="new-btn">＋ New topic</div>
+  <div class="nav-item active" onclick="go('home')">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+    Briefing
+  </div>
+  <div class="side-label">Topics</div>
+  <div class="topic-item" onclick="go('topic')"><div class="mv-dot moved"></div><div class="tname">AI &amp; OpenAI</div><div class="tcount">2</div></div>
+  <div class="topic-item"><div class="mv-dot moved"></div><div class="tname">Fed interest rates</div><div class="tcount">1</div></div>
+  <div class="topic-item"><div class="mv-dot"></div><div class="tname">Iran war</div></div>
+  <div class="topic-item"><div class="mv-dot"></div><div class="tname">Tesla &amp; EVs</div></div>
+  <div class="topic-item"><div class="mv-dot"></div><div class="tname">TSMC semiconductors</div></div>
+  <div class="topic-item"><div class="mv-dot"></div><div class="tname">EU AI Act</div></div>
+  <div class="side-foot">
+    <div class="avatar">KM</div>
+    <div><div class="who">Kfir</div><div class="tier">Pro</div></div>
+  </div>
+</div>
+
+<!-- ════ MAIN ════ -->
+<div class="main">
+  <div class="canvas">
+
+    <!-- ══ HOME / BRIEFING ══ -->
+    <div class="view show" id="view-home">
+
+      <!-- moved state -->
+      <div id="home-moved">
+        <div class="pulse">
+          <div class="pulse-dot"></div>
+          <div class="pulse-line">3 stories moved <span class="soft">since Tuesday morning.</span></div>
+        </div>
+        <div class="pulse-sub"><span>Across your 6 topics</span><span class="sep">·</span><span>~45s read</span><span class="sep">·</span><span class="q">4 quiet</span></div>
+
+        <div class="signal">
+          <!-- story 1 -->
+          <div class="story" onclick="openThread('t1')">
+            <div class="eyebrow"><span class="eb-tag">AI &amp; OpenAI</span><span class="eb-rule"></span><span class="eb-when">2h ago</span></div>
+            <div class="nm">What's new</div>
+            <div class="delta">SoftBank closed OpenAI's round at <b>$40B</b>, valuing it at $300B — the largest private tech round ever recorded.</div>
+            <div class="prov">
+              <div class="favs"><img src="https://www.google.com/s2/favicons?domain=nytimes.com&sz=64"/><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=64"/><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=64"/></div>
+              <span class="verified">verified · 3 sources</span>
+              <span class="ctx-hint">story so far →</span>
+            </div>
+          </div>
+          <!-- story 2 -->
+          <div class="story" onclick="openThread('t2')">
+            <div class="eyebrow"><span class="eb-tag">AI &amp; OpenAI</span><span class="eb-rule"></span><span class="eb-when">5h ago</span></div>
+            <div class="nm fresh">New story</div>
+            <div class="delta">The FTC opened an antitrust probe into Microsoft's exclusive cloud deal with OpenAI, focused on whether Azure exclusivity blocks competition.</div>
+            <div class="prov">
+              <div class="favs"><img src="https://www.google.com/s2/favicons?domain=washingtonpost.com&sz=64"/><img src="https://www.google.com/s2/favicons?domain=bloomberg.com&sz=64"/></div>
+              <span class="verified">verified · 2 sources</span>
+              <span class="ctx-hint">story so far →</span>
+            </div>
+          </div>
+          <!-- story 3 -->
+          <div class="story" onclick="openThread('t3')">
+            <div class="eyebrow"><span class="eb-tag">Fed interest rates</span><span class="eb-rule"></span><span class="eb-when">6h ago</span></div>
+            <div class="nm">What's new</div>
+            <div class="delta">The Fed held rates at 4.25–4.50% but Powell signaled two cuts are likely before year-end, softening prior guidance.</div>
+            <div class="prov">
+              <div class="favs"><img src="https://www.google.com/s2/favicons?domain=wsj.com&sz=64"/><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=64"/></div>
+              <span class="verified">verified · 4 sources</span>
+              <span class="ctx-hint">story so far →</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="quiet">
+          <div class="quiet-h">Quiet · nothing new</div>
+          <div class="qrow"><div class="qd"></div><div class="qname">Iran war</div><div class="qstate">stable · 1d</div></div>
+          <div class="qrow"><div class="qd"></div><div class="qname">Tesla &amp; EVs</div><div class="qstate">stable · 2d</div></div>
+          <div class="qrow"><div class="qd"></div><div class="qname">TSMC semiconductors</div><div class="qstate">stable · 5d</div></div>
+          <div class="qrow"><div class="qd"></div><div class="qname">EU AI Act</div><div class="qstate">stable · 4d</div></div>
+        </div>
+
+        <div class="closure">
+          <div class="cl-rule"></div>
+          <div class="cl-main">That's everything.</div>
+          <div class="cl-sub">Next scan in 2h 40m · we'll only ping you if something moves.</div>
+          <div class="cl-saved">We read <b>124 articles</b> · <b>3</b> passed the filter</div>
+        </div>
+      </div>
+
+      <!-- all-quiet state -->
+      <div class="allquiet" id="home-quiet">
+        <div class="aq-orb"><div class="aq-check">✓</div></div>
+        <div class="aq-title">All quiet.</div>
+        <div class="aq-sub">Nothing new across your 6 topics since 6:00 AM. You're completely caught up.</div>
+        <div class="aq-stat"><span>We read <b>124 articles</b></span><span class="sep">·</span><span><b>0</b> were worth your time</span></div>
+        <div class="aq-next">Next scan in 2h 40m</div>
+      </div>
+    </div>
+
+    <!-- ══ TOPIC ══ -->
+    <div class="view" id="view-topic">
+      <div class="topic-head">
+        <div class="topic-title">AI &amp; OpenAI</div>
+        <div class="topic-meta"><span>5 active threads</span><span>·</span><span>2 moved today</span><span>·</span><span class="freq">hourly ▾</span></div>
+      </div>
+
+      <div class="tsec-label">Moved today</div>
+      <div class="tcard" onclick="openThread('t1')">
+        <div class="tcard-top"><div class="tcard-pulse"></div><div class="tcard-title">OpenAI Funding Round</div><div class="tcard-meta">7 facts · 2h ago</div></div>
+        <div class="tcard-sum">SoftBank closed the round at $40B / $300B valuation — largest private tech round ever. Caps a four-round run since Q1 totaling ~$54.5B.</div>
+      </div>
+      <div class="tcard" onclick="openThread('t2')">
+        <div class="tcard-top"><div class="tcard-pulse"></div><div class="tcard-title">FTC Antitrust Probe</div><div class="tcard-meta">2 facts · 5h ago</div></div>
+        <div class="tcard-sum">FTC opens a probe into Microsoft's exclusive Azure deal with OpenAI. First major AI antitrust action in the US.</div>
+      </div>
+
+      <div class="tsec-label">Quiet</div>
+      <div class="tcard q">
+        <div class="tcard-top"><div class="tcard-pulse q"></div><div class="tcard-title">GPT-5 Launch</div><div class="tcard-meta">5 facts · 3d ago</div></div>
+        <div class="tcard-sum">Benchmarks leaked showing ~40% MMLU gain over GPT-4o; official launch still unscheduled.</div>
+      </div>
+      <div class="tcard q">
+        <div class="tcard-top"><div class="tcard-pulse q"></div><div class="tcard-title">EU AI Act Registration</div><div class="tcard-meta">3 facts · 5d ago</div></div>
+        <div class="tcard-sum">OpenAI registered as "General Purpose AI" ahead of the June 2 deadline alongside Google and Anthropic.</div>
+      </div>
+      <div class="tcard q">
+        <div class="tcard-top"><div class="tcard-pulse q"></div><div class="tcard-title">Altman Senate Testimony</div><div class="tcard-meta">4 facts · 7d ago</div></div>
+        <div class="tcard-sum">Altman called for federal licensing of frontier models in a 4-hour hearing on AI safety.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════ THREAD OVERLAY (the "popup", repurposed for context) ════ -->
+<div class="scrim" id="scrim" onclick="closeThread()"></div>
+<div class="panel" id="panel">
+  <div class="panel-head">
+    <div>
+      <div class="panel-eb">AI &amp; OpenAI · thread</div>
+      <div class="panel-title" id="panel-title">OpenAI Funding Round</div>
+    </div>
+    <button class="panel-x" onclick="closeThread()">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="sofar">
+      <div class="sofar-lbl">Story so far</div>
+      <p id="panel-summary">OpenAI has raised across four rounds since Q1 2026 — Microsoft ($10B, Jan), a Thrive tender ($1.5B, Feb), a Sequoia consortium ($3B, Apr), and now SoftBank. Cumulative ~$54.5B. Altman first floated the $300B valuation in March; today's close confirms it.</p>
+      <div class="sofar-meta"><span>7 facts</span><span>·</span><span>started Mar 12</span><span>·</span><span>4 sources</span></div>
+    </div>
+
+    <div class="tl-lbl">History</div>
+    <div class="newline"><span>New since you looked</span><span class="l"></span></div>
+    <div class="tl">
+      <div class="fact new">
+        <div class="fact-date">Jun 9 · today</div>
+        <div class="fact-text">SoftBank closed the round at $40B, valuing OpenAI at $300B — the largest private tech round ever recorded.</div>
+        <div class="fact-src"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=64"/> ft.com · +2 sources</div>
+      </div>
+      <div class="fact read">
+        <div class="fact-date">Jun 6</div>
+        <div class="fact-text">Sequoia-led consortium added $3B at a $280B implied valuation.</div>
+        <div class="fact-src"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=64"/> reuters.com</div>
+      </div>
+      <div class="fact read">
+        <div class="fact-date">Mar 18</div>
+        <div class="fact-text">Altman publicly floated a $300B valuation target during an investor call.</div>
+        <div class="fact-src"><img src="https://www.google.com/s2/favicons?domain=bloomberg.com&sz=64"/> bloomberg.com</div>
+      </div>
+      <div class="fact read">
+        <div class="fact-date">Mar 12</div>
+        <div class="fact-text">OpenAI opened a new primary fundraising round seeking $25–40B.</div>
+        <div class="fact-src"><img src="https://www.google.com/s2/favicons?domain=theinformation.com&sz=64"/> theinformation.com</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- demo toolbar (not part of the product) -->
+<div class="demobar">
+  <span class="grp">View</span>
+  <button onclick="go('home')">Home</button>
+  <button onclick="go('topic')">Topic</button>
+  <button onclick="openThread('t1')">Thread overlay</button>
+  <span class="grp">Home state</span>
+  <button onclick="setQuiet(false)">moved</button>
+  <button onclick="setQuiet(true)">all quiet</button>
+</div>
+
+<script>
+const threads={
+ t1:{title:'OpenAI Funding Round'},
+ t2:{title:'FTC Antitrust Probe'},
+ t3:{title:'Fed Rate Path'}
+};
+function go(v){
+  document.querySelectorAll('.view').forEach(e=>e.classList.remove('show'));
+  document.getElementById('view-'+v).classList.add('show');
+  document.querySelectorAll('.nav-item,.topic-item').forEach(e=>e.classList.remove('active'));
+  document.querySelector('.main').scrollTop=0;
+}
+function openThread(id){
+  document.getElementById('panel-title').textContent=threads[id].title;
+  document.getElementById('scrim').classList.add('show');
+  document.getElementById('panel').classList.add('show');
+}
+function closeThread(){
+  document.getElementById('scrim').classList.remove('show');
+  document.getElementById('panel').classList.remove('show');
+}
+function setQuiet(q){
+  document.getElementById('home-moved').style.display=q?'none':'block';
+  document.getElementById('home-quiet').classList.toggle('show',q);
+  go('home');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeThread()});
+</script>
+</body>
+</html>

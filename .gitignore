@@ -57,3 +57,6 @@ frontend/.next/
 .ai/state/
 scripts/inspect/.auth_cache.json
 scripts/inspect/screenshots/
+
+# === Celery runtime state ===
+celerybeat-schedule*

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrueBrief v2 — New Topic</title>
+<style>
+:root{
+  --bg:#FAFAF8;--ink:#16150F;--ink2:#6B6963;--ink3:#A8A49C;--hair:#E8E5DD;
+  --green:#0F6E56;--green-wash:#E6F2EC;--amber:#C77F1A;--sunk:#F1EFE8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:72px 24px 100px}
+.sheet{width:100%;max-width:560px}
+
+.kicker{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:12px}
+.h1{font-size:28px;font-weight:600;letter-spacing:-.025em;line-height:1.25;margin-bottom:10px}
+.lead{font-size:14.5px;color:var(--ink2);line-height:1.6;margin-bottom:30px}
+
+/* input */
+.field{position:relative;margin-bottom:14px}
+.field input{width:100%;font-size:17px;color:var(--ink);background:#fff;border:1.5px solid var(--hair);border-radius:12px;padding:17px 18px;outline:none;transition:border-color .15s,box-shadow .15s;font-family:inherit}
+.field input:focus{border-color:var(--green);box-shadow:0 0 0 4px var(--green-wash)}
+.field input::placeholder{color:var(--ink3)}
+.hint{font-size:12px;color:var(--ink3);margin:0 0 26px 4px}
+
+/* example pills */
+.pills-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:10px}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px}
+.pill{font-size:12.5px;color:var(--ink2);background:#fff;border:1px solid var(--hair);border-radius:18px;padding:8px 14px;cursor:pointer;transition:all .12s}
+.pill:hover{border-color:var(--green);color:var(--green);background:var(--green-wash)}
+
+/* live preview of what we'll watch */
+.preview{background:#fff;border:1px solid var(--hair);border-radius:14px;padding:0;overflow:hidden;opacity:0;transform:translateY(8px);animation:rise .4s ease forwards}
+@keyframes rise{to{opacity:1;transform:none}}
+.pv-head{padding:15px 18px;border-bottom:1px solid var(--hair);background:#FCFCFA}
+.pv-head .lbl{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:5px;display:flex;align-items:center;gap:6px}
+.pv-head .lbl::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green);animation:bp 1.6s infinite}
+@keyframes bp{0%,100%{opacity:1}50%{opacity:.4}}
+.pv-q{font-size:15px;font-weight:600;color:var(--ink)}
+.pv-body{padding:16px 18px}
+.pv-row{display:flex;align-items:flex-start;gap:11px;padding:9px 0}
+.pv-row:not(:last-child){border-bottom:1px solid var(--hair)}
+.pv-ico{width:16px;height:16px;color:var(--ink3);flex-shrink:0;margin-top:1px}
+.pv-row .k{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);width:88px;flex-shrink:0;padding-top:1px}
+.pv-row .v{font-size:13px;color:var(--ink);line-height:1.5}
+.pv-row .v .src{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--ink2);background:var(--sunk);border-radius:5px;padding:2px 7px;margin:2px 4px 2px 0}
+.pv-row .v .src img{width:12px;height:12px;border-radius:2px}
+.angle{display:inline-block;font-size:12px;color:var(--ink2);background:var(--sunk);border-radius:6px;padding:3px 9px;margin:2px 4px 2px 0}
+
+/* frequency choice */
+.freq-wrap{margin-top:22px}
+.freq-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:10px}
+.freq-opts{display:flex;gap:8px}
+.freq-opt{flex:1;border:1.5px solid var(--hair);border-radius:11px;padding:12px 10px;cursor:pointer;text-align:center;transition:all .12s}
+.freq-opt:hover{border-color:#D6D2C8}
+.freq-opt.sel{border-color:var(--green);background:var(--green-wash)}
+.freq-opt .ft{font-size:13px;font-weight:600;margin-bottom:2px}
+.freq-opt.sel .ft{color:var(--green)}
+.freq-opt .fd{font-size:10.5px;color:var(--ink3)}
+
+/* CTA */
+.cta{margin-top:30px;display:flex;align-items:center;gap:14px}
+.cta button{font-size:14px;font-weight:600;color:#fff;background:var(--green);border:none;border-radius:11px;padding:14px 26px;cursor:pointer;transition:opacity .12s}
+.cta button:hover{opacity:.92}
+.cta .note{font-size:12px;color:var(--ink3);line-height:1.4}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="kicker">New topic</div>
+  <div class="h1">What do you want to stay on top of?</div>
+  <div class="lead">Describe it in plain language — a company, a conflict, a policy area, a person. We'll watch the whole internet and only tell you what changes.</div>
+
+  <div class="field">
+    <input id="inp" value="EU AI regulation" oninput="render()" placeholder="e.g. TSMC semiconductor supply chain" autofocus />
+  </div>
+  <div class="hint">↳ Tip: broad is fine. We split it into story threads automatically.</div>
+
+  <div class="pills-label">Or start from an example</div>
+  <div class="pills">
+    <div class="pill" onclick="setq('EU AI regulation')">EU AI regulation</div>
+    <div class="pill" onclick="setq('Nvidia & the chip race')">Nvidia &amp; the chip race</div>
+    <div class="pill" onclick="setq('US–China trade policy')">US–China trade policy</div>
+    <div class="pill" onclick="setq('Ozempic & GLP-1 drugs')">Ozempic &amp; GLP-1 drugs</div>
+    <div class="pill" onclick="setq('SpaceX Starship')">SpaceX Starship</div>
+  </div>
+
+  <!-- live preview: what the system will actually do -->
+  <div class="preview" id="preview">
+    <div class="pv-head">
+      <div class="lbl">We'll watch</div>
+      <div class="pv-q" id="pv-q">EU AI regulation</div>
+    </div>
+    <div class="pv-body">
+      <div class="pv-row">
+        <div class="k">Angles</div>
+        <div class="v" id="pv-angles">
+          <span class="angle">AI Act enforcement</span><span class="angle">GPAI rules</span><span class="angle">fines &amp; penalties</span><span class="angle">member-state implementation</span>
+        </div>
+      </div>
+      <div class="pv-row">
+        <div class="k">Sources</div>
+        <div class="v">
+          <span class="src"><img src="https://www.google.com/s2/favicons?domain=politico.eu&sz=64"/>politico.eu</span>
+          <span class="src"><img src="https://www.google.com/s2/favicons?domain=reuters.com&sz=64"/>reuters.com</span>
+          <span class="src"><img src="https://www.google.com/s2/favicons?domain=ft.com&sz=64"/>ft.com</span>
+          <span class="src">+ RSS, Tavily, Brave</span>
+        </div>
+      </div>
+      <div class="pv-row">
+        <div class="k">You'll get</div>
+        <div class="v">Only genuinely new developments — deduped against everything we've already told you. No repeats, no filler.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="freq-wrap">
+    <div class="freq-label">How often should we check?</div>
+    <div class="freq-opts">
+      <div class="freq-opt" onclick="selFreq(this)"><div class="ft">Daily</div><div class="fd">calm topics</div></div>
+      <div class="freq-opt sel" onclick="selFreq(this)"><div class="ft">Hourly</div><div class="fd">most news</div></div>
+      <div class="freq-opt" onclick="selFreq(this)"><div class="ft">15 min</div><div class="fd">breaking</div></div>
+    </div>
+  </div>
+
+  <div class="cta">
+    <button>Start watching →</button>
+    <div class="note">First brief ready in ~30s.<br/>Change frequency or mute threads anytime.</div>
+  </div>
+
+</div>
+
+<script>
+// In production these "angles/sources" come from the QueryBuilder LLM (one cheap call,
+// already in the pipeline). Here we just echo the query to show the interaction.
+function setq(q){document.getElementById('inp').value=q;render()}
+function render(){
+  const q=document.getElementById('inp').value.trim()||'…';
+  document.getElementById('pv-q').textContent=q;
+}
+function selFreq(el){
+  document.querySelectorAll('.freq-opt').forEach(e=>e.classList.remove('sel'));
+  el.classList.add('sel');
+}
+</script>
+</body>
+</html>
