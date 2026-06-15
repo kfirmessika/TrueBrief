@@ -169,6 +169,7 @@ class Harvester:
 
     def _get_prompt(self, article: RawArticle, topic_context: Optional[str] = None) -> str:
         """Construct the prompt for fact extraction."""
+        from config.settings import settings as _s
 
         pub_date_str = article.published_at.strftime("%Y-%m-%d") if article.published_at else "Unknown"
 
@@ -180,6 +181,22 @@ Only extract facts that are directly and specifically relevant to this topic.
 Ignore any facts about unrelated events, people, or subjects — even if they appear in the same article.
 
 """
+
+        if _s.V3_DATE_GUARD:
+            date_instruction = (
+                'REQUIRED. The date the event HAPPENED in ISO format (YYYY-MM-DD).\n'
+                '   Use the ARTICLE PUBLISHED DATE as the anchor. Relative phrases like "yesterday", "last month",\n'
+                '   "on Tuesday", "June 7" MUST resolve to a date within 1 year of the article publish date.\n'
+                '   The year MUST come from the publish date context — do NOT default to prior years.\n'
+                '   If you cannot confidently determine the year from context, do NOT extract the fact.'
+            )
+        else:
+            date_instruction = (
+                'REQUIRED. The date the event HAPPENED in ISO format (YYYY-MM-DD).\n'
+                '   Use the ARTICLE PUBLISHED DATE as anchor for relative phrases ("yesterday", "last quarter").\n'
+                '   If the article does not anchor the event in time, do NOT extract the fact.\n'
+                '   This field is non-optional — facts without a verifiable event date are not facts.'
+            )
 
         return f"""
 ARTICLE PUBLISHED DATE: {pub_date_str}
@@ -193,11 +210,7 @@ Extract every atomic, verifiable fact from this article into a structured JSON l
 For each fact extract:
 1. "alpha_text": The fact as one clean standalone sentence.
 2. "entities": List of named entities (companies, people, countries, products).
-3. "event_date": REQUIRED. The date the event HAPPENED in ISO format (YYYY-MM-DD).
-   Use the ARTICLE PUBLISHED DATE as the anchor. Relative phrases like "yesterday", "last month",
-   "on Tuesday", "June 7" MUST resolve to a date within 1 year of the article publish date.
-   The year MUST come from the publish date context — do NOT default to prior years.
-   If you cannot confidently determine the year from context, do NOT extract the fact.
+3. "event_date": {date_instruction}
 4. "context": 20-40 words - why does this fact matter? What story does it belong to?
 5. "confidence": How verifiable is this? (0.0-1.0)
 
