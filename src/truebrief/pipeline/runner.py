@@ -112,27 +112,46 @@ class PipelineRunner:
             start_time = time.time()
             logger.info(f"--- PIPELINE START: {topic_input} ---")
             
-            # 1. Build Query
+            # 1. Build / load search strategy
+            # Design: QueryBuilder makes ONE LLM call at topic creation and caches the
+            # result in topics.search_strategy. Subsequent scans skip the LLM entirely
+            # and use UCB1 to rotate among stored variants.
             logger.info("[1] Building Search Strategy")
-            query = self.query_builder.build(topic_input)
-            if query.status == "REJECTED":
-                return f"Topic rejected: {query.reason}"
-            logger.info(f"    Strategy built: {query.topic_name}")
-
-            # 1b. Select the best active query variant (overrides primary_query)
             _variant_id = None
-            if topic_id:
+
+            if topic_id and self.query_rotator.has_variants(topic_id):
+                # Common path (all scans after the first): zero LLM calls here.
+                query = self._load_strategy(topic_id, topic_input)
+                logger.info(f"    [CACHED] topic_name='{query.topic_name}' — no LLM call")
+
                 try:
                     _variant_id, best_query = self.query_rotator.select_variant(
                         topic_id=topic_id,
-                        raw_query=query.primary_query,
-                        alt_queries=query.alt_queries,
+                        raw_query=topic_input,
                     )
-                    if best_query != query.primary_query:
-                        logger.info(f"    [ROTATOR] Using variant: '{best_query[:60]}'")
+                    if best_query != topic_input:
+                        logger.info(f"    [UCB1] Variant: '{best_query[:60]}'")
                     query.primary_query = best_query
                 except Exception as rot_err:
-                    logger.warning(f"    [ROTATOR] Skipped variant selection: {rot_err}")
+                    logger.warning(f"    [ROTATOR] UCB1 failed (non-fatal): {rot_err}")
+            else:
+                # First scan for this topic: one lifetime LLM call.
+                query = self.query_builder.build(topic_input)
+                if query.status == "REJECTED":
+                    return f"Topic rejected: {query.reason}"
+                logger.info(f"    [LLM] Strategy built: {query.topic_name}")
+
+                if topic_id:
+                    self._store_strategy(topic_id, query)
+                    try:
+                        _variant_id, best_query = self.query_rotator.select_variant(
+                            topic_id=topic_id,
+                            raw_query=query.primary_query,
+                            alt_queries=query.alt_queries,
+                        )
+                        query.primary_query = best_query
+                    except Exception as rot_err:
+                        logger.warning(f"    [ROTATOR] Init failed (non-fatal): {rot_err}")
 
             # 2. Collect Raw Articles
             logger.info("[2] Collecting Sources")
@@ -409,6 +428,46 @@ class PipelineRunner:
                 remaining_indices.remove(best_idx)
 
         return [articles[i] for i in selected_indices]
+
+    # ── Search strategy cache (topics.search_strategy jsonb) ──────────────────
+
+    def _load_strategy(self, topic_id: str, fallback_input: str):
+        """
+        Load the cached SearchQuery metadata from topics.search_strategy.
+        Returns a SearchQuery with topic_name and rss_categories populated.
+        Falls back gracefully if the column is missing or null.
+        """
+        from truebrief.collector.query_builder import SearchQuery
+        try:
+            res = (
+                self.vector_store.db
+                .table("topics")
+                .select("search_strategy")
+                .eq("id", topic_id)
+                .single()
+                .execute()
+            )
+            strat = (res.data or {}).get("search_strategy") or {}
+        except Exception:
+            strat = {}
+        return SearchQuery(
+            topic_name=strat.get("topic_name") or fallback_input,
+            primary_query=fallback_input,
+            rss_categories=strat.get("rss_categories") or ["general"],
+        )
+
+    def _store_strategy(self, topic_id: str, query) -> None:
+        """Persist the QueryBuilder output to topics.search_strategy (fire-and-forget)."""
+        try:
+            self.vector_store.db.table("topics").update({
+                "search_strategy": {
+                    "topic_name":     query.topic_name,
+                    "rss_categories": query.rss_categories,
+                }
+            }).eq("id", topic_id).execute()
+            logger.info(f"    [STRATEGY] Cached search_strategy for topic {topic_id}")
+        except Exception as exc:
+            logger.warning(f"    [STRATEGY] Failed to cache (non-fatal): {exc}")
 
     def _batch_embed_titles(self, titles: List[str]) -> List[List[float]]:
         """

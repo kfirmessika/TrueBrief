@@ -271,36 +271,42 @@ class TestQueryRotatorStarvation:
     """
 
     def test_select_variant_always_returns_a_query(self):
-        from truebrief.ledger.query_rotator import QueryRotator, ROTATION_AFTER_SCANS
+        from unittest.mock import patch
+        from truebrief.ledger.query_rotator import QueryRotator, MIN_TRIALS_BEFORE_DISAPPOINT
 
-        rotator = QueryRotator.__new__(QueryRotator)
-        mock_db = MagicMock()
-        rotator.db = mock_db
+        rotator = QueryRotator()
 
         mock_variant = {
             "id": "var-1",
             "query_text": "Bitcoin ETF news",
-            "scans_used": ROTATION_AFTER_SCANS,
+            "scans_used": MIN_TRIALS_BEFORE_DISAPPOINT - 1,  # below threshold → no regeneration LLM call
             "alphas_yielded": 0,
             "ayr": 0.0,
-            "is_active": True,
             "last_used_at": None,
-            "generation": 0,
         }
 
-        # Return the one low-AYR variant as the only candidate
+        mock_db = MagicMock()
+        # _ensure_initialized uses single .eq() chain → return existing variant (skip seeding)
+        (mock_db.table.return_value
+            .select.return_value
+            .eq.return_value
+            .limit.return_value
+            .execute.return_value
+            .data) = [{"id": "var-1"}]
+
+        # Main active-variant query uses double .eq() chain → return test variant for UCB1
         (mock_db.table.return_value
             .select.return_value
             .eq.return_value
             .eq.return_value
-            .order.return_value
             .limit.return_value
             .execute.return_value
             .data) = [mock_variant]
 
-        _variant_id, result_query = rotator.select_variant(
-            topic_id="t1", raw_query="Bitcoin ETF news", alt_queries=[]
-        )
+        with patch("truebrief.ledger.database.get_supabase", return_value=mock_db):
+            _variant_id, result_query = rotator.select_variant(
+                topic_id="t1", raw_query="Bitcoin ETF news", alt_queries=[]
+            )
 
         assert result_query, "select_variant returned empty query — total starvation bug"
 
