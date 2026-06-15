@@ -25,9 +25,10 @@ from typing import List, Optional, Tuple
 from config.settings import (
     SIMILARITY_THRESHOLD_DUPLICATE,
     SIMILARITY_THRESHOLD_UPDATE,
+    settings,
 )
 from truebrief.arbiter.judge import JudgeLLM
-from truebrief.arbiter.temporal import adjusted_similarity
+from truebrief.arbiter.temporal import adjusted_similarity, entity_overlap
 from truebrief.ledger.vector_store import VectorStore
 from truebrief.models.alpha import Alpha, AlphaDecision, DecisionType
 
@@ -103,11 +104,16 @@ class Arbiter:
         # Step 2 - Fetch similar facts from the Ledger
         raw_matches = self._fetch_matches(alpha, topic_id)
 
-        # Step 3 - Apply temporal adjustment to each raw score
-        adjusted: List[Tuple[Alpha, float]] = [
-            (match, adjusted_similarity(score, alpha.event_date, match.event_date))
-            for match, score in raw_matches
-        ]
+        # Step 3 - Apply temporal (and optionally entity) adjustment to each raw score
+        adjusted: List[Tuple[Alpha, float]] = []
+        for match, score in raw_matches:
+            adj = adjusted_similarity(score, alpha.event_date, match.event_date)
+            if settings.V3_ENTITY_DEDUP:
+                # Penalise / reward based on entity overlap: no-overlap → 20% penalty,
+                # full-overlap → no change, neutral (empty entities) → 10% penalty.
+                e_factor = 0.80 + 0.20 * entity_overlap(alpha.entities, match.entities)
+                adj *= e_factor
+            adjusted.append((match, adj))
 
         # Sort by adjusted score descending
         adjusted.sort(key=lambda x: x[1], reverse=True)

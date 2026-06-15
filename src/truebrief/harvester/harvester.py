@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from dateutil.parser import parse as parse_date
@@ -103,15 +103,43 @@ class Harvester:
                     anchor = article.published_at
                     if anchor.tzinfo is not None:
                         anchor = anchor.replace(tzinfo=None)
-                    delta = abs((event_date - anchor).days)
-                    if delta > self._MAX_DATE_DELTA_DAYS:
-                        dropped_bad_date += 1
-                        logger.debug(
-                            f"Dropped fact with out-of-range event_date "
-                            f"({event_date.date()} vs article {anchor.date()}, delta={delta}d): "
-                            f"{item.get('alpha_text', '')[:60]}"
-                        )
-                        continue
+
+                    from config.settings import settings
+                    if settings.V3_DATE_GUARD:
+                        today = datetime.now().replace(tzinfo=None)
+                        earliest_allowed = anchor.replace(year=anchor.year - 1)
+                        if not (earliest_allowed <= event_date <= today):
+                            # Try correcting the year to the publish year first.
+                            try:
+                                corrected = event_date.replace(year=anchor.year)
+                            except ValueError:
+                                corrected = event_date  # leap-day edge case: leave as-is
+                            if earliest_allowed <= corrected <= today:
+                                logger.debug(
+                                    f"Date guard: corrected year "
+                                    f"{event_date.date()} → {corrected.date()} "
+                                    f"(anchor={anchor.date()})"
+                                )
+                                event_date = corrected
+                            else:
+                                dropped_bad_date += 1
+                                logger.debug(
+                                    f"Date guard: dropped fact outside "
+                                    f"[{earliest_allowed.date()}, {today.date()}]: "
+                                    f"{event_date.date()} — "
+                                    f"{item.get('alpha_text', '')[:60]}"
+                                )
+                                continue
+                    else:
+                        delta = abs((event_date - anchor).days)
+                        if delta > self._MAX_DATE_DELTA_DAYS:
+                            dropped_bad_date += 1
+                            logger.debug(
+                                f"Dropped fact with out-of-range event_date "
+                                f"({event_date.date()} vs article {anchor.date()}, delta={delta}d): "
+                                f"{item.get('alpha_text', '')[:60]}"
+                            )
+                            continue
 
                 alpha = Alpha(
                     alpha_text=item.get("alpha_text", "").strip(),
@@ -166,9 +194,10 @@ For each fact extract:
 1. "alpha_text": The fact as one clean standalone sentence.
 2. "entities": List of named entities (companies, people, countries, products).
 3. "event_date": REQUIRED. The date the event HAPPENED in ISO format (YYYY-MM-DD).
-   Use the ARTICLE PUBLISHED DATE as anchor for relative phrases ("yesterday", "last quarter").
-   If the article does not anchor the event in time, do NOT extract the fact.
-   This field is non-optional — facts without a verifiable event date are not facts.
+   Use the ARTICLE PUBLISHED DATE as the anchor. Relative phrases like "yesterday", "last month",
+   "on Tuesday", "June 7" MUST resolve to a date within 1 year of the article publish date.
+   The year MUST come from the publish date context — do NOT default to prior years.
+   If you cannot confidently determine the year from context, do NOT extract the fact.
 4. "context": 20-40 words - why does this fact matter? What story does it belong to?
 5. "confidence": How verifiable is this? (0.0-1.0)
 

@@ -78,6 +78,30 @@ def temporal_overlap(
     return 1.0 - (delta_days / window_days)
 
 
+def entity_overlap(
+    entities1: list[str],
+    entities2: list[str],
+) -> float:
+    """
+    Compute the Jaccard-style overlap between two entity lists.
+
+    Returns:
+        1.0  → identical entity sets (strong signal: same subject)
+        0.5  → one or both lists empty (neutral — can't penalise missing entities)
+        0.0  → no entity overlap at all (different subjects)
+
+    Used by the V3 entity-aware dedup path in the Arbiter.
+    """
+    if not entities1 or not entities2:
+        return 0.5
+
+    set1 = {e.lower() for e in entities1}
+    set2 = {e.lower() for e in entities2}
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+    return intersection / union if union else 0.5
+
+
 def adjusted_similarity(
     vector_score: float,
     date1: Optional[Union[datetime, date]],

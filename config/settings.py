@@ -53,6 +53,18 @@ class Settings(BaseSettings):
     ENV: str = "development"        # "development" | "production"
     FOUNDER_EMAIL: str = ""         # If set, restricts /admin/* endpoints to this email
 
+    # --- V3 Feature Flags (all False = V1 behaviour; flip in .env to enable V3 changes) ---
+    # 1a.1 — harvester year guard: clamp event_date to [publish_date−1y, today]
+    V3_DATE_GUARD: bool = False
+    # 1a.2 — relevance gate: drop off-topic facts after harvesting
+    V3_RELEVANCE_GATE: bool = False
+    # 1a.3 — entity-aware dedup: arbiter uses semantic + temporal + entity/location
+    V3_ENTITY_DEDUP: bool = False
+    # 1a.4 — pause story graph: skip story_manager.assign + story_summarizer.refresh
+    V3_PAUSE_STORY_GRAPH: bool = False
+    # 1b.1 — batch judge: send grey-zone facts to LLM in one call instead of one-by-one
+    V3_BATCH_JUDGE: bool = False
+
     class Config:
         env_file = str(_PROJECT_ROOT / ".env")
         env_file_encoding = "utf-8"
@@ -72,25 +84,25 @@ settings = Settings()
 
 LLM_CONFIG: dict[str, dict[str, str]] = {
     # Query Builder: Low token usage, simple reasoning.
-    "query_builder":  {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "query_builder":  {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Harvester: High token usage (reads full articles), strict JSON output.
-    "harvester":      {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "harvester":      {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Arbiter (Delta/Decision): Low tokens, high reasoning.
-    "arbiter":        {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "arbiter":        {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Briefer: Writes the final markdown report. High reasoning needed.
-    "briefer":        {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "briefer":        {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Garbage Filter: Trivial classification, low tokens.
-    "garbage_filter": {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "garbage_filter": {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Query Rotator: Generates fresh search queries when variants underperform.
-    "query_rotator":  {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "query_rotator":  {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 
     # Story Summarizer: Merges previous summary + new fact → updated summary (Phase 3, Task 3.3).
-    "story_summarizer": {"provider": "gemini", "model": "gemini-3.1-flash-lite-preview"},
+    "story_summarizer": {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 }
 
 

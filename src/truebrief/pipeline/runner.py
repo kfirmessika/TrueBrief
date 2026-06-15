@@ -15,6 +15,7 @@ import logging
 import time
 from typing import List, Optional
 
+from config.settings import settings
 from truebrief.collector.base import SourceLayer
 from truebrief.collector.query_builder import QueryBuilder, SearchQuery
 from truebrief.collector.rss_layer import RSSLayer
@@ -42,6 +43,10 @@ MAX_ARTICLES = 5
 
 # MMR lambda: 1.0 = pure relevance, 0.0 = pure diversity. 0.65 is balanced.
 MMR_LAMBDA = 0.65
+
+# V3_RELEVANCE_GATE: minimum cosine similarity between an alpha and the topic query.
+# Alphas below this are considered off-topic and dropped before the arbiter.
+_RELEVANCE_THRESHOLD = 0.35
 
 
 class PipelineRunner:
@@ -186,6 +191,36 @@ class PipelineRunner:
             except Exception as ver_err:
                 logger.warning(f"    Verifier failed (non-fatal, continuing): {ver_err}")
 
+            # 4c. V3 Relevance gate — drop off-topic facts before judging.
+            # Pre-embedding here means the arbiter reuses these embeddings; no extra calls.
+            if settings.V3_RELEVANCE_GATE and all_alphas:
+                try:
+                    topic_text = query.topic_name or topic_input
+                    topic_emb = self.vector_store.llm.embed(topic_text)
+                    alpha_embs = self.vector_store.llm.embed_batch(
+                        [a.alpha_text for a in all_alphas]
+                    )
+                    before_gate = len(all_alphas)
+                    gated = []
+                    for alpha, emb in zip(all_alphas, alpha_embs):
+                        alpha.embedding = emb
+                        sim = self._cosine_similarity(emb, topic_emb)
+                        if sim >= _RELEVANCE_THRESHOLD:
+                            gated.append(alpha)
+                        else:
+                            logger.info(
+                                f"    [RELEVANCE GATE] dropped (sim={sim:.3f}): "
+                                f"{alpha.alpha_text[:70]}"
+                            )
+                    dropped_gate = before_gate - len(gated)
+                    if dropped_gate:
+                        logger.info(
+                            f"    Relevance gate: {len(gated)} kept, {dropped_gate} dropped"
+                        )
+                    all_alphas = gated
+                except Exception as rel_err:
+                    logger.warning(f"    Relevance gate failed (non-fatal): {rel_err}")
+
             # 5. Judging
             logger.info("[5] Judging Novelty")
             decisions = []
@@ -193,16 +228,16 @@ class PipelineRunner:
                 decision = self.arbiter.judge(alpha, topic_id=topic_id)
                 decisions.append(decision)
                 if decision.decision in (DecisionType.NEW, DecisionType.UPDATE):
-                    # Phase 3: Assign to a StoryNode before persisting
                     story_node_id = None
-                    try:
-                        story_node_id = self.story_manager.assign_to_story(
-                            decision, topic_id=topic_id
-                        )
-                        if story_node_id:
-                            logger.info(f"    → Story: {story_node_id}")
-                    except Exception as story_err:
-                        logger.warning(f"    Story assignment failed: {story_err}")
+                    if not settings.V3_PAUSE_STORY_GRAPH:
+                        try:
+                            story_node_id = self.story_manager.assign_to_story(
+                                decision, topic_id=topic_id
+                            )
+                            if story_node_id:
+                                logger.info(f"    → Story: {story_node_id}")
+                        except Exception as story_err:
+                            logger.warning(f"    Story assignment failed: {story_err}")
 
                     try:
                         self.vector_store.add_fact(
@@ -211,10 +246,7 @@ class PipelineRunner:
                     except Exception as e:
                         logger.error(f"    Failed to save fact: {e}")
 
-                    # Phase 3 (Task 3.3): Recursive summary update.
-                    # Trigger only when a fact joins an EXISTING story (not when
-                    # a brand-new story is created - its summary = the fact).
-                    if story_node_id:
+                    if story_node_id and not settings.V3_PAUSE_STORY_GRAPH:
                         try:
                             self.story_summarizer.refresh_summary(
                                 story_node_id=story_node_id,

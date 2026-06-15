@@ -726,6 +726,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const qc = useQueryClient();
   const threadRef = useRef<HTMLDivElement>(null);
 
+  const storyGraphPaused = process.env.NEXT_PUBLIC_V3_PAUSE_STORY_GRAPH === 'true';
   const [activeTab, setActiveTab] = useState<'briefs' | 'stories'>('briefs');
   const [scanError, setScanError] = useState<string | null>(null);
 
@@ -924,7 +925,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
 
         {/* Tab bar */}
         <div style={{ display: 'flex', gap: 4, marginTop: 12, borderBottom: '0.5px solid var(--color-border-tertiary)', paddingBottom: 0 }}>
-          {(['briefs', 'stories'] as const).map(tab => (
+          {((['briefs', ...(!storyGraphPaused ? ['stories'] : [])] as Array<'briefs' | 'stories'>)).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
