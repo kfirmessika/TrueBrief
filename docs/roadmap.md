@@ -11,6 +11,26 @@
 
 ---
 
+## V3 Pipeline Migration (execution_plan.md)
+
+### M0 — Checkpoint V1 ✅
+### M1 — V3 pipeline diffs behind feature flags
+- [x] Switch model gemini-3.1-flash-lite-preview → gemini-2.0-flash-lite (fix quota exhaustion)
+- [x] Add 5 V3 feature flags to settings.py (all False = V1 preserved)
+- [x] 1a.1 Date/year guard in harvester (V3_DATE_GUARD)
+- [x] 1a.2 Relevance gate — drop off-topic facts (V3_RELEVANCE_GATE)
+- [x] 1a.3 Entity-aware dedup in arbiter (V3_ENTITY_DEDUP)
+- [x] 1a.4 Pause story graph + story_summarizer; hide Stories tab (V3_PAUSE_STORY_GRAPH)
+- [ ] 1b.1 Batch grey-zone judge calls (V3_BATCH_JUDGE) — pending M2 measurement
+- [ ] 1b.2–1b.5 Other cost diffs — pending M2 A/B results
+- [ ] Create Supabase pipeline_run + llm_call_log tables ✅ (done)
+
+### M2 — Measure + validate (A/B + 20-user test) — next
+### M3 — Commercialize (billing, landing, domain)
+### M4 — Scale infra (after M2 passes)
+
+---
+
 ## Phase 0: Project Skeleton ✅
 ## Phase 1: Core MVP ✅
 ## Phase 2: Delta Engine + Scheduling ✅
