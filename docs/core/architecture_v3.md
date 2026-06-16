@@ -21,12 +21,19 @@
 | Per-user "what's new" engine | §8 |
 | Rate + depth as two axes, shared-scan schedule | §9 |
 | Cost monitoring + the budget controller | §10 |
+| **Scoring, eval, feedback & LLM-cost techniques** | §10B |
 | **Cost & sharing — 3 options** | §11 |
 | Shared memory + B2B/API | §12 |
 | UI | §13 |
 | Business / pricing / positioning | §14 |
 | Build sequence | §15 |
 | Decisions, red lights, open questions | §16 |
+| Source layers & plugin architecture | §17 |
+| Tech stack & "what NOT to use" | §18 |
+| Monetization detail (conversion levers, B2B, projections) | §19 |
+| Key risks & mitigations | §20 |
+| Long-term moat & domain pipelines | §21 |
+| Legal & copyright posture | §22 |
 
 ---
 
@@ -268,6 +275,68 @@ Combined with **cost-aware AYR (value ÷ cost)**, it degrades the **least valuab
 
 ---
 
+## 10B. Scoring, evaluation, feedback & LLM-cost techniques (restored from v1/v2 + 3 new)
+
+> This section restores detail that exists in v1/v2 but was compressed out of the v3 draft. Tags: **[v1]** = in original architecture.md, **[v2]** = in architecture_v2, **[NEW]** = genuinely new (from the Squelch cross-check).
+
+### 10B.1 The cheap gate before the expensive LLM (the cost spine)
+Kill obvious cases for free *before* any LLM call. Layered, cheapest first:
+1. **URL/exact dedup** — never process the same article twice (hash of canonical URL+title). **[v1: article cache]**
+2. **Near-dup / syndication collapse** — `SimHash(64-bit), Hamming ≤ 3` **[NEW method]** *or* embedding cosine > 0.95; collapse to one, bump a "seen in N outlets" counter. Preserve *independent* corroboration (moderate similarity) → `verified_count`.
+3. **MMR selection** (λ≈0.65) — pick the few best *diverse* articles from the pool before extraction. **[v1]**
+4. **Candidate / relevance gate** — keep only items that clear `keyword match OR cosine(item, topic-centroid) > τ`. The topic centroid = mean(embed(seed texts from the compiled topic)). Recall-oriented (false positives are fine — the next stage kills them). **[v1: "Garbage Filter"]**
+5. **Arbiter fast-path** — auto-DUPLICATE (>0.97) / auto-NEW (<0.75) skip the LLM entirely (~50% of judge calls); only the grey zone hits the LLM. **[v1: "Fast Path"]**
+
+### 10B.2 Significance / importance scoring (the formula)
+Per fact: `importance` 0–1 emitted free by the harvester; `verified_count` from corroboration. Aggregate:
+```
+score = w1·max(fact.importance)        // relevance/significance
+      + w2·normalize(verified_count)   // corroboration  [v1: corroboration]
+      + w3·momentum_decay(last_moved)  // is it moving now
+      + w4·is_new_thread_bonus         // novelty
+      + w5·source_authority
+      + w6·recency_decay(~36h half-life)
+      + personal_bias                  // ±, from feedback (10B.4)
+```
+Merges **[v2 §7]** importance + **[v1]** AYR weighting + the Squelch decomposition. Weights are config, re-fit against the golden set (10B.3) periodically. The Briefing sorts by this; the **noise-floor presets** (Thorough / Significant / Critical-only) are a *user threshold* on it — a visible instrument so a user who misses something blames the *setting* and adjusts, instead of churning. **[NEW framing]**
+
+### 10B.3 AYR scoring (carried from v1, made cost-aware)
+```
+Density = (A+D)/T   ·   Freshness = A/(A+D)   ·   Utility = 0.4·Density + 0.6·Freshness
+AYR_new = Utility·α + AYR_old·(1−α)         // EMA, α adaptive/spike-responsive (§6)
+```
+v3 change: AYR = **value ÷ cost**, tracked **per (topic × tool)**, with the spike-adaptive estimator (§6). **[v1 formula + v3 changes]**
+
+### 10B.4 Feedback loop (Rocchio + few-shot, then a learned pre-filter)
+- 👍/👎 stored as labeled examples. **Rocchio** centroid update: `centroid ← normalize(centroid + α·mean(pos) − β·mean(neg))`. **[NEW mechanism, v1 had the concept (Phase 5)]**
+- Inject the few most recent/contrastive examples into the scoring rubric as few-shot lines.
+- After ~200 labels, train a cheap **logistic-regression pre-filter** on embeddings → skip LLM scoring when `p < 0.15`. The long-term cost crusher + a small personalization moat. **[v1 Phase 6: fine-tuned classifier]**
+
+### 10B.5 Evaluation & success metrics (build the harness *before* more app work)
+- **North-star: `precision@5` ≥ 80%** — of the items delivered, how many the user judges worth their time. Below ~60% → churn is guaranteed regardless of UI. **[v1 metrics + Squelch framing]**
+- **Golden set:** a few reference topics × hand-labeled items; a CI report on gate **recall**, scoring **precision/recall**, and digest **precision@5**; every beta 👎 becomes a labeled case. = roadmap **A.2 Accuracy Test Harness** — treat scoring quality as the product, the app as packaging.
+- v1 targets to keep: **delta accuracy >90%**, **brief quality >80%**, **churn <5%**, **cost/brief <$0.02**.
+
+### 10B.6 LLM cost techniques (the complete list)
+| Technique | Saves | Source |
+|---|---|---|
+| Fast-path auto-merge/auto-new | ~50% of judge calls | [v1] |
+| Score-only output at scoring; prose only for delivered winners | output tokens (the expensive ones) | A/B vs our inline-context |
+| Within-run batching (judge, summary; N updates → 1) | call count | [v1]+[v2] |
+| Article URL cache + SimHash near-dup before extraction | re-processing | [v1]+[NEW] |
+| **Batch mode** (provider batch API) | ~−50% on non-real-time calls — **Gemini has Batch Mode** | **[NEW]** |
+| **Context / prompt caching** of the fixed scorer/judge system prompt | discount on cached input — **Gemini has context caching** | **[NEW]** |
+| Shared-topic execution (one run → all subscribers) | scales with topics not users | [v1] |
+| Cache QueryBuilder per-topic; gate scans on new content | per-scan + quiet-scan cost | [v2] |
+| Daily kill-switch token budget + per-stage cost logging | runaway protection | [v1 risk]→ budget controller (§10) |
+
+> **Model-cost note (important):** we run on **Gemini Flash (cheap)**, *not* Claude — Claude is smart but far too expensive at per-scan volume. The good news: **both batch mode and context caching exist on Gemini**, so these cost wins apply to our cheap model. The −90% / −50% figures above are *Claude's*; **verify Gemini's current discounts** before relying on exact numbers. If a future cheap model lacks caching, only then compare *Claude-Haiku-with-caching* vs *cheap-model-without-caching* on total cost. Model choice always lives in `settings` / `LLMClient` — never hardcoded.
+
+### 10B.7 Trust UX
+- **Viewable muted-items log** — "212 items muted — view." Makes the filter *auditable*; directly fights false-negative anxiety ("did it miss something?"), the top churn driver. **[NEW, beyond our "we read N articles" line]**
+
+---
+
 ## 11. Cost & sharing — THREE OPTIONS (not yet locked)
 
 All three assume: **free users are a curated, founder-controlled list** (daily, shallow, bounded cost — a free user *cannot* overage because cost is per-topic, not per-user; if the free list's predicted total exceeds budget, slow it all equally — only the founder knows). The options differ in how **paid** cost is attributed and limited.
@@ -410,3 +479,236 @@ Nothing else moved across your other 4 topics.
 - **Depth definition:** measure depth-cost by article-count proxy or by measured average cost? (affects attribution + the merge schedule)
 - **History doc:** does the no-LLM timeline read well enough, or is the one glue-pass needed? (empirical, post-build)
 - **Shared "sale" UX:** marketplace vs. soft nudge — test when there.
+
+---
+
+## 17. Source layers & plugin architecture
+
+### Plugin interface
+Every source is a self-contained plugin:
+```python
+class SourceLayer(ABC):
+    def search(self, query: SearchQuery) -> List[RawArticle]:
+        ...
+```
+
+> **Why plugins?** You must be able to add, remove, and swap sources without touching core code. Sources die, APIs change pricing, new ones launch. This is config, not code.
+
+### Phase 1 — MVP ($0 cost)
+| Layer | API | Cost | Good for |
+|---|---|---|---|
+| `RSSLayer` | Direct RSS feeds (curated) | **Free, unlimited** | Publisher-direct, real-time, original URLs |
+| `TavilyLayer` | Tavily API | **Free (1,000 credits/mo)** | Any topic, returns clean full text, no scraping |
+
+> **Why NOT Google News RSS in Phase 1?** Links are encoded redirect URLs (`news.google.com/rss/articles/CBMi…`). Decoding them requires calling a Google internal endpoint that changes frequently and breaks decoders. Unreliable for production.
+
+> **Why NOT NewsAPI.org?** Free tier has a 24-hour delay and their ToS **explicitly forbid production use**. Using it in a deployed product = license revocation. Never.
+
+### Phase 2 — Adding coverage
+| Layer | API | Cost | Good for |
+|---|---|---|---|
+| `RSSLayer` | Direct RSS | Free | Always the primary backbone |
+| `TavilyLayer` | Tavily | Free / pay-per-use beyond 1K | Core; now metered beyond free limit |
+| `GoogleNewsRSSLayer` | Google News RSS (with decoder) | Free (unofficial) | Broader coverage, accepted fragility |
+
+### Phase 3+ — Scale
+| Layer | API | Cost | Good for |
+|---|---|---|---|
+| `BraveLayer` | Brave Search | ~$5/mo (~1K requests) | Broad web search |
+| `ExaLayer` | Exa API | $7/1K requests | Semantic deep search, PDFs |
+| `SocialLayer` | Apify | Pay-per-use | Twitter/Reddit real-time |
+
+### Source router
+Which plugins fire for which topic — controlled by config, not code:
+```yaml
+# routing_rules.yaml
+defaults:
+  layers: [rss_layer, tavily_layer]   # Phase 1 defaults
+
+overrides:
+  - domain: finance
+    add_layers: [sec_edgar_layer]
+  - domain: tech
+    add_layers: [github_layer]
+```
+
+**Router evolution (§21):** V1 = LLM classifier (~$0.001/call) → V2 = fine-tuned small classifier on our routing data → V3 = feedback loop (user says "missed finance context" → router adjusts).
+
+### Article extraction
+- Use `trafilatura` for clean full text (strips ads/nav/boilerplate). Tavily results skip this (already clean).
+- Cache every article by URL hash — **never fetch or process the same article twice.**
+- Respect rate limits and robots.txt.
+
+---
+
+## 18. Tech stack & "what NOT to use"
+
+> **Principle:** Start boring. Add complexity only when proven necessary. Every extra service is ops burden.
+
+### Backend
+| Component | Tech | Why |
+|---|---|---|
+| Language | **Python** | LLM ecosystem, AI libraries |
+| API Framework | **FastAPI** | Async, auto-docs, type-safe, production-ready |
+| Task Queue | **Celery + Redis** | Background pipeline jobs, scheduled runs (Celery Beat) |
+| Database | **Supabase** (PostgreSQL) | Zero-maintenance, pgvector built-in |
+| Vector Search | **pgvector** via Supabase | No extra service; lives in Postgres |
+| Cache | **Redis** | Already running for Celery; article cache, rate limiting |
+| LLM — cheap | **Gemini Flash** | Default for all pipeline calls: fast, cheap, good enough |
+| LLM — quality-critical | **Gemini Pro** (or swap via settings) | Harvester upgrade for production when budget allows |
+| Content extraction | **trafilatura** | Best Python lib for clean article text; no browser needed |
+
+All model names live in `settings.py` / `LLMClient` — **never hardcoded anywhere.**
+
+### Frontend
+| Component | Tech | Why |
+|---|---|---|
+| Framework | **Next.js 14** (App Router) | SSR for SEO, file-based routing |
+| Styling | **Tailwind CSS** | Fast iteration, consistent |
+| State/data | **React Query** | Server state, caching, auto-refetch |
+| Auth | **Clerk** | Never build auth yourself |
+
+### Infrastructure costs
+| Component | Tech | Monthly cost |
+|---|---|---|
+| Backend | Railway | $5–20 |
+| Frontend | Vercel | $0–20 |
+| PostgreSQL + pgvector | Supabase (free → Pro $25) | $0 → $25 |
+| Redis | Railway/Upstash | $0–10 |
+| LLM (production) | Gemini Flash pay-per-use | $10–50 |
+| News APIs Phase 1 | RSS (free) + Tavily (1K free/mo) | **$0** |
+| News APIs Phase 3+ | Tavily / Brave / Exa | $5–30 |
+| Domain + CDN | Cloudflare | ~$1 |
+| Payments | Paddle | % of revenue |
+| **Total prototype (mo 1–6)** | | **~$10–50** |
+| **Total production (mo 6+)** | | **~$50–150** |
+
+### What NOT to use (and when to upgrade)
+| Don't use | Use instead | Upgrade when |
+|---|---|---|
+| Qdrant / Pinecone / Weaviate | pgvector via Supabase | 500K+ vectors with latency issues |
+| Kubernetes | Railway/Render | Multi-region or 10+ services needed |
+| Kafka / RabbitMQ | Celery + Redis | Processing 10K+ messages/sec |
+| Microservices | Monolith | Team grows to 3+ people |
+| Native mobile app | PWA | 10K+ active users requesting native |
+| NewsAPI.org | Direct RSS + Tavily | Never (24h delay + ToS violation) |
+| Google News RSS | Direct RSS first | Phase 2 only, accept fragility |
+
+---
+
+## 19. Monetization detail
+
+### The core argument
+> *"Why pay for news when it's free everywhere?"*
+
+**You're not paying for news. You're paying for TIME.** Free news costs hours of scrolling, clicking, filtering. TrueBrief costs 30 seconds per topic. The product is **attention efficiency**, not journalism.
+
+### B2C tiers (current)
+| Tier | Price | Who | Hook |
+|---|---|---|---|
+| Free | $0 | wedge | curated shared list, daily, web only |
+| Pro | $9/mo | power readers | 15 topics, hourly, email+push, history |
+| Researcher | $39/mo | analysts/journalists/founders | unlimited topics, 15-min, PDF/Notion export, read-only API key |
+| Team/API | $499/mo+ | B2B | webhook + raw fact/timeline stream, SLA, seats |
+
+**Per-user cost at Pro ($9):** ~$0.80/mo in LLM+API → **~91% gross margin.** (Estimate; re-derive from real telemetry post-launch.)
+
+### Conversion levers
+| Trigger | Action |
+|---|---|
+| After 7 days of use | Show "You saved X hours this week" |
+| User tries to add 3rd topic | Soft paywall: "Upgrade for more topics" |
+| User clicks a brief that's delayed | "Get real-time updates with Pro" |
+| Free email digest | Persistent value reminder → "Upgrade for hourly" |
+| Public shared briefs | Viral loop: "Powered by TrueBrief" |
+
+### B2B revenue (the real money)
+| Offering | Price | Target customer |
+|---|---|---|
+| **API access** | $0.01–0.05 per brief / metered | Developers embedding news intel |
+| **White-label** | $500–2K/mo | Agencies, media companies |
+| **Enterprise** | $1K–5K/mo (custom) | PR, risk, competitive intel, compliance |
+
+**Target B2B use cases:** PR/comms (brand monitoring), investment firms (portfolio tracking), competitive intelligence, risk/compliance (regulatory monitoring), research (policy, industry trends).
+
+> Even 5 enterprise clients at $2K/mo = $120K/year. That's a sustainable solo-dev business.
+
+### Revenue projections (conservative B2C + B2B blend)
+| Milestone | Timeline | B2C/mo | B2B/mo | Total |
+|---|---|---|---|---|
+| 50 Pro, first compliance pilot | Month 3 | $450 | $0 | ~$450 |
+| 300 Pro, 1 compliance contract | Month 6 | $2.7K | $2K | ~$4.7K |
+| 1,500 Pro, 5 B2B | Month 12 | $13.5K | $10K | ~$23.5K |
+| 5K Pro, 15 B2B | Month 24 | $45K | $30K | ~$75K |
+
+> v3 revenue path skews more B2B than v1's projection (the atomic facts + `event_date` + `verified_count` + `source_url` = audit trail that compliance will pay for). Calibrate these against actual conversion data.
+
+---
+
+## 20. Key risks & mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| **LLM costs spike** | Margin destruction | Shared pipelines + fast-path + caching + budget controller (§10); never one model hardcoded |
+| **News APIs shut down / change pricing** | No data | Multiple redundant source plugins (§17); never depend on one; RSS is always the backbone |
+| **Users won't pay** | No revenue | Focus B2B early (B2C = growth engine, not primary revenue); M2 validation before M3 investment |
+| **Hallucinated facts** | Trust destroyed / B2B churn | Always link sources (`source_url`); confidence thresholds; `verified_count` as the Verifier signal |
+| **Legal / copyright** | Shutdown | Extract facts (transformative use — see §22); never republish full articles; respect robots.txt |
+| **Competitor with a data flywheel** | Irrelevant | Our moat: per-user delivered-fact memory + AYR source reputation + shared ledger. More users → better AYR → better routing → network effect. First-mover on this specific architecture matters. |
+| **Solo dev burnout** | Everything dies | Ship in phases; get paying customers early; reinvest in help; don't build M4/M5 before M2 validates |
+| **Date hallucination (verified live)** | Brief quality / trust | Year guard + sanity clamp in harvester — already in §5 / §16 red lights |
+| **Magnet-node clustering (verified live)** | Confusing output / LLM waste | Story graph paused; entity-aware dedup is load-bearing — §3/§5 |
+
+---
+
+## 21. Long-term moat & domain pipelines
+
+### The five compounding moats
+1. **Per-user fact memory** — longer usage → better delta detection → more trust. No competitor has this at the fact level.
+2. **Source quality data (AYR)** — system learns which sources are reliable *per topic*. Gets smarter automatically.
+3. **Shared intelligence** — more users → more topics covered → more efficient for everyone. Shared ledger = cost drop with scale.
+4. **Domain pipelines** — 12+ months of domain-specific training data, custom prompts, specialized sources. Can't be quickly replicated.
+5. **Habit** — once someone replaces their news routine, switching cost is high. The all-quiet hero state is *itself* a retention mechanic.
+
+### Domain intelligence pipelines (Phase 6 / Year 2+)
+The general pipeline works for any topic but is sub-optimal for specialized fields. Domain pipelines are custom configurations:
+- **Specialized sources** (SEC EDGAR for finance, PubMed for medical, court dockets for legal)
+- **Custom harvester prompts** (financial fact extraction needs numerical precision; legal needs citation tracking)
+- **Custom arbiter rules** ("1% change in EPS = UPDATE, not MERGE")
+- **Domain-specific fact fields** (`ticker`, `financial_metric`, `ruling_citation`)
+
+```
+USER PROMPT → ROUTER (which domains?) → run matching pipelines → merge facts → Arbiter → Brief
+```
+
+| Domain | Differentiator | B2B target |
+|---|---|---|
+| `finance` | SEC filings, ticker tracking, earnings precision | Hedge funds, analysts |
+| `legal` | Court dockets, citation-aware facts | Law firms, compliance |
+| `medical` | PubMed, clinical trials, drug approvals | Pharma, biotech |
+| `geopolitics` | Diplomatic sources, conflict trackers | Think tanks, defense |
+
+**Build sequence:** general pipeline first (M1–M3). Pick the domain your first B2B customer needs. Build ONE completely before the next. Each domain = a new market segment funded by B2B revenue.
+
+**Future features (Phase 5, post-launch):**
+- Contradiction detection: two sources disagree on the same fact → flag for user
+- Multi-language support (multilingual embeddings)
+- Source quality reputation network (AYR shared across users = system-level source ranking)
+- Specialized source plugins: SEC EDGAR, FDA, PubMed, EU regulatory feeds
+
+---
+
+## 22. Legal & copyright posture
+
+**Core argument: extracting facts = transformative use.** TrueBrief does not republish articles, paraphrase at length, or substitute for the original publication. It extracts atomic, verifiable facts — a form of analysis and commentary that is widely recognized as transformative under fair use doctrine.
+
+**Operational rules (non-negotiable):**
+1. **Never store or display full article text** — store only extracted facts + the `source_url` pointing back to the original.
+2. **Always display source attribution** — every fact shows its `source_domain` and links to `source_url`. This is also a feature (J7: provenance).
+3. **Respect robots.txt** — the collector checks robots.txt before scraping any URL. Tavily / RSS sources don't require scraping and handle this natively.
+4. **DMCA takedown process** — if a publisher objects, we can remove all facts traced to their `source_domain` in one query. Document this process before B2B launch.
+5. **Never process behind a paywall** — only publicly accessible content. Paywalled articles that Tavily/RSS can't access are skipped, not scraped.
+
+**The B2B angle:** the fact-extraction model is *more legally defensible* for enterprise customers than a summarization model (summaries are closer to derivative works; atomic facts are closer to reported data). This is a selling point for compliance/legal B2B use cases.
+
+> **Not legal advice.** Consult a lawyer before B2B launch, particularly around jurisdiction-specific rules (EU/GDPR, German press law Leistungsschutzrecht, etc.).
