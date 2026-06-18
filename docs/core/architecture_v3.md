@@ -19,6 +19,7 @@
 | Search routing, scan timing, article selection | §6 |
 | Context, history, the spliced timeline | §7 |
 | Per-user "what's new" engine | §8 |
+| **Two-clock model: new-to-us vs new-to-world** | §8B |
 | Rate + depth as two axes, shared-scan schedule | §9 |
 | Cost monitoring + the budget controller | §10 |
 | **Scoring, eval, feedback & LLM-cost techniques** | §10B |
@@ -112,12 +113,14 @@ facts                          (= known_facts; the load-bearing object)
 ├── embedding (vector)
 ├── entities (jsonb)           ★ USED in the dedup decision (not just stored)
 ├── location                   ★ place, part of the entity discriminator
-├── event_date (date)          ★ MANDATORY + sanity-clamped to [publish−1y, today]
+├── event_date (date)          ★ MANDATORY; date of the DEVELOPMENT, not background subjects (§8B)
+├── date_basis (enum)          ★ explicit | relative | inferred — trust level for event_date (§8B)
+├── published_at (timestamptz) ★ when the ARTICLE was released — the SECOND clock, carried onto the fact (§8B)
 ├── importance (float 0–1)     ★ emitted free by harvester; drives ranking
 ├── confidence (float)
 ├── verified_count (int)       independent corroborating sources
 ├── source_url, source_domain
-├── first_seen_at
+├── first_seen_at              when WE first stored it — "new to us", NOT "new to the world" (§8B)
 
 story_threads                  ★ PAUSED (schema kept; assignment + summarizer OFF — see §5/§7)
 ├── id, topic_id, title, living_summary, summary_embedding, importance, momentum,
@@ -167,8 +170,9 @@ COLLECTOR → HARVESTER(+context+importance) → [dedup: semantic+temporal+ENTIT
 Stage by stage:
 
 1. **Collector** — reuse. Add **URL-dedup** (skip already-processed `source_url`, last 14d) before selection. Search routing per §6.
-2. **Harvester** — reuse, three prompt changes:
+2. **Harvester** — reuse, four prompt changes:
    - **`event_date` mandatory**, clamped to `[publish_date − 1y, today]`; "June 7"-type relative dates take the **publish year**. (Fixes the year-hallucination red light.)
+   - **date the DEVELOPMENT, not the background.** "Trump moves *today* to reallocate the *2025* fund" → `event_date = today`; the 2025 fund goes in `context`. **Also emit `date_basis` (`explicit` | `relative` | `inferred`)** so the lag gate (§8B) can trust or distrust the date. (Dating the background subject instead of the action is the single biggest source of the "year-old fact shown as breaking" leak.)
    - **emit `importance` 0–1** per fact (free — the model is already reading the article).
    - **emit `context` inline** — `fact:` + `context:` in the same call. Grounded (written from the same article), a few extra output tokens, **no new LLM call.** This is what lets us **kill the separate briefer on the live path** (assemble, don't generate).
    - Keep **1 call per article** (attribution quality). Cut tokens by *article dedup*, not by batching extraction.
@@ -233,8 +237,48 @@ Home = the delta query in §4. Properties:
 - **Personalized for free** on shared topics via `last_seen_at`.
 - **Scales in DB, not LLM** — 10,000 users on a shared topic = one pipeline run + 10,000 cheap indexed queries.
 - On view, advance `last_seen_at`. "All quiet" = zero new since last look — a first-class hero state, not an error.
+- **Gate the feed on development recency, not `first_seen_at` alone** — a fact first-seen today but *dated* a year ago is "new to us," not "new to the world." It belongs in history, not at the top of today. The mechanism is §8B.
 
-**Delivery rhythm is a user preference, not a second system:** a *digest hour* (daily "your brief is ready") and a *breaking toggle* (push the moment something high-importance lands). Same engine, same screen — open once/day = digest feel; open often = real-time feel.
+**Delivery rhythm is a user preference, not a second system:** a *digest hour* (daily "your brief is ready") and a *breaking toggle* (push the moment something high-importance lands). Same engine, same screen, **two envelopes** (§13) — open once/day = digest feel; open often = real-time feel. The only variable is the `since` anchor: the live window uses each user's `last_seen_at`; the digest uses `last_digest_at` (two markers, one feed — they never contradict because the read always advances `last_seen_at`).
+
+---
+
+## 8B. The two-clock model — development-lag gating
+
+Every fact carries **two timestamps that answer different questions**:
+- **`published_at`** — when the article was released. Reliable (from the feed).
+- **`event_date`** — when the development happened. LLM-extracted, less reliable.
+
+**The bug this fixes (verified in a live brief).** The feed decided what to show by *"is this fact new to our ledger?"* — never by *"is the development recent in the world?"* A genuinely-2025 reference inside a June-2026 article passed the `[publish−1y]` clamp, became a NEW fact, and landed in "today" with no date and no context. **"New to us" ≠ "new to the world"** — one clock was doing two jobs. (Same bug survives the V1 briefer *and* the V3 delta query, which sorts by `first_seen_at`.)
+
+**The lag classifier.** Per new fact, `lag = published_at − event_date`:
+- **lag ≤ ~3 days** — fresh event → **feed** normally ("today / yesterday").
+- **lag = days–weeks** — delayed report / follow-up → **feed, but framed** ("from last week") — never dressed as breaking.
+- **lag ≥ months** — **red light** → route by the history test (never auto-show, never auto-drop).
+
+**The history test — miss vs. noise (the load-bearing discriminator).** A large-lag fact gets asked: *does it connect to the topic's existing timeline?*
+- **Connects** — shares entities / slots into a known thread / corroborated by another source → a **genuine backfill of a miss.** → write to **history/timeline silently**; surface in the feed only as *"filling a gap — Mar 2025,"* never as breaking. (Misses *will* happen — the first scan never catches everything — and history is exactly where they belong.)
+- **Orphan** — no entity overlap, single source, low importance ("Trump 2025 allocation" in passing) → **noise or a bad date.** → suppress from the feed; log to the **muted-items audit (§10B.7)** so nothing is silently lost.
+
+**`date_basis` — making `event_date` trustworthy enough to reason about the gap.** The harvester emits, per fact, *how it got the date*:
+- `explicit` — article states an absolute date → trust even if old → **eligible for backfill.**
+- `relative` — resolved from "yesterday / last week" against publish date → **clamp hard** to the publish window.
+- `inferred` — weak guess → only allowed at small lag; **large-lag + inferred = drop.**
+
+The filter falls out of the combination: *explicit old date that connects to history* = the miss you want to catch; *inferred old date that's an orphan* = exactly the junk that leaked.
+
+**Root-cause prompt fix (the cheapest, highest-yield change).** Date the fact to the **action it reports, not the background subject it references.** Background references go in `context`, not `event_date` (§5).
+
+**Where each fact lands:**
+| lag | date_basis | history test | → destination |
+|---|---|---|---|
+| small | any | — | **feed** (normal) |
+| medium | any | — | **feed** (framed "from last week") |
+| large | explicit / relative | connects | **history** (+ optional "gap filled" feed note) |
+| large | inferred | connects | history, low confidence |
+| large | any | **orphan** | **suppress** → muted-items log |
+
+Touches: the **harvester** (emit `date_basis`, date the development), the **ledger** (carry `published_at` onto the fact), the **delta engine** (gate on development recency, not `first_seen_at` alone). M1 task: 1a.1 + 1a.5.
 
 ---
 
@@ -405,6 +449,27 @@ Nothing else moved across your other 4 topics.
 - **Killed:** chat-bubble brief feed, Stories tab, Insights tab, stat bars, verified-chips-everywhere, topic-dot sidebar.
 - Reference mock: **`reports/v3-briefing.html`** (with the all-quiet toggle). v2-app/v2-new-topic kept only as "too busy" references.
 
+### Two channels = one feed, two envelopes (NOT two screens)
+The "daily summary" and the "live window when you open" are the **same delta feed** with a different `since` anchor (§8) and a different *header ceremony*. Pick the envelope by **how long since the user last looked** — don't build a second UI.
+
+- **Live envelope** (gap < a few hours — the always-connected user): minimal header (`● 2 new since you looked`), no sectioning, instant. This is `v3-briefing.html`.
+- **Digest envelope** (gap ≈ a day, **or** the scheduled digest hour — the once-a-day reader): dated header (`Your brief · Tue Jun 16`), optional grouping by topic, an explicit close (`That's everything`). Delivered to email/push **and** mirrored in-app as a dated card.
+
+```
+LIVE                                  DIGEST
+● 2 new since you looked              Your brief · Tue Jun 16
+                                      ● 6 across 5 topics since yesterday
+FTC opened a probe into the
+MSFT–OpenAI deal.  openai · 40m         OPENAI
+                                        OpenAI closed its round at $40B.  9h
+Fed minutes: two cuts likely.           FTC opened a probe into the deal. 5h
+fed rates · 2h                          FED RATES
+──                                      Fed held; signaled two cuts.      6h
+Nothing else moved.                   ──
+                                      That's everything. See you tomorrow.
+```
+The digest is the **re-engagement hook for people who don't stay connected**; the always-connected user lives in the live envelope and may never need it. The all-caught-up hero state serves both. (Mechanism: two markers `last_seen_at` / `last_digest_at`, one feed — §8.)
+
 ---
 
 ## 14. Business
@@ -465,13 +530,15 @@ Nothing else moved across your other 4 topics.
 - **Per-(topic×tool) cost-aware AYR**, spike-responsive estimator, coalescing window.
 - **Article selection:** domain-diversity penalty + syndication collapse + corroboration preserved.
 - **One shared fact ledger; B2C/B2B are access layers; never scan the same topic twice.**
-- **UI = one surface, radical subtraction** (`v3-briefing`).
+- **UI = one surface, radical subtraction** (`v3-briefing`); **two channels = one feed in two envelopes** (live vs digest), chosen by gap-since-last-seen (§13).
+- **Two-clock model:** every fact carries `published_at` (release) + `event_date` (development) + `date_basis`; the feed gates on **development recency, not `first_seen_at`**; large-lag facts route to history (if they connect) or are suppressed (if orphan) — §8B.
 - **Budget controller = graceful degradation, never hard-block, tier-aware.**
 
 ### 🔴 Red lights (from live data — fix regardless)
 1. Date *year* hallucination reaches delivered briefs.
 2. Story-clustering magnet node (45% of facts in one 2-year node) — paused.
 3. Relevance leaks (off-topic facts).
+4. **Old-but-newly-seen fact shown as breaking** — a year-old event extracted from a fresh article landed in "today" with no date/context. Root: feed gated on "new to us" not "new to the world" (two clocks conflated). Fix = §8B.
 
 ### Open questions
 - **Cost model:** lock Option A for launch, commit to Option B's timeline post-telemetry? (§11)

@@ -40,12 +40,13 @@ Every change goes behind a **feature flag** (run V1 or V3 per stage by config) s
 These are unambiguously better; verify via DB re-inspection, don't gate on a tradeoff.
 | # | Task | Area |
 |---|---|---|
-| 1a.1 | Date/year guard: `event_date` mandatory, publish-year for relative dates, clamp `[publish−1y, today]` | backend |
+| 1a.1 | Date/year guard: `event_date` mandatory, publish-year for relative dates, clamp `[publish−1y, today]`. **+ date the DEVELOPMENT not the background subject; emit `date_basis` (`explicit`/`relative`/`inferred`); carry `published_at` onto the fact** (the second clock) | backend |
 | 1a.2 | Relevance gate: drop off-topic facts | backend |
 | 1a.3 | Entity-aware dedup: arbiter uses `semantic + temporal + entity/location` | backend |
 | 1a.4 | Pause story graph + `story_summarizer`; hide Stories/Insights tabs | backend + small FE |
+| 1a.5 | **Development-lag gate** (arch §8B): `lag = published_at − event_date` → small=feed, medium=feed-framed, large→history-test (connects=backfill to history; orphan=suppress + muted-items log). Gate the feed on **development recency, not `first_seen_at`** | backend |
 
-**Gate:** re-run the 2 live topics → no pre-2026 dates in briefs, no magnet node, no off-topic facts.
+**Gate:** re-run the 2 live topics → no pre-2026 dates in briefs, no magnet node, no off-topic facts, **and no year-old fact shown as a "today" item** (it lands in history or is suppressed — §8B red light #4).
 
 ### 1b. Cost diffs — A/B-measured (flag + compare, keep only if quality holds)
 These trade cost for a possible quality risk → measure V1 vs V3 with the counter, keep what wins.
