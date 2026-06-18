@@ -799,6 +799,70 @@ def search_shared_topics(q: str = ""):
 # Dashboard endpoint
 # ---------------------------------------------------------------------------
 
+# A brief line is "structural" (header/badge/divider/section title) — not prose —
+# if it matches any of these. We skip them when building the dashboard preview so
+# the card shows a real sentence, not "━━━ NEW STORIES (3)".
+_DIVIDER_CHARS = set("━—–-=_")
+
+
+def _clean_brief_line(line: str, max_len: int) -> str:
+    """Strip attribution + markdown from one brief line and cap its length."""
+    # Strip the trailing "→ Sources: [name](url), ..." attribution
+    line = re.split(r'\s*→\s*Sources?\s*:', line)[0].strip()
+    # Strip leading bullet markers / list numbering, then markdown emphasis
+    line = re.sub(r'^[•\-\*\d\.\)\s]+', '', line)
+    line = line.replace('*', '').replace('#', '').replace('`', '').replace('_', '').strip()
+    if len(line) > max_len:
+        return line[:max_len].rsplit(' ', 1)[0] + '…'
+    return line
+
+
+def _brief_preview(content: str, max_len: int = 200) -> str:
+    """
+    Extract a readable preview from a brief's markdown for the dashboard card.
+
+    Prefers the first real bullet (the actual story line); falls back to the first
+    non-structural line (e.g. a section title) if there are no bullets. Strips the
+    📋 TrueBrief header, 🆕/📈 section badges, ━━━ dividers, leading bullet markers,
+    markdown emphasis, and the trailing "→ Sources: [...]" attribution.
+    """
+    if not content:
+        return ""
+
+    fallback = ""
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Header line: "📋 TrueBrief | Topic | Date"
+        if "TrueBrief" in line or line.startswith("📋"):
+            continue
+        # Divider line: only divider / box-drawing chars
+        if all(ch in _DIVIDER_CHARS or ch.isspace() for ch in line):
+            continue
+        # Section badge: "🆕 NEW STORIES (3)", "📈 UPDATES (2)"
+        if re.match(r'^[^\w\s]*\s*(NEW STORIES|UPDATES|NEW|UPDATE)\b.*\(\d+\)\s*$', line, re.IGNORECASE):
+            continue
+
+        # A real bullet starts with "• ", "- ", "* ", or "1. "/"1) " — but NOT
+        # "**bold**" (markdown emphasis) or "--" (a divider), so require a space
+        # after a dash/asterisk marker.
+        is_bullet = (
+            line[0] == '•'
+            or re.match(r'^[-*]\s', line) is not None
+            or re.match(r'^\d+[.)]\s', line) is not None
+        )
+        cleaned = _clean_brief_line(line, max_len)
+        if not cleaned:
+            continue
+        if is_bullet:
+            return cleaned           # the actual story line — best preview
+        if not fallback:
+            fallback = cleaned       # remember first prose/title line as a backstop
+
+    return fallback
+
+
 class DashboardItem(BaseModel):
     topic_id: str
     topic_name: str
@@ -844,14 +908,7 @@ def get_dashboard(user: User = Depends(get_current_user)):
         if not usable:
             continue
 
-        # Strip markdown and the TrueBrief header line, then extract first real sentence
-        lines = usable["content"].splitlines()
-        body_lines = [l for l in lines if l.strip() and "TrueBrief" not in l and not l.strip().startswith("📋")]
-        raw = " ".join(body_lines).replace("*", "").replace("#", "").replace("`", "").replace("_", "").strip()
-        # Remove emoji section headers like "🆕 NEW STORIES (4)"
-        raw = re.sub(r'[^\x00-\x7F\s\w.,!?\'\"()\-:;]+\s*\w*\s*\(\d+\)', '', raw).strip()
-        sentences = [s.strip() for s in raw.split(".") if len(s.strip()) > 15]
-        preview = (sentences[0] + ".") if sentences else raw[:200]
+        preview = _brief_preview(usable["content"])
 
         result.append({
             "topic_id": topic["id"],

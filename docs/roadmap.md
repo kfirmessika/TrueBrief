@@ -18,7 +18,7 @@
 > then **Public/Paid** (needs domain + billing, ~1–2 weeks after soft).
 
 ### L0 — Make the live pipeline debuggable (DO FIRST — de-risks everything after)
-- [ ] **A.7 Pipeline Observability / Admin Trace Panel** — per-run trace of the *entire* pipeline
+- [x] **A.7 Pipeline Observability / Admin Trace Panel** — per-run trace of the *entire* pipeline
       (query+tools chosen & why → articles each tool returned → MMR selection → exact LLM
       prompt/response per stage → per-fact judge decisions). Founder-only. This is the tool that
       makes the soft-launch validation below actually diagnosable. (C: 14 | M: **SONNET**)
@@ -118,10 +118,10 @@
 - [x] A.4 Failure-Mode Tests — 10 tests covering temporal boundary, story merge creep, orphaned fact, batch mismatch, idempotent schedule, hallucination smoke, rotator starvation, briefer zero alphas (C: 12 | M: **SONNET**)
 - [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**)
 - [x] A.6 Admin Metrics Dashboard — /admin/metrics endpoint + UI (C: 8 | M: **FLASH**)
-- [ ] **A.7 Pipeline Observability / Admin Trace Panel** — `pipeline_trace` table + prompt/response
+- [x] **A.7 Pipeline Observability / Admin Trace Panel** — `pipeline_trace` table + prompt/response
       capture on `llm_call_log`; `/admin/runs` + `/admin/runs/{id}` endpoints; founder-only run-detail
       UI showing the full per-run pipeline trace (query→tools→articles→MMR→LLM I/O→judge decisions).
-      The debugging spine for the soft launch. (C: 14 | M: **SONNET**)
+      The debugging spine for the soft launch. (C: 14 | M: **SONNET**) — migration 012 applied 2026-06-18.
 
 ### Phase B · UI/UX Redesign
 
