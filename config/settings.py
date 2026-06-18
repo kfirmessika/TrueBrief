@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     # 1b.1 — batch judge: send grey-zone facts to LLM in one call instead of one-by-one
     V3_BATCH_JUDGE: bool = False
 
+    # --- Pipeline Observability (A.7 admin trace panel) ---
+    # When True, every scan records a full per-run trace (pipeline_trace table) AND the
+    # actual prompt/response of each LLM call (llm_call_log.prompt/response). Founder-only
+    # debugging. Safe to leave on at low volume; flip off to stop storing payloads.
+    TRACE_PIPELINE: bool = True
+    # Hard cap on any single captured prompt/response/article-text field, in characters.
+    # Keeps trace rows bounded even when an article body is huge.
+    TRACE_MAX_CHARS: int = 20000
+
     class Config:
         env_file = str(_PROJECT_ROOT / ".env")
         env_file_encoding = "utf-8"

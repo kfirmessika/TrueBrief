@@ -105,8 +105,15 @@ class TelemetryLogger:
         output_tokens: int,
         cost_usd: float,
         duration_ms: int,
+        prompt: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        response: Optional[str] = None,
     ) -> None:
-        """Insert one row into llm_call_log. Fire-and-forget."""
+        """Insert one row into llm_call_log. Fire-and-forget.
+
+        When prompt/response are provided (TRACE_PIPELINE on), they are stored so the
+        admin panel can show exactly what was sent to the model and what came back.
+        """
         try:
             row = {
                 "pipeline_run_id": run_id,
@@ -117,9 +124,57 @@ class TelemetryLogger:
                 "cost_usd": float(round(cost_usd, 8)),
                 "duration_ms": duration_ms,
             }
-            self._db.table("llm_call_log").insert(row).execute()
+            # Only attach payload columns when present — keeps old behaviour if the
+            # 012 migration hasn't run yet (Supabase ignores unknown keys → would error,
+            # so we add them conditionally and swallow the error to retry without them).
+            if prompt is not None:
+                row["prompt"] = prompt
+            if system_prompt is not None:
+                row["system_prompt"] = system_prompt
+            if response is not None:
+                row["response"] = response
+            try:
+                self._db.table("llm_call_log").insert(row).execute()
+            except Exception:
+                # Most likely the payload columns don't exist yet (pre-012). Retry
+                # with just the core metrics so cost/latency telemetry still lands.
+                for k in ("prompt", "system_prompt", "response"):
+                    row.pop(k, None)
+                self._db.table("llm_call_log").insert(row).execute()
         except Exception as exc:
             logger.warning("Telemetry: log_llm_call failed: %s", exc)
+
+    # -------------------------------------------------------------------------
+    # pipeline_trace  (full per-run observability — non-LLM stages)
+    # -------------------------------------------------------------------------
+
+    def log_trace(
+        self,
+        run_id: Optional[str],
+        *,
+        seq: int,
+        stage: str,
+        label: Optional[str] = None,
+        data: Optional[dict] = None,
+    ) -> None:
+        """Insert one structured trace event for a run. Fire-and-forget.
+
+        Used by the pipeline runner to record what happened at each stage
+        (query/tool selection, collected articles, MMR picks, judge decisions, ...).
+        No-ops silently if run_id is None or the pipeline_trace table is missing.
+        """
+        if not run_id:
+            return
+        try:
+            self._db.table("pipeline_trace").insert({
+                "pipeline_run_id": run_id,
+                "seq": seq,
+                "stage": stage,
+                "label": label,
+                "data": data or {},
+            }).execute()
+        except Exception as exc:
+            logger.debug("Telemetry: log_trace failed (non-fatal): %s", exc)
 
 
 # Module-level singleton — instantiated lazily so imports don't fail without DB.

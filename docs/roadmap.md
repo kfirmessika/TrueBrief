@@ -11,6 +11,42 @@
 
 ---
 
+## 🚀 LAUNCH PATH — ordered critical path to go-live (added 2026-06-18)
+
+> The single ordered list of what actually has to happen to go live, fastest first.
+> Everything else in this file is backlog. Two launch tiers: **Soft** (free, no money, days)
+> then **Public/Paid** (needs domain + billing, ~1–2 weeks after soft).
+
+### L0 — Make the live pipeline debuggable (DO FIRST — de-risks everything after)
+- [ ] **A.7 Pipeline Observability / Admin Trace Panel** — per-run trace of the *entire* pipeline
+      (query+tools chosen & why → articles each tool returned → MMR selection → exact LLM
+      prompt/response per stage → per-fact judge decisions). Founder-only. This is the tool that
+      makes the soft-launch validation below actually diagnosable. (C: 14 | M: **SONNET**)
+
+### L1 — Soft launch (free tier only — no domain/billing needed)
+- [ ] **S1. Enable V3 flags in staging + smoke-scan 3 real topics** — flip V3_DATE_GUARD,
+      V3_RELEVANCE_GATE, V3_ENTITY_DEDUP, V3_PAUSE_STORY_GRAPH on Railway; run a scan on each;
+      use A.7 to confirm dates/relevance/dedup behave and cost looks right. (C: 6)
+- [ ] **S2. Verify model quota** — confirm `gemini-3.1-flash-lite` has real daily quota on the
+      prod key (the dev key kept hitting `limit: 0`). Watch llm_call_log for 429s. (C: 3)
+- [ ] **S3. Fix stale frontend tests** — `history.test.tsx` + any onboarding refs to deleted
+      routes (build/CI must be green before inviting anyone). (C: 4)
+- [ ] **S4. Invite 5–10 free users on the bare Vercel/Railway URLs** — everyone free tier,
+      no emails, no payments. Watch A.7 + /admin/metrics daily. (C: 2)
+
+### L2 — Public / paid launch (needs the pre-launch blockers below)
+- [ ] **P1. Buy domain** → unblocks Resend + Paddle + Clerk prod (see Pre-launch blockers).
+- [ ] **P2. Resend:** verify domain, set `DIGEST_FROM_EMAIL=briefs@<domain>`.
+- [ ] **P3. Paddle:** finish merchant setup with the live URL; set price/keys; smoke a test checkout.
+- [ ] **P4. Clerk:** swap dev instance → production instance.
+- [ ] **P5. C.5 Pre-Production Smoke Script** — preflight gate before flipping public.
+
+> **Deferred until after launch** (do NOT block go-live on these): A.2/A.3/A.5 deeper test
+> harnesses, B.REF→B.5 UI redesign (current UI ships), Phase 4 B2B API, Phase 5/6.
+> The UI is "good enough to ship"; iterate it on real feedback, not before users exist.
+
+---
+
 ## V3 Pipeline Migration (execution_plan.md)
 
 ### M0 — Checkpoint V1 ✅
@@ -82,6 +118,10 @@
 - [x] A.4 Failure-Mode Tests — 10 tests covering temporal boundary, story merge creep, orphaned fact, batch mismatch, idempotent schedule, hallucination smoke, rotator starvation, briefer zero alphas (C: 12 | M: **SONNET**)
 - [ ] A.5 Competitor Benchmark — head-to-head vs Perplexity / ChatGPT Tasks / Feedly AI (C: 10 | M: **SONNET**)
 - [x] A.6 Admin Metrics Dashboard — /admin/metrics endpoint + UI (C: 8 | M: **FLASH**)
+- [ ] **A.7 Pipeline Observability / Admin Trace Panel** — `pipeline_trace` table + prompt/response
+      capture on `llm_call_log`; `/admin/runs` + `/admin/runs/{id}` endpoints; founder-only run-detail
+      UI showing the full per-run pipeline trace (query→tools→articles→MMR→LLM I/O→judge decisions).
+      The debugging spine for the soft launch. (C: 14 | M: **SONNET**)
 
 ### Phase B · UI/UX Redesign
 

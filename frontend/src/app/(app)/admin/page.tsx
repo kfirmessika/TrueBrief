@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
+import Link from 'next/link';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 
 interface AdminMetrics {
@@ -172,9 +173,12 @@ export default function AdminPage() {
 
       {/* Recent runs */}
       <section>
-        <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
           Recent Runs (last 25)
         </h2>
+        <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '0 0 12px' }}>
+          Click a run to open its full pipeline trace — query &amp; tools, articles, AI prompts/responses, and per-fact decisions.
+        </p>
         <div style={{
           background: 'var(--color-background-secondary)',
           border: '0.5px solid var(--color-border-secondary)',
@@ -186,10 +190,10 @@ export default function AdminPage() {
             </div>
           )}
           {data!.recent_runs.map((run, i) => (
-            <div key={run.id} style={{
+            <Link key={run.id} href={`/admin/runs/${run.id}`} style={{
               display: 'grid', gridTemplateColumns: '1fr 80px 70px 70px 70px 70px auto',
               alignItems: 'center', gap: 12,
-              padding: '10px 16px',
+              padding: '10px 16px', textDecoration: 'none',
               borderTop: i > 0 ? '0.5px solid var(--color-border-tertiary)' : 'none',
             }}>
               <div>
@@ -216,7 +220,7 @@ export default function AdminPage() {
               <div style={{ fontSize: 11, color: '#DC2626', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {run.error ?? ''}
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </section>

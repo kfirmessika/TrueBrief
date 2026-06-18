@@ -89,6 +89,9 @@ class LLMClient:
                     input_tokens=in_tok,
                     output_tokens=out_tok,
                     duration_ms=duration_ms,
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    response=result,
                 )
                 return result
 
@@ -266,8 +269,16 @@ class LLMClient:
         input_tokens: int,
         output_tokens: int,
         duration_ms: int,
+        prompt: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        response: Optional[str] = None,
     ) -> None:
-        """Fire-and-forget telemetry log. Never raises."""
+        """Fire-and-forget telemetry log. Never raises.
+
+        When settings.TRACE_PIPELINE is on, the actual prompt / system_prompt /
+        response are stored too (truncated to TRACE_MAX_CHARS) so the admin trace
+        panel can show exactly what the model saw and produced.
+        """
         try:
             from truebrief.ledger.telemetry import get_telemetry
             tel = get_telemetry()
@@ -275,6 +286,15 @@ class LLMClient:
                 return
             run_id = pipeline_run_id_var.get()
             cost = compute_cost_usd(model, input_tokens, output_tokens)
+
+            trace_on = getattr(self._settings, "TRACE_PIPELINE", False)
+            cap = getattr(self._settings, "TRACE_MAX_CHARS", 20000)
+
+            def _clip(s: Optional[str]) -> Optional[str]:
+                if not trace_on or s is None:
+                    return None
+                return s if len(s) <= cap else (s[:cap] + f"\n…[truncated {len(s) - cap} chars]")
+
             tel.log_llm_call(
                 run_id,
                 stage=stage,
@@ -283,6 +303,9 @@ class LLMClient:
                 output_tokens=output_tokens,
                 cost_usd=cost,
                 duration_ms=duration_ms,
+                prompt=_clip(prompt),
+                system_prompt=_clip(system_prompt),
+                response=_clip(response),
             )
         except Exception as exc:
             logger.debug("LLM telemetry log failed (non-fatal): %s", exc)

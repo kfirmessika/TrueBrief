@@ -1043,3 +1043,181 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
         },
         "recent_runs": recent_runs,
     }
+
+
+# ---------------------------------------------------------------------------
+# Admin Pipeline Trace / Observability (A.7)
+# ---------------------------------------------------------------------------
+
+def _topic_names(db, topic_ids: list) -> dict:
+    """Map topic_id → raw_query for a set of ids (best-effort)."""
+    ids = [t for t in {x for x in topic_ids if x}]
+    if not ids:
+        return {}
+    try:
+        res = db.table("topics").select("id, raw_query").in_("id", ids).execute()
+        return {r["id"]: r.get("raw_query") for r in (res.data or [])}
+    except Exception:
+        return {}
+
+
+@router.get("/admin/runs")
+def list_pipeline_runs(
+    limit: int = 50,
+    topic_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """
+    Admin: list recent pipeline runs (newest first) for the trace panel.
+    Optional filters: topic_id, status (success|no_update|rejected|error|running).
+    """
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    db = get_supabase()
+    try:
+        q = (
+            db.table("pipeline_run")
+            .select("id, topic_id, started_at, duration_ms, exit_status, brief_length, "
+                    "articles_collected, articles_selected, alphas_extracted, "
+                    "decisions_new, decisions_update, decisions_duplicate, error_message")
+            .order("started_at", desc=True)
+            .limit(min(max(limit, 1), 200))
+        )
+        if topic_id:
+            q = q.eq("topic_id", topic_id)
+        if status:
+            q = q.eq("exit_status", status)
+        runs = (q.execute().data) or []
+    except Exception as exc:
+        logger.warning("list_pipeline_runs failed: %s", exc)
+        runs = []
+
+    names = _topic_names(db, [r.get("topic_id") for r in runs])
+    return {
+        "runs": [
+            {
+                "id": r["id"],
+                "topic_id": r.get("topic_id"),
+                "topic_name": names.get(r.get("topic_id")) or "—",
+                "started_at": r.get("started_at"),
+                "duration_s": round(r["duration_ms"] / 1000, 1) if r.get("duration_ms") else None,
+                "exit_status": r.get("exit_status"),
+                "brief_length": r.get("brief_length", 0),
+                "articles_collected": r.get("articles_collected", 0),
+                "articles_selected": r.get("articles_selected", 0),
+                "new": r.get("decisions_new", 0),
+                "update": r.get("decisions_update", 0),
+                "dupe": r.get("decisions_duplicate", 0),
+                "error": r.get("error_message"),
+            }
+            for r in runs
+        ]
+    }
+
+
+@router.get("/admin/runs/{run_id}")
+def get_pipeline_run_trace(run_id: str, user: User = Depends(get_current_user)):
+    """
+    Admin: full trace of a single pipeline run — the whole story of the scan.
+
+    Merges the structured stage trace (pipeline_trace) with every LLM call's actual
+    prompt/response (llm_call_log) into one time-ordered timeline so a bad/odd update
+    can be pinpointed to the exact stage it came from.
+    """
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    _require_uuid(run_id, "run_id")
+
+    db = get_supabase()
+
+    # ── The run row itself ────────────────────────────────────────────────────
+    run = None
+    try:
+        rr = db.table("pipeline_run").select("*").eq("id", run_id).single().execute()
+        run = rr.data
+    except Exception:
+        run = None
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found.")
+
+    topic_name = _topic_names(db, [run.get("topic_id")]).get(run.get("topic_id"))
+
+    # ── Structured stage trace ────────────────────────────────────────────────
+    trace_events: list = []
+    try:
+        tr = (
+            db.table("pipeline_trace")
+            .select("seq, stage, label, data, created_at")
+            .eq("pipeline_run_id", run_id)
+            .order("seq", desc=False)
+            .execute()
+        )
+        for e in (tr.data or []):
+            trace_events.append({
+                "kind": "stage",
+                "seq": e.get("seq", 0),
+                "stage": e.get("stage"),
+                "label": e.get("label"),
+                "data": e.get("data") or {},
+                "created_at": e.get("created_at"),
+            })
+    except Exception as exc:
+        logger.debug("pipeline_trace fetch failed (table may be pre-012): %s", exc)
+
+    # ── Every LLM call with prompt/response ───────────────────────────────────
+    llm_events: list = []
+    try:
+        lr = (
+            db.table("llm_call_log")
+            .select("*")
+            .eq("pipeline_run_id", run_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        for c in (lr.data or []):
+            llm_events.append({
+                "kind": "llm",
+                "seq": 0,
+                "stage": c.get("stage"),
+                "model": c.get("model"),
+                "input_tokens": c.get("input_tokens"),
+                "output_tokens": c.get("output_tokens"),
+                "cost_usd": c.get("cost_usd"),
+                "duration_ms": c.get("duration_ms"),
+                "system_prompt": c.get("system_prompt"),
+                "prompt": c.get("prompt"),
+                "response": c.get("response"),
+                "created_at": c.get("created_at"),
+            })
+    except Exception as exc:
+        logger.debug("llm_call_log fetch failed: %s", exc)
+
+    # ── Merge into one timeline (by created_at, then seq) ─────────────────────
+    timeline = trace_events + llm_events
+    timeline.sort(key=lambda x: (x.get("created_at") or "", x.get("seq") or 0))
+
+    llm_cost = sum(float(e.get("cost_usd") or 0) for e in llm_events)
+
+    return {
+        "run": {
+            "id": run["id"],
+            "topic_id": run.get("topic_id"),
+            "topic_name": topic_name or "—",
+            "started_at": run.get("started_at"),
+            "duration_s": round(run["duration_ms"] / 1000, 1) if run.get("duration_ms") else None,
+            "exit_status": run.get("exit_status"),
+            "brief_length": run.get("brief_length", 0),
+            "articles_collected": run.get("articles_collected", 0),
+            "articles_selected": run.get("articles_selected", 0),
+            "alphas_extracted": run.get("alphas_extracted", 0),
+            "new": run.get("decisions_new", 0),
+            "update": run.get("decisions_update", 0),
+            "dupe": run.get("decisions_duplicate", 0),
+            "error": run.get("error_message"),
+            "llm_calls": len(llm_events),
+            "llm_cost_usd": round(llm_cost, 6),
+        },
+        "timeline": timeline,
+    }
