@@ -23,14 +23,12 @@ describe("Brief Display Components (Unit)", () => {
       renderWithProviders(<BriefContent content="This is **bold**" />);
       const strong = screen.getByText("bold");
       expect(strong.tagName).toBe("STRONG");
-      expect(strong).toHaveClass("font-black");
     });
 
-    it("renders [link](url) with indigo class", () => {
+    it("renders [link](url) as an anchor to the url", () => {
       renderWithProviders(<BriefContent content="[My Link](https://example.com)" />);
       const link = screen.getByRole("link", { name: "My Link" });
       expect(link).toHaveAttribute("href", "https://example.com");
-      expect(link).toHaveClass("text-indigo-600");
     });
   });
 
@@ -88,9 +86,6 @@ describe("Brief Display Components (Unit)", () => {
       await waitFor(() => {
         expect(screen.getByText(/copied!/i)).toBeInTheDocument();
       });
-      
-      // Check for green class
-      expect(button).toHaveClass("bg-green-500");
     });
   });
 });

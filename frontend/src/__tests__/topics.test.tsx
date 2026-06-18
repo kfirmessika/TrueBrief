@@ -46,15 +46,16 @@ describe('Topic Management UI Components', () => {
       });
     });
 
-    it('fires onDelete when trash icon clicked', () => {
+    it('fires onDelete when Delete clicked in the options menu', () => {
       (useScanStatus as Mock).mockReturnValue({ data: { state: 'PENDING' }, isLoading: false });
       const onDelete = vi.fn();
       renderWithProviders(
         <TopicCard topic={mockTopic} onScan={async () => 'task-123'} onDelete={onDelete} />
       );
-      
-      const deleteBtn = screen.getByRole('button', { name: /delete topic/i });
-      fireEvent.click(deleteBtn);
+
+      // Delete lives behind the three-dot menu now — open it first.
+      fireEvent.click(screen.getByRole('button', { name: /topic options/i }));
+      fireEvent.click(screen.getByRole('button', { name: /delete/i }));
       expect(onDelete).toHaveBeenCalledWith('topic-1');
     });
   });
