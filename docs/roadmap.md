@@ -29,8 +29,9 @@
       use A.7 to confirm dates/relevance/dedup behave and cost looks right. (C: 6)
 - [ ] **S2. Verify model quota** — confirm `gemini-3.1-flash-lite` has real daily quota on the
       prod key (the dev key kept hitting `limit: 0`). Watch llm_call_log for 429s. (C: 3)
-- [ ] **S3. Fix stale frontend tests** — `history.test.tsx` + any onboarding refs to deleted
-      routes (build/CI must be green before inviting anyone). (C: 4)
+- [x] **S3. Fix stale frontend tests** — removed `topics.intg`/`briefs.intg` suites (imported
+      deleted `DashboardClient` + brief-history routes); fixed TopicCard delete-in-menu test and
+      dropped brittle exact-class assertions. Frontend now 16/16 green, build PASS. (C: 4)
 - [ ] **S4. Invite 5–10 free users on the bare Vercel/Railway URLs** — everyone free tier,
       no emails, no payments. Watch A.7 + /admin/metrics daily. (C: 2)
 
@@ -57,7 +58,8 @@
 - [x] 1a.2 Relevance gate — drop off-topic facts (V3_RELEVANCE_GATE)
 - [x] 1a.3 Entity-aware dedup in arbiter (V3_ENTITY_DEDUP)
 - [x] 1a.4 Pause story graph + story_summarizer; hide Stories tab (V3_PAUSE_STORY_GRAPH)
-- [ ] 1b.1 Batch grey-zone judge calls (V3_BATCH_JUDGE) — pending M2 measurement
+- [x] 1b.1 Batch grey-zone judge calls (V3_BATCH_JUDGE) — implemented behind flag (off by default);
+      `judge.call_batch()` + `arbiter.judge_alphas()`, 7 tests. Enable after M2 A/B confirms quality.
 - [ ] 1b.2–1b.5 Other cost diffs — pending M2 A/B results
 - [ ] Create Supabase pipeline_run + llm_call_log tables ✅ (done)
 
@@ -146,7 +148,9 @@
 - [ ] C.2 API Contract Tests — openapi-typescript generated types, no `any` (C: 8 | M: **FLASH**)
 - [ ] C.3 Performance Budget — LCP, TTFB, bundle size, cold scan p95 (C: 5 | M: **FLASH**)
 - [ ] C.4 Load & Stress — k6 concurrent users + Celery, Redis outage drill (C: 10 | M: **SONNET**)
-- [ ] C.5 Pre-Production Smoke Script — preflight.sh gating deployment (C: 5 | M: **FLASH**)
+- [x] C.5 Pre-Production Smoke Script — `scripts/preflight.py` gating deployment: checks secrets,
+      LLM model config (rejects -preview), Supabase reachability, **migration 012 applied**, and
+      (with `--base-url`) `/health` + a public API endpoint. Exit 1 blocks launch. (C: 5 | M: **FLASH**)
 
 ---
 
