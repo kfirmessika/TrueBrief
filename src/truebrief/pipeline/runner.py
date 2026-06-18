@@ -325,8 +325,11 @@ class PipelineRunner:
             # 5. Judging
             logger.info("[5] Judging Novelty")
             decisions = []
-            for alpha in all_alphas:
-                decision = self.arbiter.judge(alpha, topic_id=topic_id)
+            # judge_alphas batches the grey-zone Judge LLM calls into one request
+            # when V3_BATCH_JUDGE is on; otherwise it judges each fact individually
+            # (identical to the old per-alpha loop). Order matches all_alphas.
+            judged = self.arbiter.judge_alphas(all_alphas, topic_id=topic_id)
+            for alpha, decision in zip(all_alphas, judged):
                 decisions.append(decision)
                 self._trace(
                     "judge",

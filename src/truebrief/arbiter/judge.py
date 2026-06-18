@@ -69,14 +69,16 @@ Rules (apply strictly):
 5. Output ONLY valid JSON. No explanation outside the JSON object.
 """
 
-_PROMPT_TEMPLATE = """\
+_CASE_BLOCK = """\
 NEW FACT (just extracted from an article):
   "{new_fact}"
   Entities: {new_entities}
   Event date: {new_date}
 
 CLOSEST KNOWN FACTS (from memory, ranked by similarity):
-{matches_block}
+{matches_block}"""
+
+_PROMPT_TEMPLATE = _CASE_BLOCK + """
 
 Choose exactly ONE decision and output ONLY valid JSON:
 
@@ -88,6 +90,23 @@ If UPDATE (new information that extends or corrects a known fact):
 
 If NEW (no existing knowledge matches - brand new information):
   {{"decision": "NEW"}}
+"""
+
+# Batch prompt — N self-contained cases judged in one call (V3_BATCH_JUDGE).
+# Safe to batch because each case is independent (no shared state between facts).
+_BATCH_INSTRUCTIONS = """\
+
+==============================================================================
+You are given {n} INDEPENDENT cases above, numbered CASE 1 .. CASE {n}.
+For EACH case choose exactly ONE decision: MERGE, UPDATE, or NEW (same rules as
+a single case). Output ONLY a valid JSON array with exactly {n} objects, one per
+case, in order. Each object MUST include its 1-based "case" number:
+
+[
+  {{"case": 1, "decision": "MERGE"}},
+  {{"case": 2, "decision": "UPDATE", "delta": "One sentence on what is new."}},
+  {{"case": 3, "decision": "NEW"}}
+]
 """
 
 
@@ -149,12 +168,62 @@ class JudgeLLM:
         # Should never reach here, but keep the type checker happy
         return DecisionType.NEW, None
 
+    def call_batch(
+        self,
+        cases: List[Tuple[Alpha, List[Tuple[Alpha, float]]]],
+    ) -> List[Tuple[DecisionType, Optional[str]]]:
+        """
+        Judge several grey-zone facts in a SINGLE LLM call (V3_BATCH_JUDGE).
+
+        Each case is independent (no shared state between facts), so batching is
+        safe — unlike extraction. Saves call count on productive scans.
+
+        Args:
+            cases: list of (new_alpha, adjusted_matches) tuples.
+
+        Returns:
+            A list of (DecisionType, delta|None) in the SAME order as `cases`.
+
+        On any batch failure (LLM error, unparseable, or count mismatch) this
+        falls back to judging each case with the single-call path, so the result
+        is never worse than calling .call() N times.
+        """
+        if not cases:
+            return []
+        if len(cases) == 1:
+            new_alpha, matches = cases[0]
+            return [self.call(new_alpha, matches)]
+
+        prompt = self._build_batch_prompt(cases)
+        try:
+            raw = self.llm.call(
+                step_name="arbiter",
+                prompt=prompt,
+                json_mode=True,
+                system_prompt=_SYSTEM_PROMPT,
+            )
+            parsed = self._parse_batch_response(raw, len(cases))
+            if parsed is not None:
+                return parsed
+            logger.warning(
+                "Judge batch: response count mismatch or parse issue; "
+                "falling back to per-case calls."
+            )
+        except LLMError as llm_err:
+            logger.error(f"Judge batch LLM call failed: {llm_err}. Falling back to per-case.")
+
+        # Fallback: judge each case independently (preserves quality).
+        return [self.call(new_alpha, matches) for new_alpha, matches in cases]
+
     # -------------------------------------------------------------------------
     # Private helpers
     # -------------------------------------------------------------------------
 
-    def _build_prompt(self, new_alpha: Alpha, matches: List[Tuple[Alpha, float]]) -> str:
-        """Construct the full classification prompt."""
+    def _format_case_block(self, new_alpha: Alpha, matches: List[Tuple[Alpha, float]]) -> str:
+        """Render the NEW FACT + CLOSEST KNOWN FACTS block for one comparison case.
+
+        Shared by the single-call prompt and each numbered case in a batch prompt.
+        """
         new_date_str = _format_event_date(new_alpha.event_date)
         new_entities_str = ", ".join(new_alpha.entities) if new_alpha.entities else "unknown"
 
@@ -171,12 +240,77 @@ class JudgeLLM:
 
         matches_block = "\n".join(lines) if lines else "  (none)"
 
-        return _PROMPT_TEMPLATE.format(
+        return _CASE_BLOCK.format(
             new_fact=new_alpha.alpha_text,
             new_entities=new_entities_str,
             new_date=new_date_str,
             matches_block=matches_block,
         )
+
+    def _build_prompt(self, new_alpha: Alpha, matches: List[Tuple[Alpha, float]]) -> str:
+        """Construct the full single-case classification prompt (block + instructions)."""
+        block = self._format_case_block(new_alpha, matches)
+        # _PROMPT_TEMPLATE == _CASE_BLOCK + instructions tail; reuse the tail only.
+        return block + _PROMPT_TEMPLATE[len(_CASE_BLOCK):]
+
+    def _build_batch_prompt(
+        self, cases: List[Tuple[Alpha, List[Tuple[Alpha, float]]]]
+    ) -> str:
+        """Construct one prompt holding all N numbered cases + batch instructions."""
+        parts = []
+        for idx, (new_alpha, matches) in enumerate(cases, start=1):
+            parts.append(f"CASE {idx}:\n{self._format_case_block(new_alpha, matches)}")
+        body = "\n\n".join(parts)
+        return body + _BATCH_INSTRUCTIONS.format(n=len(cases))
+
+    def _parse_batch_response(
+        self, raw: str, expected: int
+    ) -> Optional[List[Tuple[DecisionType, Optional[str]]]]:
+        """
+        Parse the batch JSON array into N (DecisionType, delta) tuples in order.
+
+        Returns None if the response can't be trusted (not a list, wrong length,
+        or unparseable) so the caller can fall back to per-case judging.
+        """
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+        # Tolerate {"results": [...]} or {"cases": [...]} wrappers.
+        if isinstance(data, dict):
+            for key in ("results", "cases", "decisions"):
+                if isinstance(data.get(key), list):
+                    data = data[key]
+                    break
+
+        if not isinstance(data, list) or len(data) != expected:
+            return None
+
+        # Order by explicit 1-based "case" index when present; else trust array order.
+        if all(isinstance(d, dict) and isinstance(d.get("case"), int) for d in data):
+            data = sorted(data, key=lambda d: d["case"])
+
+        results: List[Tuple[DecisionType, Optional[str]]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                return None
+            decision_str = str(item.get("decision", "")).upper()
+            if decision_str == "MERGE":
+                results.append((DecisionType.DUPLICATE, None))
+            elif decision_str == "UPDATE":
+                delta = str(item.get("delta", "")).strip()
+                if not delta:
+                    # UPDATE with no delta is meaningless — treat as duplicate (same
+                    # rule as the single-call path).
+                    results.append((DecisionType.DUPLICATE, None))
+                else:
+                    results.append((DecisionType.UPDATE, delta))
+            elif decision_str == "NEW":
+                results.append((DecisionType.NEW, None))
+            else:
+                return None  # unknown decision → distrust the whole batch
+        return results
 
     @staticmethod
     def _parse_response(raw: str) -> Tuple[DecisionType, Optional[str]]:
