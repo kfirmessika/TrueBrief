@@ -100,6 +100,51 @@ surface, and the daily digest — in that dependency order.
 
 ---
 
+## 2.5 🔧 IMMEDIATE CORRECTIONS (from the 2026-06-19 GPT benchmark)
+
+> A head-to-head on **"Iran War" vs GPT** (same topic, same day) exposed **3 data leaks + 4 presentation gaps**. Verdict: GPT's brief was more useful — it led with the lede (signed US–Iran framework + ceasefire), stayed tight, and synthesized; ours buried the peace deal under casualties, showed 5 overlapping tallies as separate "new" items, repeated a fact (dedup miss), and had no "so what".
+> **Sequencing rule (so we don't repeat mistakes):** the **data fixes are durable** — they fix `facts` rows, so every surface benefits *and* they survive the briefer removal (4-C). Do them first. The **presentation fixes** make the soft-launch brief readable now; their full form rides 4-C. Each correction also becomes a **golden-set case** (IC8 → A.2).
+> Architecture spec: §10B.2a/b (development-type + tally-collapse), §5 (dedup + contradiction), §7 (state of play), §13 (hierarchy + labels), §16 red light #5.
+
+### 2.5-A Data / pipeline fixes — durable, DO NOW (before soft launch)
+- [ ] **IC1. Running-total collapse** (arch §10B.2b) — arbiter: an incoming cumulative numeric total on an
+      already-tracked `(metric, entity-set)` (death tolls, counts, funding) becomes an **UPDATE in place**
+      (refresh value + `as_of` + source), never a NEW fact. *Accept:* the 5 overlapping casualty figures in
+      the benchmark collapse to ≤1 living "toll" fact per metric. Flag `V3_TALLY_COLLAPSE`. (C: 10 | SONNET)
+- [ ] **IC2. Event-class + significance weighting** (arch §10B.2a) — harvester emits
+      `event_class ∈ {state_change, escalation, development, incremental, tally, routine}`; significance score
+      adds `w7·event_class_weight` as the **dominant term for the top slots**; feed/brief orders by it.
+      *Accept:* on the benchmark the framework + ceasefire rank **above** casualty counts; a `tally` never
+      leads. Flag `V3_DEV_CLASS_RANK`. (C: 12 | SONNET) — *prereq for IC6.*
+- [ ] **IC3. Entity-dedup must fire on same-event facts** (1a.3 validation) — "4 Israeli soldiers killed" ×2
+      (same date + entities + number) must merge to **one fact, `verified_count=2`**. If 1a.3 misses it, fix the
+      entity/number-overlap threshold. *Accept:* benchmark shows one merged fact, two source chips. (C: 8 | SONNET)
+- [ ] **IC4. Contradiction flag at merge** (arch §5/§8B — cheap precursor to Phase-5) — two facts on the same
+      `(metric/event, entities, overlapping dates)` with **different values** (Hormuz open vs closed; toll 3,912
+      vs 3,468) → flag the pair, don't store deadpan (a contradiction is usually the story). *Accept:* the
+      Hormuz pair renders as one flagged contradiction. Flag `V3_CONTRADICTION_FLAG`. (C: 12 | SONNET)
+
+### 2.5-B Presentation / synthesis — soft-launch brief now; full form in 4-C
+- [ ] **IC5. Drop `WHAT'S NEW / FULL CONTEXT` labels + de-dupe source chips** — briefer prompt: weave `context`
+      as prose, one chip per outlet (benchmark rendered `deccanherald.comdeccanherald.com`). *Accept:* no rigid
+      labels, no doubled chips. (C: 4 | FLASH)
+- [ ] **IC6. Importance hierarchy in the brief** — top `state_change`/`escalation` prominent; `tally`/`incremental`
+      collapse or below-fold. *Accept:* the peace deal is not rendered at the same weight as a tank claim.
+      (C: 6 | FLASH) — *needs IC2.*
+- [ ] **IC7. "State of play" topic-header block** (arch §7) — grounded status line + 3–6 item ✅/⚠️ checklist of
+      open threads (`agreed/contested/postponed/escalating`), generated **only from our facts + sources**,
+      regenerated only on a `state_change` (batched, ~1 call), **no prediction**. *Accept:* topic header shows the
+      GPT-style status, fully sourced. (C: 12 | SONNET)
+- [ ] **IC8. Golden case from this benchmark** (feeds A.2) — encode the labeled failures from
+      `docs/benchmarks/2026-06-19_iran-war_gpt-vs-truebrief.md` as regression assertions: buried lede, tally
+      collapse, duplicated soldiers fact, Hormuz contradiction, missing state-of-play. *Accept:* A.2 asserts all
+      fixed. (C: 5 | SONNET)
+
+**Order:** IC1 → IC2 → IC3 (data), then IC5 + IC6 (cheap presentation, soft-launch ready), then IC4 + IC7 + IC8.
+IC3 is standalone and can run in parallel.
+
+---
+
 ## 3. ✅ DONE (collapsed)
 
 - **Phase 0–2:** project skeleton, core MVP, delta-engine-v1 + scheduling.
@@ -200,6 +245,9 @@ surface, and the daily digest — in that dependency order.
   sidebar of dots. "All caught up" is a hero state.
 - **"New to us" ≠ "new to the world"** (red light, verified live) — the feed must gate on development
   recency (§8B / 1a.5), not `first_seen_at`. This is the single biggest quality leak.
+- **Lead with the lede; tallies are background; show a "state of play"** (red light, 2026-06-19 GPT
+  benchmark) — rank by `event_class` not flat importance; collapse running totals; surface a grounded
+  status block. The GPT head-to-head beat us on signal/synthesis — fix via §2.5 (IC1–IC8).
 - **Story graph stays paused** — keep the code, stop the spend; revisit only for B2B, and only as a
   loose locally-queried graph, never a global tree, never load-bearing for dedup.
 - **Briefer is removed from the live path** — assemble `fact`+`context`; keep generation only for the

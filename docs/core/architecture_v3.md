@@ -177,7 +177,10 @@ Stage by stage:
    - **emit `context` inline** — `fact:` + `context:` in the same call. Grounded (written from the same article), a few extra output tokens, **no new LLM call.** This is what lets us **kill the separate briefer on the live path** (assemble, don't generate).
    - Keep **1 call per article** (attribution quality). Cut tokens by *article dedup*, not by batching extraction.
 3. **Relevance gate** — drop off-topic facts (the Myanmar/World-Cup leak). Cheap check against topic scope/entities.
-4. **Dedup (arbiter)** — reuse fast-path (auto-merge / auto-new) + grey-zone judge, **but the decision now uses `semantic similarity + temporal distance + entity/location overlap`.** Two facts are the *same event* only if all three agree. (The "two lions, two safaris, same day = different events" case.) **Batch the grey-zone judge** (self-contained tuples — safe to batch, unlike extraction).
+4. **Dedup (arbiter)** — reuse fast-path (auto-merge / auto-new) + grey-zone judge, **but the decision now uses `semantic similarity + temporal distance + entity/location overlap`.** Two facts are the *same event* only if all three agree. (The "two lions, two safaris, same day = different events" case.) **Batch the grey-zone judge** (self-contained tuples — safe to batch, unlike extraction). Three rules the 2026-06-19 benchmark proved load-bearing:
+   - **Entity-dedup must actually fire on same-event facts** — "4 soldiers killed" from two outlets (same date + entities + number) = **one fact, `verified_count=2`**, not two rows. (It leaked as two rows in the benchmark → fixed regression case.)
+   - **Running-total collapse (10B.2b)** — a cumulative numeric total on an already-tracked `(metric, entities)` is an **UPDATE**, never NEW.
+   - **Contradiction flag (§8B)** — two facts on the same `(metric/event, entities, overlapping dates)` with *different values* (Hormuz open vs closed; toll 3,912 vs 3,468) are **flagged as a contradiction**, not stored deadpan (a contradiction is usually the high-signal story). Cheap pairwise check now; full Phase-5 detector later.
 5. **Ledger** — store fact with all fields; bump topic freshness.
 6. **History doc** — rebuild the topic's timeline (no-LLM first, §7). **Story-graph assignment + `story_summarizer` are PAUSED** — keep the code, stop the spend, revisit post-launch.
 7. **Briefer — REMOVED from the live path** (assembled from `fact`+`context`). Optional later, only for the polished email digest.
@@ -225,6 +228,16 @@ Three context mechanisms, cheapest first:
 1. **Inline `context`** (from the harvester, §5) — every fact carries a one-line grounded "why it matters." Powers the tap-to-expand on the home screen with **zero extra calls.**
 2. **History doc — no-LLM first.** Build the topic's "story so far" by **placing the (already-clean) fact-sentences in chronological order** with **zero LLM**. Evaluate how it reads. **Only if it's choppy**, add *one* "glue/summary" LLM pass. This replaces the paused story graph as the context layer and tests whether the LLM glue is even needed.
 3. **Spliced timeline (B2B / power "full history")** — for the audit/analyst view: immutable fact anchors + LLM writes *only* the connective glue between adjacent facts (never mutates a fact); zero LLM at request; anchor-jump from a feed item into the timeline. Optimizes *micro-context* (what happened immediately before/after) — right for B2B, wrong for the B2C gist. (See v2 critique.)
+
+4. **State of play (topic-level synthesis) — the "so what" GPT had and we didn't.** The 2026-06-19 benchmark's single most valuable artifact was GPT's `✅/⚠️` status checklist + one-line situation summary; ours produced none. Add a short **grounded status block at the top of the topic view** (NOT in the delta feed): one *current-situation* line + a 3–6 item **status checklist** of the open threads, each with a state — `agreed / contested / postponed / escalating` — anchored to the facts that set it. Generated **only from our stored facts + their sources** (no ungrounded prediction — unlike GPT's closing bet), regenerated **only on material change** (a `state_change` fact lands), batched, ~1 call. This *is* the bounded living-summary of §3 — re-derived from facts, never recursively rewritten (no telephone-game). Answers J2/J4 at the topic level. Shape:
+```
+Iran War — current state
+Fragile US–Iran framework (signed Jun 17); Israel–Hezbollah ceasefire begins today.
+  ✅ US–Iran 60-day track ...... agreed (Jun 17)
+  ⚠️ Strait of Hormuz ......... contested  ← re-closed claim vs transit resumed (contradiction surfaced)
+  ⚠️ Nuclear talks (Switzerland) postponed (Jun 18)
+  ⚠️ IRGC cells in Iraq ....... active concern
+```
 
 > **Story graph (linked threads): paused now, deferred to B2B/future.** When revisited, it's a *loose linked graph queried only in local neighborhoods* — never a global "big tree" (collapses at scale), never load-bearing for dedup. Dormant threads never leave the index; a reignited story spawns a *linked successor*, not a reopened immortal node.
 
@@ -340,9 +353,27 @@ score = w1·max(fact.importance)        // relevance/significance
       + w4·is_new_thread_bonus         // novelty
       + w5·source_authority
       + w6·recency_decay(~36h half-life)
+      + w7·event_class_weight          // ★ STATE-CHANGE ≫ TALLY — the lede fix (10B.2a)
       + personal_bias                  // ±, from feedback (10B.4)
 ```
 Merges **[v2 §7]** importance + **[v1]** AYR weighting + the Squelch decomposition. Weights are config, re-fit against the golden set (10B.3) periodically. The Briefing sorts by this; the **noise-floor presets** (Thorough / Significant / Critical-only) are a *user threshold* on it — a visible instrument so a user who misses something blames the *setting* and adjusts, instead of churning. **[NEW framing]**
+
+### 10B.2a Development-type weighting — "lead with the lede" (the 2026-06-19 GPT benchmark fix)
+The benchmark exposed the **#1 quality leak**: our Iran-War brief led with *"4 soldiers killed"* while the actual story — a signed US–Iran framework + a ceasefire starting today — was buried. Root: every fact scored ~equally, so running casualty tallies outranked state-changing events. Fix: the **harvester emits `event_class` per fact**, and the score weights it as the dominant term for the top slots:
+
+| `event_class` | examples | weight | feed behavior |
+|---|---|---|---|
+| `state_change` | ceasefire signed, treaty, resignation, strait closed/opened, leadership change | **highest** | **leads** |
+| `escalation` | new strike, attack, front opens, talks collapse | high | top |
+| `development` | a discrete new event inside an ongoing story | mid | normal |
+| `incremental` | "X now says…", minor follow-up | low | framed / below fold |
+| `tally` | cumulative counts ("7,300 killed since Feb 28") | **lowest = background** | never a delta → collapsed (10B.2b), lives in state-of-play (§7), never breaking |
+| `routine` | scheduling/logistics noise | floor | usually dropped |
+
+A `tally` **never leads**, even when its number changed. Order the feed by `score` with `event_class` dominating slot 1–N.
+
+### 10B.2b Running-total collapse (kill tally-noise)
+A cumulative metric on the same `(metric, entity-set)` — death tolls, case counts, funding totals — is **one living fact UPDATED in place**, not a new fact per scan. Rule at dedup (§5): if an incoming fact is a numeric total on a metric+entities already tracked, it is an **UPDATE** (refresh value + `as_of` date + source), never a NEW row. (The GPT benchmark showed *five* overlapping casualty figures as five separate "new" items — exactly this leak.)
 
 ### 10B.3 AYR scoring (carried from v1, made cost-aware)
 ```
@@ -449,6 +480,12 @@ Nothing else moved across your other 4 topics.
 - **Killed:** chat-bubble brief feed, Stories tab, Insights tab, stat bars, verified-chips-everywhere, topic-dot sidebar.
 - Reference mock: **`reports/v3-briefing.html`** (with the all-quiet toggle). v2-app/v2-new-topic kept only as "too busy" references.
 
+**Presentation rules the 2026-06-19 benchmark forced (our brief read as a flat noisy dump next to GPT):**
+- **Importance hierarchy, not a flat list** — top `state_change`/`escalation` item(s) render prominent; `tally`/`incremental` collapse or sit below a fold. A peace deal must not render at the same visual weight as a tank claim (it did).
+- **No `WHAT'S NEW / FULL CONTEXT` labels** — inline `context` (§5) reads as woven prose / tap-to-expand ("a sentence from a smart friend"), not rigid labels (a V1-briefer artifact).
+- **De-dupe source chips** — one chip per outlet (the benchmark rendered `deccanherald.comdeccanherald.com`).
+- **State-of-play header** (§7) sits above the deltas — the gist GPT led with, fully grounded.
+
 ### Two channels = one feed, two envelopes (NOT two screens)
 The "daily summary" and the "live window when you open" are the **same delta feed** with a different `since` anchor (§8) and a different *header ceremony*. Pick the envelope by **how long since the user last looked** — don't build a second UI.
 
@@ -532,6 +569,7 @@ The digest is the **re-engagement hook for people who don't stay connected**; th
 - **One shared fact ledger; B2C/B2B are access layers; never scan the same topic twice.**
 - **UI = one surface, radical subtraction** (`v3-briefing`); **two channels = one feed in two envelopes** (live vs digest), chosen by gap-since-last-seen (§13).
 - **Two-clock model:** every fact carries `published_at` (release) + `event_date` (development) + `date_basis`; the feed gates on **development recency, not `first_seen_at`**; large-lag facts route to history (if they connect) or are suppressed (if orphan) — §8B.
+- **Rank by development-type, not flat importance; collapse running tallies; surface a grounded "state of play."** (2026-06-19 GPT benchmark — §10B.2a/b, §7.)
 - **Budget controller = graceful degradation, never hard-block, tier-aware.**
 
 ### 🔴 Red lights (from live data — fix regardless)
@@ -539,6 +577,7 @@ The digest is the **re-engagement hook for people who don't stay connected**; th
 2. Story-clustering magnet node (45% of facts in one 2-year node) — paused.
 3. Relevance leaks (off-topic facts).
 4. **Old-but-newly-seen fact shown as breaking** — a year-old event extracted from a fresh article landed in "today" with no date/context. Root: feed gated on "new to us" not "new to the world" (two clocks conflated). Fix = §8B.
+5. **Buried lede + tally-noise + visible dedup miss** (2026-06-19 GPT benchmark): the brief led with casualties while the signed peace framework was buried; five overlapping casualty tallies shown as separate "new" items; "4 soldiers killed" appeared twice (entity-dedup didn't merge); a Hormuz open-vs-closed contradiction shown deadpan. Fixes: §10B.2a/b (development-type + tally-collapse), §5 (dedup must fire + contradiction flag), §7 (state of play), §13 (hierarchy + drop labels). Roadmap → §2.5 Immediate Corrections (IC1–IC8).
 
 ### Open questions
 - **Cost model:** lock Option A for launch, commit to Option B's timeline post-telemetry? (§11)
