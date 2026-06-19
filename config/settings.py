@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # different URL) via SimHash before extraction, so we don't harvest the same wire story
     # N times. Exact-URL dedup is always on; this catches syndication.
     V3_NEARDUP_COLLAPSE: bool = False
+    # IC2 — development-type weighting: harvester emits event_class; runner sorts decisions
+    # by event_class_weight before briefer so state_change/escalation lead the brief.
+    V3_DEV_CLASS_RANK: bool = False
+    # IC1 — running-total / tally collapse: incoming tally fact with entity-overlap to an
+    # existing tally → force UPDATE (never NEW), preventing N duplicate casualty-count rows.
+    V3_TALLY_COLLAPSE: bool = False
 
     # --- Pipeline Observability (A.7 admin trace panel) ---
     # When True, every scan records a full per-run trace (pipeline_trace table) AND the

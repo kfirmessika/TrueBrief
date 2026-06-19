@@ -141,6 +141,13 @@ class Harvester:
                             )
                             continue
 
+                _VALID_CLASSES = {
+                    "state_change", "escalation", "development",
+                    "incremental", "tally", "routine",
+                }
+                raw_class = str(item.get("event_class") or "").strip().lower()
+                event_class = raw_class if raw_class in _VALID_CLASSES else None
+
                 alpha = Alpha(
                     alpha_text=item.get("alpha_text", "").strip(),
                     entities=item.get("entities", []),
@@ -149,7 +156,8 @@ class Harvester:
                     event_date=event_date,
                     context=item.get("context", ""),
                     confidence=confidence,
-                    topic_id=topic_id
+                    topic_id=topic_id,
+                    event_class=event_class,
                 )
 
                 if alpha.alpha_text:
@@ -213,6 +221,18 @@ For each fact extract:
 3. "event_date": {date_instruction}
 4. "context": 20-40 words - why does this fact matter? What story does it belong to?
 5. "confidence": How verifiable is this? (0.0-1.0)
+6. "event_class": The development type. Choose EXACTLY ONE:
+   - "state_change"  — a discrete, durable status flip: ceasefire signed, treaty agreed, leadership change,
+                       strait opened/closed, law passed, company acquired, person dies/resigns.
+   - "escalation"    — a new discrete aggressive or deteriorating act: strike, attack, front opens,
+                       sanctions imposed, talks collapsed, troops deployed.
+   - "development"   — a discrete new fact inside an ongoing story that does not flip a status:
+                       meeting held, statement issued, vote scheduled, person arrested.
+   - "incremental"   — a follow-up or minor update: "X now says…", clarification, minor revision.
+   - "tally"         — a cumulative running count or total that will be updated again:
+                       death tolls, case counts, funding totals, damage estimates. Label even if the
+                       number changed — it is NEVER the lede.
+   - "routine"       — scheduling/logistics: press briefing scheduled, convoy arrived, ship docked.
 
 RULES:
 - ONLY extract facts relevant to the TOPIC FILTER above (if specified).
@@ -230,7 +250,8 @@ EXPECTED OUTPUT FORMAT:
     "entities": ["Entity1", "Entity2"],
     "event_date": "2026-04-15",
     "context": "Context string.",
-    "confidence": 0.95
+    "confidence": 0.95,
+    "event_class": "state_change"
   }}
 ]
 """

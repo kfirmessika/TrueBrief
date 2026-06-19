@@ -54,6 +54,7 @@ class VectorStore:
             "source_domain":   extract_domain(alpha.source_url),
             "verified_count":  alpha.verified_count,
             "verifier_flags":  alpha.verifier_flags,
+            "event_class":     alpha.event_class,
         }
 
         # Phase 3: Link fact to its StoryNode (if set by StoryManager)
@@ -134,9 +135,59 @@ class VectorStore:
                 event_date=item.get("event_date"),
                 context=item.get("context"),
                 confidence=item.get("confidence", 1.0),
+                event_class=item.get("event_class"),
             )
             score = item.get("similarity", 0.0)
             results.append((alpha, score))
 
         logger.debug(f"find_similar: {len(results)} matches (threshold={threshold}, topic={topic_id})")
         return results
+
+    def find_tally_match(
+        self,
+        alpha: Alpha,
+        min_entity_overlap: float = 0.5,
+    ) -> Optional[Alpha]:
+        """
+        IC1 (V3_TALLY_COLLAPSE): find an existing tally fact for the same entities.
+
+        Used when the incoming alpha has event_class='tally'. We skip vector similarity
+        (wording varies too much across tallies) and use entity overlap instead.
+        Returns the most-recent matching stored tally, or None.
+        """
+        if not alpha.topic_id or not alpha.entities:
+            return None
+        try:
+            response = (
+                self.db.table("known_facts")
+                .select("id, alpha_text, entities, event_date, source_url, source_domain, context, confidence, event_class")
+                .eq("topic_id", alpha.topic_id)
+                .eq("event_class", "tally")
+                .order("event_date", desc=True)
+                .limit(20)
+                .execute()
+            )
+        except Exception as e:
+            logger.warning(f"find_tally_match query failed (non-fatal): {e}")
+            return None
+
+        incoming_set = {e.lower() for e in alpha.entities}
+        for row in response.data:
+            stored_entities = {e.lower() for e in (row.get("entities") or [])}
+            if not stored_entities:
+                continue
+            overlap = len(incoming_set & stored_entities) / max(len(incoming_set | stored_entities), 1)
+            if overlap >= min_entity_overlap:
+                return Alpha(
+                    id=row.get("id"),
+                    topic_id=alpha.topic_id,
+                    alpha_text=row.get("alpha_text", ""),
+                    entities=row.get("entities", []),
+                    source_url=row.get("source_url", ""),
+                    source_name=row.get("source_domain", ""),
+                    event_date=row.get("event_date"),
+                    context=row.get("context"),
+                    confidence=row.get("confidence", 1.0),
+                    event_class=row.get("event_class"),
+                )
+        return None

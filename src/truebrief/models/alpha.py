@@ -46,6 +46,10 @@ class Alpha:
     # Populated after storage in the Ledger
     embedding: Optional[list[float]] = None
 
+    # Development-type label emitted by the harvester (IC2 / §10B.2a).
+    # state_change | escalation | development | incremental | tally | routine | None (unlabelled)
+    event_class: Optional[str] = None
+
     # Populated by the Verifier stage (before Ledger)
     verified_count: int = 0                       # number of independent sources that confirmed this fact
     verifier_flags: list[str] = field(default_factory=list)  # e.g. ["retrospective", "ungrounded"]

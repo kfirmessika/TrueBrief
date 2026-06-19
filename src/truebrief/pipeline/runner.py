@@ -408,6 +408,24 @@ class PipelineRunner:
                     logger.warning(f"    [ROTATOR] record_result failed: {rot_err}")
 
 
+            # 5d. IC2 significance sort: order NEW/UPDATE decisions so the briefer LLM
+            # sees state_change/escalation first and tally facts last.
+            if settings.V3_DEV_CLASS_RANK:
+                _CLASS_WEIGHT = {
+                    "state_change": 1.0,
+                    "escalation":   0.8,
+                    "development":  0.6,
+                    "incremental":  0.4,
+                    "routine":      0.2,
+                    "tally":        0.1,
+                }
+                decisions = sorted(
+                    decisions,
+                    key=lambda d: _CLASS_WEIGHT.get(d.alpha.event_class or "", 0.5),
+                    reverse=True,
+                )
+                logger.info("[5d] Decisions sorted by event_class significance.")
+
             # 6. Briefing
             logger.info("[6] Generating Brief")
             brief_text = self.briefer.generate(decisions, query.topic_name)

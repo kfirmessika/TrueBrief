@@ -187,6 +187,31 @@ class Arbiter:
                 [],
             )
 
+        # Step 1b — IC1 Tally collapse (V3_TALLY_COLLAPSE): running totals on the same
+        # (metric, entity-set) are always an UPDATE in place, never a NEW fact.
+        # Bypass vector similarity (wording varies too much) and use entity overlap.
+        if settings.V3_TALLY_COLLAPSE and alpha.event_class == "tally":
+            tally_match = self.ledger.find_tally_match(alpha)
+            if tally_match is not None:
+                logger.info(
+                    f"{log_prefix} → TALLY-UPDATE (IC1: entity-overlap match → "
+                    f"'{tally_match.alpha_text[:60]}')"
+                )
+                return (
+                    AlphaDecision(
+                        alpha=alpha,
+                        decision=DecisionType.UPDATE,
+                        similarity_score=1.0,
+                        matched_alpha_id=tally_match.id,
+                        reasoning=(
+                            "IC1 tally-collapse: cumulative running total on the same "
+                            "entity-set — updating the existing tally in place."
+                        ),
+                        delta=alpha.alpha_text,
+                    ),
+                    [],
+                )
+
         # Step 2 - Fetch similar facts from the Ledger
         raw_matches = self._fetch_matches(alpha, topic_id)
 
