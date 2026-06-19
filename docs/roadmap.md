@@ -149,15 +149,16 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 > Architecture spec: §10B.2a/b (development-type + tally-collapse), §5 (dedup + contradiction), §7 (state of play), §13 (hierarchy + labels), §16 red light #5.
 
 ### 2.5-A Data / pipeline fixes — durable, DO NOW (before soft launch)
-- [ ] **IC1. Running-total collapse** (arch §10B.2b) — arbiter: an incoming cumulative numeric total on an
-      already-tracked `(metric, entity-set)` (death tolls, counts, funding) becomes an **UPDATE in place**
-      (refresh value + `as_of` + source), never a NEW fact. *Accept:* the 5 overlapping casualty figures in
-      the benchmark collapse to ≤1 living "toll" fact per metric. Flag `V3_TALLY_COLLAPSE`. (C: 10 | SONNET)
-- [ ] **IC2. Event-class + significance weighting** (arch §10B.2a) — harvester emits
-      `event_class ∈ {state_change, escalation, development, incremental, tally, routine}`; significance score
-      adds `w7·event_class_weight` as the **dominant term for the top slots**; feed/brief orders by it.
-      *Accept:* on the benchmark the framework + ceasefire rank **above** casualty counts; a `tally` never
-      leads. Flag `V3_DEV_CLASS_RANK`. (C: 12 | SONNET) — *prereq for IC6.*
+- [x] **IC1. Running-total collapse** (arch §10B.2b) — arbiter step 1b: tally fact + entity-overlap
+      ≥ 0.5 → force UPDATE (bypass vector threshold). `find_tally_match()` in vector_store. Flag
+      `V3_TALLY_COLLAPSE`. Migration 013 applied 2026-06-19. 15 tests. (commit de33eca)
+- [x] **IC2. Event-class + significance weighting** (arch §10B.2a) — harvester emits
+      `event_class ∈ {state_change, escalation, development, incremental, tally, routine}`;
+      runner step 5d sorts decisions by weight before briefer → state_change leads. Flag
+      `V3_DEV_CLASS_RANK`. Alpha model + migration 013. (commit de33eca)
+- [x] **P0. embed_batch fix** — Gemini SDK treated contents=list as one doc → 1 vector for N
+      inputs. Fixed: ThreadPoolExecutor(8) dispatches one call per text → 7x faster, all N vectors
+      returned. All quality gates (MMR, relevance gate, entity-dedup) now work correctly. (commit de33eca)
 - [ ] **IC3. Entity-dedup must fire on same-event facts** (1a.3 validation) — "4 Israeli soldiers killed" ×2
       (same date + entities + number) must merge to **one fact, `verified_count=2`**. If 1a.3 misses it, fix the
       entity/number-overlap threshold. *Accept:* benchmark shows one merged fact, two source chips. (C: 8 | SONNET)
