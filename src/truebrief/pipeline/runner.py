@@ -220,6 +220,23 @@ class PipelineRunner:
                 self._trace("dedup", "All candidate articles were already processed — ending early.", remaining=0)
                 return ""
 
+            # 2c. Near-dup / syndication collapse (V3): same story, different URL → keep one.
+            if settings.V3_NEARDUP_COLLAPSE and len(raw_articles) > 1:
+                try:
+                    from truebrief.collector.dedup import collapse_near_duplicates
+                    raw_articles, collapsed = collapse_near_duplicates(raw_articles)
+                    if collapsed:
+                        logger.info(f"    Near-dup collapse: dropped {len(collapsed)} syndicated articles.")
+                    self._trace(
+                        "dedup",
+                        f"Near-dup collapse: {len(collapsed)} syndicated dropped, {len(raw_articles)} remain.",
+                        collapsed=len(collapsed),
+                        remaining=len(raw_articles),
+                        collapsed_articles=collapsed[:25],
+                    )
+                except Exception as nd_err:
+                    logger.warning(f"    Near-dup collapse failed (non-fatal): {nd_err}")
+
             # 3. MMR Selection
             logger.info(f"[3] Selecting top {MAX_ARTICLES} diverse articles via MMR...")
             selected = self._mmr_select(query=query, articles=raw_articles, limit=MAX_ARTICLES)

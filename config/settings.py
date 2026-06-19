@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     V3_PAUSE_STORY_GRAPH: bool = False
     # 1b.1 — batch judge: send grey-zone facts to LLM in one call instead of one-by-one
     V3_BATCH_JUDGE: bool = False
+    # 1b.2b — near-dup / syndication collapse: drop near-identical articles (same story,
+    # different URL) via SimHash before extraction, so we don't harvest the same wire story
+    # N times. Exact-URL dedup is always on; this catches syndication.
+    V3_NEARDUP_COLLAPSE: bool = False
 
     # --- Pipeline Observability (A.7 admin trace panel) ---
     # When True, every scan records a full per-run trace (pipeline_trace table) AND the

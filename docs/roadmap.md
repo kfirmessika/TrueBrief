@@ -52,7 +52,9 @@ surface, and the daily digest — in that dependency order.
 - [ ] **S1. Flip V3 flags ON in Railway env** — `V3_DATE_GUARD`, `V3_RELEVANCE_GATE`,
       `V3_ENTITY_DEDUP`, `V3_PAUSE_STORY_GRAPH` (they're already ON locally, still False in prod). (C: 1)
 - [ ] **S2. Verify model quota on prod key** — confirm `gemini-3.1-flash-lite` has real daily
-      quota (the dev key kept hitting `limit: 0`). Watch `llm_call_log` for 429s. (C: 3)
+      quota. **CONFIRMED BLOCKER (smoke test 2026-06-19):** dev key batch-embed returns 1 vector for
+      any N inputs → MMR falls back → relevance gate over-fires (dropped 14/15 facts in one scan).
+      Briefs still produce but quality is unreliable. Must verify prod key before deploy. (C: 3)
 - [ ] **S3. Smoke-scan 3 real topics** — run each, open `/admin/runs` to confirm dates / relevance
       gate / dedup behave and cost looks right. Gate with `python scripts/preflight.py --base-url …`. (C: 4)
 - [x] **S4. Frontend CI green** — removed stale `topics.intg`/`briefs.intg` suites + fixed drifted
@@ -84,7 +86,9 @@ surface, and the daily digest — in that dependency order.
       off by default; enable after M2 A/B confirms quality
 - [ ] **1a.5 Two-clock dev-lag gate** (`published_at` on the fact + `date_basis` + lag classifier) —
       §8B. Decides "breaking" vs "framed" vs "history backfill". **Prereq for the smart history page.** (C: 10 | SONNET)
-- [ ] 1b.2 URL/article dedup before extraction — skip already-processed `source_url` (last 14d) (C: 6 | FLASH)
+- [x] **1b.2 URL/article dedup** — exact-URL skip (14d window in `VectorStore.get_seen_urls()`) +
+      near-dup/syndication collapse (`V3_NEARDUP_COLLAPSE`): SimHash-64 / Hamming≤3 drops wire-story
+      copies before extraction. 6 unit tests; wired in `runner.py` step 2c.
 - [ ] 1b.3 Gate scans on new content (quiet-scan = $0) (C: 6 | FLASH)
 - [ ] 1b.4 Drop the live-path briefer — assemble from `fact`+`context` (folds into §4-C below) (C: 8 | SONNET)
 
@@ -108,7 +112,9 @@ surface, and the daily digest — in that dependency order.
   A.6 admin metrics, **A.7 trace panel**.
 - **Phase B (design system):** B.0 OKLCH tokens + dark mode + primitives, B.1 critical gaps
   (topic detail tabs, settings, source chips, live scan bar).
-- **Ops:** migration 012 applied; `scripts/preflight.py` launch gate; frontend CI green.
+- **Ops:** migration 012 applied; `scripts/preflight.py` launch gate; frontend CI green;
+  **E2E smoke harness** (`scripts/smoke_scan.py`) + **test plan** (`docs/testing.md`) built;
+  real scan on 2 prod topics passed all 7 quality invariants (2026-06-19).
 
 ---
 
