@@ -98,48 +98,51 @@ class Harvester:
                     dropped_no_date += 1
                     continue
 
-                # Date-sanity check: reject stale/future dates far from article publish date.
-                if article.published_at:
-                    anchor = article.published_at
-                    if anchor.tzinfo is not None:
-                        anchor = anchor.replace(tzinfo=None)
+                # Date-sanity check: always anchor to published_at when known, or scan-time
+                # (today) when unknown. Never skip — that's what lets 2020/2023 LLM
+                # hallucinations through on dateless Tavily/Brave articles.
+                anchor = article.published_at
+                if anchor is None:
+                    anchor = datetime.now().replace(tzinfo=None)
+                elif anchor.tzinfo is not None:
+                    anchor = anchor.replace(tzinfo=None)
 
-                    from config.settings import settings
-                    if settings.V3_DATE_GUARD:
-                        today = datetime.now().replace(tzinfo=None)
-                        earliest_allowed = anchor.replace(year=anchor.year - 1)
-                        if not (earliest_allowed <= event_date <= today):
-                            # Try correcting the year to the publish year first.
-                            try:
-                                corrected = event_date.replace(year=anchor.year)
-                            except ValueError:
-                                corrected = event_date  # leap-day edge case: leave as-is
-                            if earliest_allowed <= corrected <= today:
-                                logger.debug(
-                                    f"Date guard: corrected year "
-                                    f"{event_date.date()} → {corrected.date()} "
-                                    f"(anchor={anchor.date()})"
-                                )
-                                event_date = corrected
-                            else:
-                                dropped_bad_date += 1
-                                logger.debug(
-                                    f"Date guard: dropped fact outside "
-                                    f"[{earliest_allowed.date()}, {today.date()}]: "
-                                    f"{event_date.date()} — "
-                                    f"{item.get('alpha_text', '')[:60]}"
-                                )
-                                continue
-                    else:
-                        delta = abs((event_date - anchor).days)
-                        if delta > self._MAX_DATE_DELTA_DAYS:
+                from config.settings import settings
+                if settings.V3_DATE_GUARD:
+                    today = datetime.now().replace(tzinfo=None)
+                    earliest_allowed = anchor.replace(year=anchor.year - 1)
+                    if not (earliest_allowed <= event_date <= today):
+                        # Try correcting the year to the anchor year first.
+                        try:
+                            corrected = event_date.replace(year=anchor.year)
+                        except ValueError:
+                            corrected = event_date  # leap-day edge case
+                        if earliest_allowed <= corrected <= today:
+                            logger.debug(
+                                f"Date guard: corrected year "
+                                f"{event_date.date()} → {corrected.date()} "
+                                f"(anchor={anchor.date()})"
+                            )
+                            event_date = corrected
+                        else:
                             dropped_bad_date += 1
                             logger.debug(
-                                f"Dropped fact with out-of-range event_date "
-                                f"({event_date.date()} vs article {anchor.date()}, delta={delta}d): "
+                                f"Date guard: dropped fact outside "
+                                f"[{earliest_allowed.date()}, {today.date()}]: "
+                                f"{event_date.date()} — "
                                 f"{item.get('alpha_text', '')[:60]}"
                             )
                             continue
+                else:
+                    delta = abs((event_date - anchor).days)
+                    if delta > self._MAX_DATE_DELTA_DAYS:
+                        dropped_bad_date += 1
+                        logger.debug(
+                            f"Dropped fact with out-of-range event_date "
+                            f"({event_date.date()} vs article {anchor.date()}, delta={delta}d): "
+                            f"{item.get('alpha_text', '')[:60]}"
+                        )
+                        continue
 
                 _VALID_CLASSES = {
                     "state_change", "escalation", "development",

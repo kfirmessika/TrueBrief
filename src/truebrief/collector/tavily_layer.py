@@ -8,6 +8,8 @@ Provides high coverage and clean extracted text.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import List
 
 from tavily import TavilyClient
@@ -65,16 +67,21 @@ class TavilyLayer(SourceLayer):
                 if not url or not title:
                     continue
 
-                # 'published_date' might be in results, Tavily sometimes provides it
-                # but it's not guaranteed in the same format.
-                
+                pub_date: datetime | None = None
+                raw_pub = result.get("published_date")
+                if raw_pub:
+                    try:
+                        pub_date = parsedate_to_datetime(raw_pub).replace(tzinfo=None)
+                    except Exception:
+                        pass
+
                 articles.append(RawArticle(
                     url=url,
                     title=title,
                     source_name=self._extract_domain(url),
                     source_type=ArticleSource.TAVILY,
-                    published_at=None, # Tavily doesn't always provide reliable parsed dates
-                    text=content
+                    published_at=pub_date,
+                    text=content,
                 ))
             
             return articles

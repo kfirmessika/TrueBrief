@@ -60,12 +60,18 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 
 **Ordered build:**
 
-- **P0 — Unblock embeddings (prereq for ALL quality).** Verify/fix prod Gemini batch-embed (S2: dev key
-  returns 1 vector for N inputs → MMR + relevance gate + entity-dedup all degrade). *Nothing below works
-  on broken embeddings — this comes first.* (C: 3)
+- **P0 — Unblock embeddings ✅ DONE.** Fixed embed_batch (SDK bug: list→1 vector). (commit de33eca)
+- **P1 — Keystone: published_at for Tavily/Brave ✅ DONE.** Tavily returns `published_date` (RFC 2822)
+  — we weren't reading it. Now parsed. Brave: `page_age` parsed when present. Harvester date guard now
+  always anchors to `today` when pub date still unknown — kills 2020/2023 LLM hallucinations outright.
+  (commit pending)
 - **Phase 1 — Pipeline to content-parity (the data wins the benchmark):** `1a.5` two-clock dev-lag gate ·
   `IC1` tally collapse · `IC2` event-class ranking · `IC3` dedup-fires · `IC4` contradiction flag ·
   `IC8` golden-case harness. *(specs: §2 1a.5, §2.5)*
+  - **🆕 P2 — Freshness/adaptive-K (new root-cause finding 2026-06-19):** MMR has no recency term →
+    old well-covered stories win the 5 slots on hot days. MAX_ARTICLES=5 is static → on a 45-article
+    day we read 11%. Fix: add recency decay term to MMR score + scale K with candidate volume.
+    (C: 8 | SONNET) — *prereq for reopen-after-close correctness + 1a.5.*
   - **✅ CHECKPOINT (de-risks the whole bet): re-run the benchmark now. Our _content_ must already beat
     GPT — _before_ any UI work.** Pass → UI is pure upside on proven facts. Fail → fix the pipeline, don't move on.
 - **Phase 2 — New UI (experience on proven-good content):** `4-A` delta engine · `IC7` state-of-play

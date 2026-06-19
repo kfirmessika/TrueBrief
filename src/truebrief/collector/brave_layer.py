@@ -11,10 +11,12 @@ so the pipeline's keyword pre-filter is skipped for this source.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import List
 from urllib.parse import urlparse
 
 import httpx
+from dateutil.parser import parse as parse_date
 
 from config.settings import settings
 from truebrief.collector.base import SourceLayer
@@ -83,13 +85,21 @@ class BraveLayer(SourceLayer):
             if not url or not title:
                 continue
 
+            pub_date: datetime | None = None
+            raw_age = result.get("page_age")  # ISO date string when present
+            if raw_age:
+                try:
+                    pub_date = parse_date(raw_age).replace(tzinfo=None)
+                except Exception:
+                    pass
+
             articles.append(
                 RawArticle(
                     url=url,
                     title=title,
                     source_name=self._domain(url),
                     source_type=ArticleSource.BRAVE,
-                    published_at=None,
+                    published_at=pub_date,
                     text=description or None,
                 )
             )
