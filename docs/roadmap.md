@@ -29,16 +29,58 @@ briefs (🆕 NEW / 📈 UPDATES envelope), source chips, live scan progress, set
 the per-user **delta engine**, the **smart history page**, the **calm v3-briefing surface**, and the
 **in-app daily digest**.
 
-**The plan in one line:** soft-launch the current app to free users → watch the pipeline via the
-admin trace → then build the **delta engine**, which unlocks the history page, the calm brief
-surface, and the daily digest — in that dependency order.
+**The plan in one line (revised 2026-06-19 — see §1 Launch Decision):** the current brief lost a
+head-to-head vs GPT, so we **build full V3 — new pipeline (IC1–IC8 + 1a.5) + new UI (delta engine →
+calm surface → history → digest) — _before_ launch**, with an objective gate (beat GPT on
+signal-vs-noise) and a Phase-1 checkpoint that proves the *data* before we build the *UI*. Heavy/uncertain
+infra (adaptive AYR, budget controller, B2B, billing) stays post-launch.
 
 ---
 
 ## 1. 🚀 LAUNCH PATH — the ordered critical path to go live
 
-> Two tiers: **Soft** (free, no money, days) then **Public/Paid** (needs domain + billing).
-> Everything in §4+ is *after* this. Don't block go-live on it.
+### 🔒 LAUNCH DECISION (2026-06-19): Full V3 — new pipeline + new UI — BEFORE launch
+
+**Why (founder call).** We're a *specialized single-tool* news subscription competing with *multi-tool*
+general AIs. Our only reason to exist is **more signal / less noise than a general AI (GPT) on the same
+topic.** The 2026-06-19 benchmark showed we currently *lose* that comparison — so launching now = zero
+advantage. We win the benchmark first, then launch.
+
+**🎯 Objective launch gate (the finite line — launch the instant it passes, then freeze scope):**
+re-run the benchmark on **Iran-War + 2 more topics** → our output **beats GPT on signal-vs-noise**:
+IC8 golden-case assertions pass **and** a blind side-by-side reads as *ours leads with the lede / less
+repetitive / synthesized*. Not a feeling — a diff. **Nothing new is added to the pre-launch list after this.**
+
+**IN (pre-launch):** new pipeline (IC1–IC8 + 1a.5) + new UI (delta engine, calm surface, history,
+digest — *minimum-viable* versions).
+**OUT (post-launch — "stuff to figure out / too complex"):** adaptive & cost-aware AYR + budget
+controller + cost-model Option B (§4-E); B2B API (§5 Phase 4); full contradiction detector, feedback
+loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase 5/6); **paid billing**
+(soft launch is free, so §6 blockers + L2 stay post-launch).
+
+**Ordered build:**
+
+- **P0 — Unblock embeddings (prereq for ALL quality).** Verify/fix prod Gemini batch-embed (S2: dev key
+  returns 1 vector for N inputs → MMR + relevance gate + entity-dedup all degrade). *Nothing below works
+  on broken embeddings — this comes first.* (C: 3)
+- **Phase 1 — Pipeline to content-parity (the data wins the benchmark):** `1a.5` two-clock dev-lag gate ·
+  `IC1` tally collapse · `IC2` event-class ranking · `IC3` dedup-fires · `IC4` contradiction flag ·
+  `IC8` golden-case harness. *(specs: §2 1a.5, §2.5)*
+  - **✅ CHECKPOINT (de-risks the whole bet): re-run the benchmark now. Our _content_ must already beat
+    GPT — _before_ any UI work.** Pass → UI is pure upside on proven facts. Fail → fix the pipeline, don't move on.
+- **Phase 2 — New UI (experience on proven-good content):** `4-A` delta engine · `IC7` state-of-play
+  header · `4-C` calm surface + kill live briefer *(IC5/IC6 are **absorbed** — the calm surface is built
+  right by design; no effort wasted fixing the old briefer)* · `4-B` history page · `4-D` daily digest.
+  *(specs: §4-A/B/C/D, §2.5 IC7)*
+- **Then launch:** the L1 mechanics below (deploy → flip flags → smoke) → invite free users.
+
+> **Guardrail against the delay pattern:** the gate is the *benchmark diff*, the scope is *frozen* at the
+> IN-list, and the Phase-1 checkpoint proves the core before we invest in UI. If we're tempted to add
+> anything not on the IN-list, it goes to post-launch — no exceptions.
+
+---
+
+> Two tiers below: **Soft** (free, no money) then **Public/Paid** (needs domain + billing, now post-launch).
 
 ### L0 — Make the live pipeline debuggable ✅ DONE (de-risks everything after)
 - [x] **A.7 Pipeline Observability / Admin Trace Panel** — per-run trace of the whole pipeline
@@ -124,7 +166,10 @@ surface, and the daily digest — in that dependency order.
       vs 3,468) → flag the pair, don't store deadpan (a contradiction is usually the story). *Accept:* the
       Hormuz pair renders as one flagged contradiction. Flag `V3_CONTRADICTION_FLAG`. (C: 12 | SONNET)
 
-### 2.5-B Presentation / synthesis — soft-launch brief now; full form in 4-C
+### 2.5-B Presentation / synthesis
+> **Per the 2026-06-19 Launch Decision (§1):** we now build the **new calm surface (4-C)** rather than
+> launch on the old briefer — so **IC5 + IC6 are absorbed into 4-C** (built right by design, not retro-fitted).
+> **IC7 (state of play)** and **IC8 (golden case)** remain live pre-launch tasks (Phase 1/2).
 - [ ] **IC5. Drop `WHAT'S NEW / FULL CONTEXT` labels + de-dupe source chips** — briefer prompt: weave `context`
       as prose, one chip per outlet (benchmark rendered `deccanherald.comdeccanherald.com`). *Accept:* no rigid
       labels, no doubled chips. (C: 4 | FLASH)
@@ -163,12 +208,12 @@ IC3 is standalone and can run in parallel.
 
 ---
 
-## 4. POST-LAUNCH PRODUCT SURFACES — the history page, calm brief, and daily digest
+## 4. PRODUCT SURFACES — the delta engine, calm brief, history page, daily digest
 
-> **This is the answer to "are we moving to the history page / briefs / daily summary yet?":**
-> the design for all three is **agreed and locked** in the architecture, but none are built — and
-> they share one foundation. Build them in this dependency order, **after the soft launch** validates
-> the pipeline. Maps to architecture build-sequence #8–11.
+> **⬆️ MOVED TO PRE-LAUNCH (2026-06-19 — see §1 Launch Decision).** These were "post-launch"; the GPT
+> benchmark flipped that — they're now **Phase 2** of the pre-launch build (after the Phase-1 pipeline
+> checkpoint proves content parity). Build *minimum-viable* versions in the dependency order below.
+> 4-E stays **post-launch** (heavy/uncertain infra). Maps to architecture build-sequence #8–11.
 
 ### 4-A. Delta engine + `user_topic_state` — THE UNLOCK (build-seq #10) [START HERE post-launch]
 - [ ] `user_topic_state` table with two markers: `last_seen_at` (live) + `last_digest_at` (digest).
@@ -204,7 +249,7 @@ IC3 is standalone and can run in parallel.
       high-importance). Email digest already exists — wire it to the same engine. (C: 12 | SONNET)
       — *depends on 4-A; email delivery still needs the domain (§6).*
 
-### 4-E. Adaptive scanning & cost control (build-seq #8, 13)
+### 4-E. Adaptive scanning & cost control (build-seq #8, 13) — ⛔ STAYS POST-LAUNCH (OUT of the pre-launch gate)
 - [ ] Spike-responsive AYR (snap up on surprise, decay gently) + per-(topic×tool) AYR + coalescing
       window. (C: 18 | SONNET)
 - [ ] Budget controller (once telemetry can predict) + soft/hard limits + margin shield. (C: 15 | SONNET)
