@@ -245,7 +245,16 @@ function SourcePill({ chip }: { chip: SourceChip }) {
   const [showTooltip, setShowTooltip] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const domainAlphas = useContext(DomainAlphasCtx);
-  const alphas = domainAlphas.get(chip.domain) ?? [];
+  const allDomainAlphas = domainAlphas.get(chip.domain) ?? [];
+  // When the chip links to a specific article, show only that article's facts.
+  // Fall back to all domain alphas if we can't match the URL.
+  const alphas = (() => {
+    if (chip.url) {
+      const specific = allDomainAlphas.filter(a => a.source_url === chip.url);
+      if (specific.length > 0) return specific;
+    }
+    return allDomainAlphas;
+  })();
   const href = chip.url ?? `https://${chip.domain}`;
 
   const showIt = () => { if (hideTimer.current) clearTimeout(hideTimer.current); setShowTooltip(true); };
@@ -302,9 +311,9 @@ function SourcePill({ chip }: { chip: SourceChip }) {
             <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--color-text-primary)' }}>
               {chip.domain}
             </span>
-            {alphas.length > 0 && (
+            {allDomainAlphas.length > alphas.length && (
               <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
-                {alphas.length} {alphas.length === 1 ? 'article' : 'articles'}
+                {allDomainAlphas.length} facts from this source
               </span>
             )}
           </div>

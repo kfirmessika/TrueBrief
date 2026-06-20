@@ -50,6 +50,11 @@ MMR_LAMBDA = 0.55    # relevance weight (was 0.65 — reduced to make room for r
 MMR_RECENCY = 0.15   # recency weight: today=+0.15, 5-day-old=+~0.02
 # Implicit diversity weight: 1 - MMR_LAMBDA - MMR_RECENCY = 0.30
 
+# Per-domain cap: after this many articles from one domain are selected,
+# add a heavy score penalty so other sources get a chance.
+MMR_DOMAIN_CAP = 2
+MMR_DOMAIN_PENALTY = 0.35
+
 # V3_RELEVANCE_GATE: minimum cosine similarity between an alpha and the topic query.
 # Alphas below this are considered off-topic and dropped before the arbiter.
 _RELEVANCE_THRESHOLD = 0.35
@@ -616,7 +621,7 @@ class PipelineRunner:
             else:
                 recency_scores.append(0.5)  # neutral for dateless articles
 
-        # 4. Run MMR with recency term
+        # 4. Run MMR with recency term + per-domain cap
         _diversity_w = 1.0 - MMR_LAMBDA - MMR_RECENCY  # implicit: 0.30
         selected_indices: List[int] = []
         remaining_indices = list(range(len(articles)))
@@ -627,9 +632,22 @@ class PipelineRunner:
             best_score = float("-inf")
             best_relevance = 0.0
 
+            # Count how many articles per domain are already selected
+            from collections import Counter
+            sel_domain_counts: Counter = Counter(
+                articles[j].source_name for j in selected_indices
+            )
+
             for i in remaining_indices:
                 relevance = self._cosine_similarity(article_embeddings[i], query_embedding)
                 recency = recency_scores[i]
+
+                # Domain diversity penalty: discourage >MMR_DOMAIN_CAP from same source
+                domain_pen = (
+                    MMR_DOMAIN_PENALTY
+                    if sel_domain_counts.get(articles[i].source_name, 0) >= MMR_DOMAIN_CAP
+                    else 0.0
+                )
 
                 if not selected_indices:
                     mmr_score = MMR_LAMBDA * relevance + MMR_RECENCY * recency
@@ -642,6 +660,7 @@ class PipelineRunner:
                         MMR_LAMBDA * relevance
                         + MMR_RECENCY * recency
                         - _diversity_w * max_sim_to_selected
+                        - domain_pen
                     )
 
                 if mmr_score > best_score:
