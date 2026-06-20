@@ -64,14 +64,14 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 - **P1 — Keystone: published_at for Tavily/Brave ✅ DONE.** Tavily returns `published_date` (RFC 2822)
   — we weren't reading it. Now parsed. Brave: `page_age` parsed when present. Harvester date guard now
   always anchors to `today` when pub date still unknown — kills 2020/2023 LLM hallucinations outright.
-  (commit pending)
+  (commit de80714)
 - **Phase 1 — Pipeline to content-parity (the data wins the benchmark):** `1a.5` two-clock dev-lag gate ·
   `IC1` tally collapse · `IC2` event-class ranking · `IC3` dedup-fires · `IC4` contradiction flag ·
   `IC8` golden-case harness. *(specs: §2 1a.5, §2.5)*
-  - **🆕 P2 — Freshness/adaptive-K (new root-cause finding 2026-06-19):** MMR has no recency term →
-    old well-covered stories win the 5 slots on hot days. MAX_ARTICLES=5 is static → on a 45-article
-    day we read 11%. Fix: add recency decay term to MMR score + scale K with candidate volume.
-    (C: 8 | SONNET) — *prereq for reopen-after-close correctness + 1a.5.*
+  - **🆕 P2 — Freshness/adaptive-K ✅ DONE.** (root-cause finding 2026-06-19) MMR had no recency term →
+    old well-covered stories won the 5 slots on hot days. MAX_ARTICLES=5 was static → on a 45-article
+    day we read 11%. Fixed: MMR_RECENCY=0.15 weight with 36h half-life decay; MIN_K=5/MAX_K=20 adaptive.
+    Also: IC3 same-event fast-path + telemetry zero-count fix. (commit 5d25c0e)
   - **✅ CHECKPOINT (de-risks the whole bet): re-run the benchmark now. Our _content_ must already beat
     GPT — _before_ any UI work.** Pass → UI is pure upside on proven facts. Fail → fix the pipeline, don't move on.
 - **Phase 2 — New UI (experience on proven-good content):** `4-A` delta engine · `IC7` state-of-play
@@ -165,9 +165,9 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 - [x] **P0. embed_batch fix** — Gemini SDK treated contents=list as one doc → 1 vector for N
       inputs. Fixed: ThreadPoolExecutor(8) dispatches one call per text → 7x faster, all N vectors
       returned. All quality gates (MMR, relevance gate, entity-dedup) now work correctly. (commit de33eca)
-- [ ] **IC3. Entity-dedup must fire on same-event facts** (1a.3 validation) — "4 Israeli soldiers killed" ×2
-      (same date + entities + number) must merge to **one fact, `verified_count=2`**. If 1a.3 misses it, fix the
-      entity/number-overlap threshold. *Accept:* benchmark shows one merged fact, two source chips. (C: 8 | SONNET)
+- [x] **IC3. Entity-dedup must fire on same-event facts** (1a.3 validation) — "4 Israeli soldiers killed" ×2
+      (same date + entities + number) must merge to **one fact, `verified_count=2`**. Triple gate: entity_overlap≥0.80
+      + temporal_overlap≥0.97 + raw_sim≥0.50 → DUPLICATE without LLM call. (commit 5d25c0e)
 - [ ] **IC4. Contradiction flag at merge** (arch §5/§8B — cheap precursor to Phase-5) — two facts on the same
       `(metric/event, entities, overlapping dates)` with **different values** (Hormuz open vs closed; toll 3,912
       vs 3,468) → flag the pair, don't store deadpan (a contradiction is usually the story). *Accept:* the
