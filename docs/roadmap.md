@@ -72,8 +72,15 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
     old well-covered stories won the 5 slots on hot days. MAX_ARTICLES=5 was static → on a 45-article
     day we read 11%. Fixed: MMR_RECENCY=0.15 weight with 36h half-life decay; MIN_K=5/MAX_K=20 adaptive.
     Also: IC3 same-event fast-path + telemetry zero-count fix. (commit 5d25c0e)
-  - **✅ CHECKPOINT (de-risks the whole bet): re-run the benchmark now. Our _content_ must already beat
+  - **🔶 CHECKPOINT (de-risks the whole bet): re-run the benchmark. Our _content_ must already beat
     GPT — _before_ any UI work.** Pass → UI is pure upside on proven facts. Fail → fix the pipeline, don't move on.
+    - **2026-06-20 re-run (Trump topic) — DATA LAYER PASSES, SYNTHESIS LAYER FAILS.** Keystone confirmed:
+      brief is now temporally coherent (no 2020/2023 contamination, no old/new mix). But still loses to GPT on
+      **synthesis/presentation, not data**: (1) buries the lede — leads with CFPB, not the Iran deal GPT names
+      as #1; (2) no "biggest story" synthesis line; (3) `WHAT'S NEW/FULL CONTEXT` labels + doubled chips
+      (`huffpost.comhuffpost.com`) still render; (4) Middle East fragmented into 3 overlapping sections;
+      (5) missed freshest items (Air Force One/Qatar 747, Pulte→DNI, FISA 702, AI EO). → Next: **IC7** (state-of-play,
+      closes 1+2+4) then **IC5/IC6** (cheap presentation) then **IC4/IC8**. Checkpoint re-runs after IC7.
 - **Phase 2 — New UI (experience on proven-good content):** `4-A` delta engine · `IC7` state-of-play
   header · `4-C` calm surface + kill live briefer *(IC5/IC6 are **absorbed** — the calm surface is built
   right by design; no effort wasted fixing the old briefer)* · `4-B` history page · `4-D` daily digest.
@@ -192,8 +199,12 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       collapse, duplicated soldiers fact, Hormuz contradiction, missing state-of-play. *Accept:* A.2 asserts all
       fixed. (C: 5 | SONNET)
 
-**Order:** IC1 → IC2 → IC3 (data), then IC5 + IC6 (cheap presentation, soft-launch ready), then IC4 + IC7 + IC8.
-IC3 is standalone and can run in parallel.
+**Order (revised after 2026-06-20 re-run):** IC1 ✅ → IC2 ✅ → IC3 ✅ (data layer DONE — keystone confirmed).
+Now: **IC7** (state-of-play — highest leverage, closes the buried-lede + no-synthesis + fragmentation gaps that
+lost the 2026-06-20 benchmark) → **IC5** (C:4, kill labels + de-dupe chips) → **IC6** (C:6, salience hierarchy,
+needs IC2) → **IC4** (contradiction) → **IC8** (golden case, encodes both benchmarks). Re-run the §1 checkpoint
+after IC7. **How (architecture):** IC7 = `architecture_v3.md` §7.4 (topic-header status block, facts-only,
+regenerated on `state_change`, ~1 batched call); IC6 = §13 hierarchy + §10B.2a event-class weight (IC2 already live).
 
 ---
 
