@@ -28,7 +28,7 @@ from config.settings import (
     settings,
 )
 from truebrief.arbiter.judge import JudgeLLM
-from truebrief.arbiter.temporal import adjusted_similarity, entity_overlap
+from truebrief.arbiter.temporal import adjusted_similarity, entity_overlap, temporal_overlap
 from truebrief.ledger.vector_store import VectorStore
 from truebrief.models.alpha import Alpha, AlphaDecision, DecisionType
 
@@ -225,6 +225,33 @@ class Arbiter:
                 e_factor = 0.80 + 0.20 * entity_overlap(alpha.entities, match.entities)
                 adj *= e_factor
             adjusted.append((match, adj))
+
+        # Step 3b — IC3 same-event fast-path (V3_ENTITY_DEDUP).
+        # "4 soldiers killed" × 2 sources: vector sim may be 0.50–0.74 (below grey-zone)
+        # yet it's clearly the same event. Triple gate: high entity-overlap + same date +
+        # moderate vector sim → DUPLICATE without an LLM call.
+        if settings.V3_ENTITY_DEDUP:
+            for match, raw_score in raw_matches:
+                eo = entity_overlap(alpha.entities, match.entities)
+                to = temporal_overlap(alpha.event_date, match.event_date)
+                if eo >= 0.80 and to >= 0.97 and raw_score >= 0.50:
+                    logger.info(
+                        f"{log_prefix} → IC3-DUPLICATE "
+                        f"(entity_overlap={eo:.2f}, temporal={to:.2f}, sim={raw_score:.2f})"
+                    )
+                    return (
+                        AlphaDecision(
+                            alpha=alpha,
+                            decision=DecisionType.DUPLICATE,
+                            similarity_score=raw_score,
+                            matched_alpha_id=match.id,
+                            reasoning=(
+                                f"IC3 same-event: entity_overlap={eo:.2f}, "
+                                f"temporal={to:.2f}, sim={raw_score:.2f} — same event from different outlet."
+                            ),
+                        ),
+                        adjusted or [(match, raw_score)],
+                    )
 
         adjusted.sort(key=lambda x: x[1], reverse=True)
 

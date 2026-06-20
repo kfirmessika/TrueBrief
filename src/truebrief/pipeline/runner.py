@@ -39,11 +39,16 @@ from truebrief.models.alpha import DecisionType
 
 logger = logging.getLogger(__name__)
 
-# How many articles to process per scan. Tune vs. API limits.
-MAX_ARTICLES = 5
+# Minimum and maximum articles processed per scan (adaptive-K, P2).
+# Actual K = min(max(MIN_K, candidates // 5), MAX_K) — ~20% of candidates.
+MIN_K = 5
+MAX_K = 20
 
-# MMR lambda: 1.0 = pure relevance, 0.0 = pure diversity. 0.65 is balanced.
-MMR_LAMBDA = 0.65
+# MMR weights: relevance + recency together, minus diversity penalty.
+# Must sum such that a single best article scores ~1.0.
+MMR_LAMBDA = 0.55    # relevance weight (was 0.65 — reduced to make room for recency)
+MMR_RECENCY = 0.15   # recency weight: today=+0.15, 5-day-old=+~0.02
+# Implicit diversity weight: 1 - MMR_LAMBDA - MMR_RECENCY = 0.30
 
 # V3_RELEVANCE_GATE: minimum cosine similarity between an alpha and the topic query.
 # Alphas below this are considered off-topic and dropped before the arbiter.
@@ -237,18 +242,19 @@ class PipelineRunner:
                 except Exception as nd_err:
                     logger.warning(f"    Near-dup collapse failed (non-fatal): {nd_err}")
 
-            # 3. MMR Selection
-            logger.info(f"[3] Selecting top {MAX_ARTICLES} diverse articles via MMR...")
-            selected = self._mmr_select(query=query, articles=raw_articles, limit=MAX_ARTICLES)
+            # 3. MMR Selection (adaptive-K: ~20% of candidates, MIN_K–MAX_K)
+            _k = min(max(MIN_K, len(raw_articles) // 5), MAX_K)
+            logger.info(f"[3] Selecting top {_k} diverse articles via MMR (adaptive-K from {len(raw_articles)} candidates)...")
+            selected = self._mmr_select(query=query, articles=raw_articles, limit=_k)
             logger.info(f"    MMR selected {len(selected)} articles.")
             self._trace(
                 "mmr",
-                f"MMR selected {len(selected)} of {len(raw_articles)} candidates (λ={MMR_LAMBDA}).",
-                why=f"Maximal Marginal Relevance balances relevance to the query vs. diversity "
-                    f"(λ={MMR_LAMBDA}: {int(MMR_LAMBDA*100)}% relevance / {int((1-MMR_LAMBDA)*100)}% diversity). "
-                    f"Per-pick scores in 'selected'.",
+                f"MMR selected {len(selected)} of {len(raw_articles)} candidates (λ={MMR_LAMBDA}, recency={MMR_RECENCY}, K={_k}).",
+                why=f"Adaptive-K (~20% of candidates, {MIN_K}–{MAX_K}). "
+                    f"MMR: {int(MMR_LAMBDA*100)}% relevance + {int(MMR_RECENCY*100)}% recency − "
+                    f"{int((1-MMR_LAMBDA-MMR_RECENCY)*100)}% diversity. Per-pick scores in 'selected'.",
                 candidates=len(raw_articles),
-                limit=MAX_ARTICLES,
+                limit=_k,
                 selected=getattr(self, "_last_mmr_scores", None) or [
                     {"title": a.title, "url": a.url, "source": getattr(a.source_type, "value", str(a.source_type))}
                     for a in selected
@@ -442,6 +448,15 @@ class PipelineRunner:
                 duplicates=_dupes,
                 brief_preview=(brief_text or "")[:2000],
             )
+            # Expose counts so pipeline_task.py can pass them to finish_run.
+            self.last_run_stats = {
+                "articles_collected":  len(raw_articles),
+                "articles_selected":   len(selected),
+                "alphas_extracted":    len(all_alphas),
+                "decisions_new":       sum(1 for d in decisions if d.decision == DecisionType.NEW),
+                "decisions_update":    sum(1 for d in decisions if d.decision == DecisionType.UPDATE),
+                "decisions_duplicate": sum(1 for d in decisions if d.decision == DecisionType.DUPLICATE),
+            }
             return brief_text
         except Exception as e:
             tb = traceback.format_exc()
@@ -588,7 +603,21 @@ class PipelineRunner:
             logger.warning(f"MMR: Failed to batch-embed article titles ({e}). Falling back to first {limit} articles.")
             return articles[:limit]
 
-        # 3. Run MMR
+        # 3. Pre-compute recency scores (P2): exponential decay, 36h half-life.
+        import math
+        from datetime import datetime as _dt
+        _now = _dt.now()
+        recency_scores: List[float] = []
+        for a in articles:
+            if a.published_at:
+                pub = a.published_at.replace(tzinfo=None) if a.published_at.tzinfo else a.published_at
+                hours_ago = max(0.0, (_now - pub).total_seconds() / 3600)
+                recency_scores.append(math.exp(-hours_ago / 36))
+            else:
+                recency_scores.append(0.5)  # neutral for dateless articles
+
+        # 4. Run MMR with recency term
+        _diversity_w = 1.0 - MMR_LAMBDA - MMR_RECENCY  # implicit: 0.30
         selected_indices: List[int] = []
         remaining_indices = list(range(len(articles)))
 
@@ -600,16 +629,20 @@ class PipelineRunner:
 
             for i in remaining_indices:
                 relevance = self._cosine_similarity(article_embeddings[i], query_embedding)
+                recency = recency_scores[i]
 
                 if not selected_indices:
-                    # First pick: pure relevance (no selected set yet)
-                    mmr_score = relevance
+                    mmr_score = MMR_LAMBDA * relevance + MMR_RECENCY * recency
                 else:
                     max_sim_to_selected = max(
                         self._cosine_similarity(article_embeddings[i], article_embeddings[j])
                         for j in selected_indices
                     )
-                    mmr_score = MMR_LAMBDA * relevance - (1 - MMR_LAMBDA) * max_sim_to_selected
+                    mmr_score = (
+                        MMR_LAMBDA * relevance
+                        + MMR_RECENCY * recency
+                        - _diversity_w * max_sim_to_selected
+                    )
 
                 if mmr_score > best_score:
                     best_score = mmr_score

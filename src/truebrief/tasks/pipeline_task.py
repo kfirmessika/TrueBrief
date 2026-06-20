@@ -172,6 +172,7 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
             tel, run_id, started_at,
             exit_status=exit_status,
             brief_length=brief_length,
+            **getattr(runner, "last_run_stats", {}),
         )
 
         # Recalibrate poll interval based on observed Alpha Yield Rate (fire-and-forget)
@@ -234,6 +235,7 @@ def _finish_telemetry(
     exit_status: str = "success",
     brief_length: int = 0,
     error_message: str | None = None,
+    **stats,
 ) -> None:
     """Helper: finalize the pipeline_run telemetry row. Never raises."""
     if tel is None or run_id is None:
@@ -246,6 +248,7 @@ def _finish_telemetry(
             brief_length=brief_length,
             exit_status=exit_status,
             error_message=error_message,
+            **stats,
         )
     except Exception as exc:
         logger.debug("Telemetry finish_run failed (non-fatal): %s", exc)
