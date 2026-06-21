@@ -90,6 +90,16 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       needs a paid extraction service); **(c) lede salience** — don't always lead with the single most urgent
       development. *Note: judge is non-deterministic + Gemini hit 503s — ±1–2 pts is noise.* **Next tuning targets:
       (a) precision leak, (c) lede salience — both need deliberate multi-run measurement (quota-bound, do later).**
+    - **2026-06-21 (migrations 014/015 applied; 5 algorithmic fixes) — COMPETITIVE, WINS SYNTHESIS.** Across 4
+      benchmark runs: **30–31 vs 31–33** (from the original 18-vs-26 rout). **We win synthesis every run** (judge:
+      *"Brief A offers a superior synthesis of the current state of play"*) and tie/win noise; we trail lede &
+      completeness by ~1–2. Live-data fixes this round: **IC2 significance×recency** (lede salience — a8f6cdb),
+      **date-guard sentinel** (epoch 1970→today, not fake 2026-01-01 — 7983047), **IC4 closure/sealed antonyms**
+      (7983047), **adaptive-K //5→//3** (completeness 18%→33% — 0b5d3c5), **snippet ≥120-char guard** (kills the
+      fabricated-fact risk — dc81f25). Verified live: IC7 state-of-play surfaces contradictions ("Strait of Hormuz
+      [contested] — Iran closed it; US claims open") even when IC4's pairwise flag misses. **Remaining gap is
+      structural: completeness vs a full-web-index competitor + NYT/WSJ paywall 403s — not closable by code alone
+      (needs paid extraction / multi-query-per-scan). Our durable edge = synthesis + provenance + state-of-play.**
 - **Phase 2 — New UI (experience on proven-good content):** `4-A` delta engine · `IC7` state-of-play
   header · `4-C` calm surface + kill live briefer *(IC5/IC6 are **absorbed** — the calm surface is built
   right by design; no effort wasted fixing the old briefer)* · `4-B` history page · `4-D` daily digest.
