@@ -91,15 +91,39 @@ Respond ONLY with valid JSON matching this exact schema (no markdown fences):
 # ── runners ────────────────────────────────────────────────────────────────────
 
 def run_truebrief(topic: str) -> tuple[str, str | None]:
-    """Run the full TrueBrief pipeline. Returns (brief_text, error_or_None)."""
+    """Run the full TrueBrief pipeline against a throwaway real topic.
+
+    A real topics row is required because known_facts.topic_id has a FK to it —
+    a random UUID makes every fact insert fail and never exercises storage/dedup.
+    The temp topic (and its facts) are deleted in finally so the DB stays clean.
+    """
+    db = None
+    temp_topic_id = None
     try:
+        from truebrief.ledger.database import get_supabase
         from truebrief.pipeline.runner import PipelineRunner
+
+        db = get_supabase()
+        marker = f"[bench] {topic} {uuid.uuid4().hex[:8]}"
+        res = db.table("topics").insert({"raw_query": marker}).execute()
+        temp_topic_id = res.data[0]["id"]
+
         runner = PipelineRunner()
-        # Fresh UUID = clean ledger, no prior dedup state — good for a clean-room test.
-        brief = runner.run(topic, topic_id=str(uuid.uuid4()))
+        brief = runner.run(topic, topic_id=temp_topic_id)
         return (brief or "(pipeline returned empty brief)"), None
     except Exception as exc:
         return "", f"Pipeline error: {exc}"
+    finally:
+        if db is not None and temp_topic_id is not None:
+            for table, col in (
+                ("known_facts", "topic_id"),
+                ("source_quality_log", "topic_id"),
+                ("topics", "id"),
+            ):
+                try:
+                    db.table(table).delete().eq(col, temp_topic_id).execute()
+                except Exception:
+                    pass
 
 
 def run_gemini_search(topic: str) -> tuple[str, list[dict], str | None]:

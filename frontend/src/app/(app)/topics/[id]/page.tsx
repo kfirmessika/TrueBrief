@@ -82,7 +82,7 @@ function parseSourceLine(line: string): SourceChip[] {
   const after = line.replace(/^[→↳✓\s]*[Ss]ources?:\s*/i, '');
   // Split on ", [" boundary to handle "[Name](url), [Name](url)" format
   const parts = after.split(/,\s*(?=\[|\S)/).map(s => s.trim()).filter(Boolean);
-  return parts.map(part => {
+  const chips = parts.map(part => {
     // "[Source Name](https://...)" format
     const mdLink = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
     if (mdLink) {
@@ -97,6 +97,14 @@ function parseSourceLine(line: string): SourceChip[] {
       domain,
       label: domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1),
     };
+  });
+  // De-dupe by domain so a bullet citing two articles from the same outlet
+  // renders ONE chip (kills the "cnn.comcnn.com" doubling). Keep the first URL.
+  const seen = new Set<string>();
+  return chips.filter(c => {
+    if (seen.has(c.domain)) return false;
+    seen.add(c.domain);
+    return true;
   });
 }
 

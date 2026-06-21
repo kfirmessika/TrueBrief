@@ -184,12 +184,12 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 > **Per the 2026-06-19 Launch Decision (§1):** we now build the **new calm surface (4-C)** rather than
 > launch on the old briefer — so **IC5 + IC6 are absorbed into 4-C** (built right by design, not retro-fitted).
 > **IC7 (state of play)** and **IC8 (golden case)** remain live pre-launch tasks (Phase 1/2).
-- [ ] **IC5. Drop `WHAT'S NEW / FULL CONTEXT` labels + de-dupe source chips** — briefer prompt: weave `context`
-      as prose, one chip per outlet (benchmark rendered `deccanherald.comdeccanherald.com`). *Accept:* no rigid
-      labels, no doubled chips. (C: 4 | FLASH)
-- [ ] **IC6. Importance hierarchy in the brief** — top `state_change`/`escalation` prominent; `tally`/`incremental`
-      collapse or below-fold. *Accept:* the peace deal is not rendered at the same weight as a tank claim.
-      (C: 6 | FLASH) — *needs IC2.*
+- [x] **IC5. Drop `WHAT'S NEW / FULL CONTEXT` labels + de-dupe source chips** — briefer prompt rewritten to
+      weave `context` as prose (no rigid labels) + "one chip per OUTLET" rule; frontend `parseSourceLine`
+      now de-dupes chips by domain (kills `cnn.comcnn.com`). 6 unit tests in test_briefer.py. (commit pending)
+- [x] **IC6. Importance hierarchy in the brief** — briefer now receives `significance` (event_class) +
+      `corroborating_sources` per fact, preserves IC2 sort, leads with a **📌 Bottom line** synthesis line,
+      and collapses running tallies into one bullet. *needs IC2 (done).* (commit pending)
 - [ ] **IC7. "State of play" topic-header block** (arch §7) — grounded status line + 3–6 item ✅/⚠️ checklist of
       open threads (`agreed/contested/postponed/escalating`), generated **only from our facts + sources**,
       regenerated only on a `state_change` (batched, ~1 call), **no prediction**. *Accept:* topic header shows the
@@ -199,9 +199,14 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       collapse, duplicated soldiers fact, Hormuz contradiction, missing state-of-play. *Accept:* A.2 asserts all
       fixed. (C: 5 | SONNET)
 
-**Order (revised after 2026-06-20 re-run):** IC1 ✅ → IC2 ✅ → IC3 ✅ (data layer DONE — keystone confirmed).
-Now: **IC7** (state-of-play — highest leverage, closes the buried-lede + no-synthesis + fragmentation gaps that
-lost the 2026-06-20 benchmark) → **IC5** (C:4, kill labels + de-dupe chips) → **IC6** (C:6, salience hierarchy,
+**Order (revised after 2026-06-21 re-run):** IC1 ✅ → IC2 ✅ → IC3 ✅ → IC5 ✅ → IC6 ✅. **2026-06-21
+benchmark (Iran War): all four axes jumped to 7/10** (from 3–5) — bottom-line lede + prose weaving landed.
+Still lose **28 vs 37** but the gap is now **completeness** (reference had the signed-agreement framing + 6
+context facts we missed), not presentation. Also our lede picked Hormuz-closure over the signed deal → IC7
+(state-of-play) should fix lede-salience. Next: **IC7** (highest leverage, closes the buried-lede + no-synthesis
+gaps) → **IC4** (contradiction) → **IC8** (golden case). *(Harness bug fixed: benchmark now uses a real temp
+topic so known_facts FK + cross-run dedup actually work.)*
+<!-- superseded order: IC7 → IC5 → IC6 -->
 needs IC2) → **IC4** (contradiction) → **IC8** (golden case, encodes both benchmarks). Re-run the §1 checkpoint
 after IC7. **How (architecture):** IC7 = `architecture_v3.md` §7.4 (topic-header status block, facts-only,
 regenerated on `state_change`, ~1 batched call); IC6 = §13 hierarchy + §10B.2a event-class weight (IC2 already live).
