@@ -25,6 +25,18 @@ def test_hormuz_open_vs_closed_flags():
     assert "open" in reason and "closed" in reason
 
 
+def test_open_vs_closure_noun_phrasing_flags():
+    # Real benchmark wording: "remains open" vs "announced the closure".
+    reason = detect_contradiction(
+        "The U.S. military stated the Strait of Hormuz remains open.",
+        ["US", "Strait of Hormuz"], JUN17, "state_change",
+        "Iran's IRGC announced the closure of the Strait of Hormuz.",
+        ["Iran", "Strait of Hormuz"], JUN17, "state_change",
+    )
+    assert reason is not None
+    assert "closure" in reason
+
+
 def test_same_time_value_conflict_flags():
     reason = detect_contradiction(
         "The death toll reached 3,912 according to officials.", ["Iran"], JUN17, "development",

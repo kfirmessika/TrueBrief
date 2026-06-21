@@ -111,7 +111,16 @@ class Harvester:
                 if settings.V3_DATE_GUARD:
                     today = datetime.now().replace(tzinfo=None)
                     earliest_allowed = anchor.replace(year=anchor.year - 1)
-                    if not (earliest_allowed <= event_date <= today):
+                    if event_date.year < 2000:
+                        # Sentinel / epoch date (e.g. 1970-01-01 from a null LLM date):
+                        # year-correcting would fabricate a fake "2026-01-01". Anchor it to
+                        # the article date instead (best estimate for an undated breaking fact).
+                        logger.debug(
+                            f"Date guard: sentinel date {event_date.date()} → "
+                            f"anchor {anchor.date()} ({item.get('alpha_text','')[:50]})"
+                        )
+                        event_date = anchor
+                    elif not (earliest_allowed <= event_date <= today):
                         # Try correcting the year to the anchor year first.
                         try:
                             corrected = event_date.replace(year=anchor.year)

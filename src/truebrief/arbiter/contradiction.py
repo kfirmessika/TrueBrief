@@ -31,7 +31,11 @@ NUMERIC_TEMPORAL_OVERLAP = 0.9      # numeric conflicts: stricter (same day) to 
 ANTONYM_PAIRS = [
     ("open", "closed"),
     ("open", "shut"),
+    ("open", "closure"),
+    ("open", "closing"),
+    ("open", "sealed"),
     ("reopened", "closed"),
+    ("reopened", "closure"),
     ("agreed", "rejected"),
     ("signed", "rejected"),
     ("approved", "rejected"),
