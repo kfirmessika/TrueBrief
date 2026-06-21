@@ -81,6 +81,15 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       (`huffpost.comhuffpost.com`) still render; (4) Middle East fragmented into 3 overlapping sections;
       (5) missed freshest items (Air Force One/Qatar 747, Pulte→DNI, FISA 702, AI EO). → Next: **IC7** (state-of-play,
       closes 1+2+4) then **IC5/IC6** (cheap presentation) then **IC4/IC8**. Checkpoint re-runs after IC7.
+    - **2026-06-21 re-run (Iran War, ALL ICs + state-of-play folded in) — NOW COMPETITIVE WITH GEMINI.**
+      Automated `quality_benchmark.py` (LLM judge, 4 axes): **TIED ~30–31 vs 31** across two runs (up from
+      18-vs-26). **We WIN synthesis (8 vs 7)** — IC7 lands — and noise (≈8 vs 7). Remaining LOSSES are narrow:
+      **(a) precision leak** — an off-topic Israel-Hamas humanitarian stat leaked into an Iran brief (relevance-gate/
+      verifier miss — a *wrong* fact is worse than a missing one); **(b) NYT/paywall 403** — completeness loss on
+      hard paywalls (snippet fallback fixed RSS sources but Google-News→NYT URLs still 403, link-only summaries —
+      needs a paid extraction service); **(c) lede salience** — don't always lead with the single most urgent
+      development. *Note: judge is non-deterministic + Gemini hit 503s — ±1–2 pts is noise.* **Next tuning targets:
+      (a) precision leak, (c) lede salience — both need deliberate multi-run measurement (quota-bound, do later).**
 - **Phase 2 — New UI (experience on proven-good content):** `4-A` delta engine · `IC7` state-of-play
   header · `4-C` calm surface + kill live briefer *(IC5/IC6 are **absorbed** — the calm surface is built
   right by design; no effort wasted fixing the old briefer)* · `4-B` history page · `4-D` daily digest.
