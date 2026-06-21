@@ -100,13 +100,23 @@ class ArticleExtractor:
             self._url_cache.add(url_hash) # Prevent retrying broken links
             return self._with_snippet_fallback(article)
 
+    # A snippet shorter than this is a bare headline/link, not a real summary —
+    # feeding it to the harvester invites hallucination, so we'd rather drop the
+    # article. Real RSS summaries (BBC, Guardian, etc.) comfortably clear this.
+    _MIN_SNIPPET_CHARS = 120
+
     def _with_snippet_fallback(self, article: RawArticle) -> RawArticle:
-        """When full-text extraction fails, use the feed snippet so paywalled /
-        bot-walled sources (NYT, WSJ) still yield their headline facts instead of
-        being dropped. Better a 1–2 sentence grounded snippet than nothing."""
-        if not article.text and article.snippet and article.snippet.strip():
-            logger.info(f"Using feed snippet fallback for: {article.url}")
-            article.text = article.snippet.strip()
+        """When full-text extraction fails, fall back to the feed snippet so
+        paywalled / bot-walled sources (NYT, WSJ) still yield headline facts —
+        but ONLY when the snippet is substantial enough to be grounded. A bare
+        link-only snippet (Google News) is dropped rather than risk a fabricated fact."""
+        if not article.text and article.snippet:
+            s = article.snippet.strip()
+            if len(s) >= self._MIN_SNIPPET_CHARS:
+                logger.info(f"Using feed snippet fallback for: {article.url}")
+                article.text = s
+            else:
+                logger.info(f"Snippet too thin ({len(s)} chars) — not harvesting: {article.url}")
         return article
 
 if __name__ == "__main__":

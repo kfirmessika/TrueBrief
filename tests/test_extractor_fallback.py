@@ -23,15 +23,27 @@ def _article(text=None, snippet=None):
     )
 
 
-def test_fallback_uses_snippet_when_no_text():
+_SUBSTANTIAL = (
+    "U.S. and Iranian officials will meet Sunday in Geneva for technical talks on "
+    "implementing the interim deal, mediated by Pakistan and Qatar, officials said."
+)  # ≥120 chars — a real summary
+
+
+def test_fallback_uses_substantial_snippet_when_no_text():
     ex = ArticleExtractor()
-    art = ex._with_snippet_fallback(_article(text=None, snippet="Talks set for Sunday in Geneva, mediated by Pakistan and Qatar."))
-    assert art.text == "Talks set for Sunday in Geneva, mediated by Pakistan and Qatar."
+    art = ex._with_snippet_fallback(_article(text=None, snippet=_SUBSTANTIAL))
+    assert art.text == _SUBSTANTIAL
+
+
+def test_fallback_drops_thin_snippet_to_avoid_hallucination():
+    ex = ArticleExtractor()
+    art = ex._with_snippet_fallback(_article(text=None, snippet="Iran strike on Kuwait airport"))
+    assert art.text is None  # too thin → not harvested
 
 
 def test_fallback_does_not_override_existing_text():
     ex = ArticleExtractor()
-    art = ex._with_snippet_fallback(_article(text="full body", snippet="snippet"))
+    art = ex._with_snippet_fallback(_article(text="full body", snippet=_SUBSTANTIAL))
     assert art.text == "full body"
 
 
