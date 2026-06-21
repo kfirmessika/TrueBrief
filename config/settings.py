@@ -90,6 +90,15 @@ class Settings(BaseSettings):
     # passes its situation line to the briefer as an anchor for the "📌 Bottom line" synthesis.
     # Prevents the briefer from leading with a subordinate fact. Zero extra LLM calls.
     V3_SOP_LEDE: bool = False
+    # IC11 — Domain-based parallel queries: QueryBuilder generates 3-4 topic-specific domains
+    # (e.g. military_operations, diplomacy, humanitarian) each with 2 search queries.
+    # At scan time, one query per domain fires in parallel → diverse retrieval at query stage.
+    # Requires QueryBuilder to have run at least once with the new domain-aware prompt.
+    V3_DOMAIN_QUERIES: bool = False
+    # IC12 — Dynamic domain blocklist: ArticleExtractor tracks per-domain extraction
+    # success/fail rates in `domain_extraction_stats`. Domains with >75% fail rate and
+    # ≥5 attempts are skipped during collection. Requires migration 016.
+    V3_DYNAMIC_BLOCKLIST: bool = False
 
     # --- Embedding provider ---
     # "gemini"  → gemini-embedding-2 (768 dim, 100 req/min free tier)

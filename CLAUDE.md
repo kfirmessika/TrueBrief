@@ -50,7 +50,7 @@ p{N}-s{X}: short description of what was built
 1. **Never modify files not listed in the task spec's "Touches" section** without flagging it first.
 2. **Always run existing tests before writing new code.** If tests fail before you start, stop and report.
 3. **Never use placeholder code.** If you don't know a value, ask. Don't write `TODO` and move on.
-4. **Never read `docs/core/architecture.md` in full** — it's 36KB. Read only the section referenced in the task.
+4. **Never read `docs/core/architecture_v3.md` in full** — it's 36KB. Read only the section referenced in the task.
 5. **When done:** Run `npm run build` (frontend) or `pytest` (backend) and report the result explicitly.
 6. **Circular imports are a death sentence.** If you need to share types between two files, create a third `models.py` / `types.ts`.
 7. **Real tests ≠ MSW mocks.** Integration tests must test against the real backend at least once (smoke test).

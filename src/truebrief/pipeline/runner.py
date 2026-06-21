@@ -19,7 +19,7 @@ from typing import List, Optional
 from config.settings import settings
 from truebrief.llm.client import pipeline_run_id_var
 from truebrief.collector.base import SourceLayer
-from truebrief.collector.query_builder import QueryBuilder, SearchQuery
+from truebrief.collector.query_builder import QueryBuilder, SearchQuery, TopicDomain
 from truebrief.collector.rss_layer import RSSLayer
 from truebrief.collector.tavily_layer import TavilyLayer
 from truebrief.collector.google_news_layer import GoogleNewsLayer
@@ -241,7 +241,20 @@ class PipelineRunner:
 
             # 2. Collect Raw Articles
             logger.info("[2] Collecting Sources")
-            raw_articles = self._collect_all(query)
+            # Dynamic blocklist: skip domains with >75% extraction fail rate (≥5 attempts).
+            # Loaded here once per run; degrades to empty set if migration 016 not applied.
+            _blocked_domains: set[str] = set()
+            if settings.V3_DYNAMIC_BLOCKLIST:
+                try:
+                    from truebrief.ledger.domain_stats import get_blocked_domains
+                    _blocked_domains = get_blocked_domains()
+                except Exception:
+                    pass
+
+            if settings.V3_DOMAIN_QUERIES and query.domains:
+                raw_articles = self._collect_all_domains(query, _blocked_domains)
+            else:
+                raw_articles = self._collect_all(query, _blocked_domains)
             logger.info(f"    Collected {len(raw_articles)} candidate articles total.")
 
             if not raw_articles:
@@ -599,18 +612,29 @@ class PipelineRunner:
     # Collection
     # -------------------------------------------------------------------------
 
-    def _collect_all(self, query: SearchQuery) -> List[RawArticle]:
+    def _collect_all(
+        self,
+        query: SearchQuery,
+        blocked_domains: Optional[set] = None,
+    ) -> List[RawArticle]:
         """
         Run all plugged-in sources and aggregate their results.
         For keyword-based sources like RSS, filters by query keywords to avoid
         off-topic articles from general feeds.
+        blocked_domains: set of domains to skip (from dynamic blocklist).
         """
+        blocked_domains = blocked_domains or set()
         all_articles: List[RawArticle] = []
         seen_urls: set = set()
 
-        # Build keyword set for basic relevance pre-filter (used for RSS/broad sources)
+        # Build keyword set for basic relevance pre-filter (used for RSS/broad sources).
+        # When domain queries are available, include ALL domain query words for richer filtering.
         query_words = (query.topic_name + " " + query.primary_query).lower().split()
-        keywords = [w for w in query_words if len(w) > 3]
+        if query.domains:
+            for d in query.domains:
+                for q in d.queries:
+                    query_words.extend(q.lower().split())
+        keywords = list({w for w in query_words if len(w) > 3})
 
         for source in self.sources:
             try:
@@ -622,6 +646,12 @@ class PipelineRunner:
                     if a.url in seen_urls:
                         continue
                     seen_urls.add(a.url)
+
+                    # Drop articles from domains with high extraction fail rates.
+                    if blocked_domains:
+                        from truebrief.ledger.domain_stats import _to_domain
+                        if _to_domain(a.url) in blocked_domains:
+                            continue
 
                     # For broad sources (RSS, Google News), apply keyword filter.
                     # Targeted engines (Tavily, Brave, Exa) already return on-topic results.
@@ -653,6 +683,131 @@ class PipelineRunner:
                     source=source.name, error=str(e), returned=0, kept=0,
                 )
 
+        return all_articles
+
+    def _collect_all_domains(
+        self,
+        query: SearchQuery,
+        blocked_domains: Optional[set] = None,
+    ) -> List[RawArticle]:
+        """
+        Parallel multi-domain collection (V3_DOMAIN_QUERIES).
+
+        Strategy:
+          - RSS / broad sources: fire ONCE with the topic query (category-based, query-agnostic).
+          - Targeted engines (Tavily, Google News): fire ONE call per domain in parallel,
+            each using that domain's primary query → surfaces articles the other domains wouldn't.
+          - Results from all domains are URL-deduped before returning.
+
+        This mirrors the approach Gemini Search uses: diverse retrieval at query stage
+        rather than post-hoc diversity enforcement only at MMR.
+        """
+        import concurrent.futures as _cf
+        blocked_domains = blocked_domains or set()
+
+        # Targeted engines benefit from per-domain queries; broad sources are category-based.
+        _TARGETED = {"tavily", "brave", "exa", "google_news"}
+        rss_sources = [s for s in self.sources if s.name not in _TARGETED]
+        targeted_sources = [s for s in self.sources if s.name in _TARGETED]
+
+        all_articles: List[RawArticle] = []
+        seen_urls: set = set()
+
+        # Combined keywords from all domain queries (for RSS keyword filter)
+        all_words = (query.topic_name).lower().split()
+        for d in query.domains:
+            for q in d.queries:
+                all_words.extend(q.lower().split())
+        keywords = list({w for w in all_words if len(w) > 3})
+
+        def _add(articles: List[RawArticle]) -> int:
+            added = 0
+            for a in articles:
+                if a.url in seen_urls:
+                    continue
+                seen_urls.add(a.url)
+                if blocked_domains:
+                    from truebrief.ledger.domain_stats import _to_domain
+                    if _to_domain(a.url) in blocked_domains:
+                        continue
+                all_articles.append(a)
+                added += 1
+            return added
+
+        # Step 1: RSS fires once (categories are topic-level, same result per domain)
+        for source in rss_sources:
+            try:
+                arts = source.search(query)
+                kept = []
+                for a in arts:
+                    if a.url in seen_urls:
+                        continue
+                    seen_urls.add(a.url)
+                    if blocked_domains:
+                        from truebrief.ledger.domain_stats import _to_domain
+                        if _to_domain(a.url) in blocked_domains:
+                            continue
+                    if keywords:
+                        text = (a.title + " " + (a.text or "")).lower()
+                        if not any(k in text for k in keywords):
+                            continue
+                    all_articles.append(a)
+                    kept.append(a)
+                logger.info(f"  [{source.name}] RSS: returned {len(arts)}, kept {len(kept)}")
+                self._trace(
+                    "collect",
+                    f"[{source.name}] RSS (shared): returned {len(arts)}, kept {len(kept)}",
+                    source=source.name, returned=len(arts), kept=len(kept),
+                    articles=[{"title": a.title, "url": a.url} for a in kept[:20]],
+                )
+            except Exception as e:
+                logger.error(f"[{source.name}] RSS failed: {e}")
+
+        # Step 2: targeted engines, one call per domain, all in parallel
+        if not targeted_sources or not query.domains:
+            return all_articles
+
+        def _search_domain(source, domain: TopicDomain):
+            domain_q = SearchQuery(
+                topic_name=query.topic_name,
+                primary_query=domain.queries[0],
+                rss_categories=query.rss_categories,
+            )
+            return source.search(domain_q), source.name, domain.name
+
+        tasks = [
+            (source, domain)
+            for domain in query.domains
+            for source in targeted_sources
+        ]
+
+        with _cf.ThreadPoolExecutor(max_workers=min(8, len(tasks))) as pool:
+            futures = {pool.submit(_search_domain, s, d): (s.name, d.name) for s, d in tasks}
+            for future in _cf.as_completed(futures):
+                src_name, dom_name = futures[future]
+                try:
+                    arts, src_name, dom_name = future.result()
+                    added = _add(arts)
+                    logger.info(
+                        f"  [{src_name}] domain={dom_name}: "
+                        f"returned {len(arts)}, {added} new after dedup"
+                    )
+                    self._trace(
+                        "collect",
+                        f"[{src_name}] domain={dom_name}: returned {len(arts)}, {added} new",
+                        source=src_name,
+                        domain=dom_name,
+                        returned=len(arts),
+                        added=added,
+                        articles=[{"title": a.title, "url": a.url} for a in arts[:10]],
+                    )
+                except Exception as e:
+                    logger.error(f"[{src_name}] domain={dom_name} failed: {e}")
+
+        logger.info(
+            f"  [DOMAIN] Total after parallel collection: {len(all_articles)} unique articles "
+            f"({len(query.domains)} domains × {len(targeted_sources)} targeted sources + RSS)"
+        )
         return all_articles
 
     # -------------------------------------------------------------------------
@@ -791,10 +946,10 @@ class PipelineRunner:
     def _load_strategy(self, topic_id: str, fallback_input: str):
         """
         Load the cached SearchQuery metadata from topics.search_strategy.
-        Returns a SearchQuery with topic_name and rss_categories populated.
+        Returns a SearchQuery with topic_name, rss_categories, and domains populated.
         Falls back gracefully if the column is missing or null.
         """
-        from truebrief.collector.query_builder import SearchQuery
+        from truebrief.collector.query_builder import SearchQuery, TopicDomain
         try:
             res = (
                 self.vector_store.db
@@ -807,22 +962,42 @@ class PipelineRunner:
             strat = (res.data or {}).get("search_strategy") or {}
         except Exception:
             strat = {}
+
+        # Reconstruct TopicDomain objects from stored JSON
+        domains: list[TopicDomain] = []
+        for d in (strat.get("domains") or []):
+            name = d.get("name", "")
+            desc = d.get("description", "")
+            queries = d.get("queries", [])
+            if name and queries:
+                domains.append(TopicDomain(name=name, description=desc, queries=queries))
+
         return SearchQuery(
             topic_name=strat.get("topic_name") or fallback_input,
             primary_query=fallback_input,
             rss_categories=strat.get("rss_categories") or ["general"],
+            domains=domains,
         )
 
     def _store_strategy(self, topic_id: str, query) -> None:
         """Persist the QueryBuilder output to topics.search_strategy (fire-and-forget)."""
         try:
+            # Serialize domains to plain JSON-safe dicts
+            domains_data = [
+                {"name": d.name, "description": d.description, "queries": d.queries}
+                for d in (getattr(query, "domains", None) or [])
+            ]
             self.vector_store.db.table("topics").update({
                 "search_strategy": {
                     "topic_name":     query.topic_name,
                     "rss_categories": query.rss_categories,
+                    "domains":        domains_data,
                 }
             }).eq("id", topic_id).execute()
-            logger.info(f"    [STRATEGY] Cached search_strategy for topic {topic_id}")
+            logger.info(
+                f"    [STRATEGY] Cached search_strategy for topic {topic_id} "
+                f"({len(domains_data)} domain(s))"
+            )
         except Exception as exc:
             logger.warning(f"    [STRATEGY] Failed to cache (non-fatal): {exc}")
 

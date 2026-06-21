@@ -67,7 +67,7 @@ class ArticleExtractor:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.5",
             }
-            
+
             with httpx.Client(timeout=15.0, headers=headers, follow_redirects=True) as client:
                 response = client.get(article.url)
                 response.raise_for_status()
@@ -76,7 +76,9 @@ class ArticleExtractor:
             if self._check_bot_detection(html):
                 logger.warning(f"Bot detection triggered for: {article.url}")
                 self._url_cache.add(url_hash) # Cache to avoid retrying blocked sites
-                return self._with_jina_or_snippet(article)
+                result = self._with_jina_or_snippet(article)
+                self._record(article.url, bool(result.text))
+                return result
 
             text = trafilatura.extract(
                 html,
@@ -92,17 +94,28 @@ class ArticleExtractor:
                 self._with_jina_or_snippet(article)
 
             self._url_cache.add(url_hash)
+            self._record(article.url, bool(article.text))
             return article
 
         except Exception as e:
             logger.error(f"Failed to fetch {article.url}: {e}")
             self._url_cache.add(url_hash) # Prevent retrying broken links
-            return self._with_jina_or_snippet(article)
+            result = self._with_jina_or_snippet(article)
+            self._record(article.url, bool(result.text))
+            return result
 
     # A snippet shorter than this is a bare headline/link, not a real summary —
     # feeding it to the harvester invites hallucination, so we'd rather drop the
     # article. Real RSS summaries (BBC, Guardian, etc.) comfortably clear this.
     _MIN_SNIPPET_CHARS = 120
+
+    def _record(self, url: str, success: bool) -> None:
+        """Fire-and-forget: update domain extraction stats. Never raises."""
+        try:
+            from truebrief.ledger.domain_stats import record_extraction
+            record_extraction(url, success)
+        except Exception:
+            pass
 
     def _with_jina_or_snippet(self, article: RawArticle) -> RawArticle:
         """Tier-2/3 fallback chain for failed extraction:

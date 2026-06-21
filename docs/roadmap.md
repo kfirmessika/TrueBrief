@@ -232,7 +232,20 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 - [x] **MAX_K 20 → 25** — completeness lift for hot days (was capped at 20 even with 70+ candidates;
       with `//3` adaptive-K, 70 candidates now reads 23 articles instead of 20). (commit pending)
 
-**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅ IC9 ✅ IC10 ✅.
+- [x] **IC11. Domain-based parallel queries** — `QueryBuilder` now generates 3-4 topic-specific
+      domains (e.g. `military_and_security`, `international_diplomacy`, `humanitarian_and_regional`,
+      `domestic_israel`) each with 2 search queries. `PipelineRunner._collect_all_domains()` fires
+      one query per domain in parallel (Tavily + Google News), pools results URL-deduped with RSS
+      (fires once, category-based). Collection jumps from 22 → 116 candidates on Israel test.
+      UCB1 backward-compat: domains serialised into `alt_queries` + stored in `topics.search_strategy.domains`.
+      Flag `V3_DOMAIN_QUERIES`. New `TopicDomain` dataclass in `query_builder.py`. (2026-06-21)
+- [x] **IC12. Dynamic domain blocklist** — `extractor._record()` fires a fire-and-forget upsert into
+      `domain_extraction_stats` (migration 016) after every extraction attempt. `get_blocked_domains()`
+      returns domains with >75% fail rate + ≥5 attempts; runner skips them at MMR time.
+      Migration 016: table + `record_domain_extraction()` atomic PL/pgSQL function. Flag `V3_DYNAMIC_BLOCKLIST`.
+      Degrades to no-op until migration 016 applied in Supabase. (2026-06-21)
+
+**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅ IC9 ✅ IC10 ✅ IC11 ✅ IC12 ✅.
 The **2026-06-21 benchmark (Iran War)** after IC5/IC6 jumped all four axes to **7/10** (from 3–5); the
 remaining loss (28 vs 37) was **completeness + lede-salience**, which IC7 (state-of-play, picks the lede
 as a grounded situation line) + IC4 (surfaces contradictions instead of burying them) directly target.
