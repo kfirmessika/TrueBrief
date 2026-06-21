@@ -8,6 +8,7 @@ Uses googlenewsdecoder to resolve obfuscated news.google.com URLs into direct ar
 from __future__ import annotations
 
 import logging
+import re
 import urllib.parse
 from typing import List
 import feedparser
@@ -67,13 +68,18 @@ class GoogleNewsLayer(SourceLayer):
                 logger.debug(f"[{self.name}] Decoder error: {e}")
                 real_url = link
 
+            raw_summary = getattr(entry, "summary", "") or ""
+            snippet = re.sub(r"<[^>]+>", " ", raw_summary)
+            snippet = re.sub(r"\s+", " ", snippet).strip() or None
+
             articles.append(
                 RawArticle(
                     title=title,
                     url=real_url,
                     text=None,  # Trafilatura will fetch this later in the pipeline
                     source_name="Google News",
-                    source_type="rss"
+                    source_type="rss",
+                    snippet=snippet,
                 )
             )
 

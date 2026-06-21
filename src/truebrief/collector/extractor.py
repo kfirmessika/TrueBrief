@@ -77,7 +77,7 @@ class ArticleExtractor:
             if self._check_bot_detection(html):
                 logger.warning(f"Bot detection triggered for: {article.url}")
                 self._url_cache.add(url_hash) # Cache to avoid retrying blocked sites
-                return article
+                return self._with_snippet_fallback(article)
 
             text = trafilatura.extract(
                 html,
@@ -90,6 +90,7 @@ class ArticleExtractor:
                 article.text = text
             else:
                 logger.warning(f"Trafilatura failed to extract text from: {article.url}")
+                self._with_snippet_fallback(article)
 
             self._url_cache.add(url_hash)
             return article
@@ -97,7 +98,16 @@ class ArticleExtractor:
         except Exception as e:
             logger.error(f"Failed to fetch {article.url}: {e}")
             self._url_cache.add(url_hash) # Prevent retrying broken links
-            return article
+            return self._with_snippet_fallback(article)
+
+    def _with_snippet_fallback(self, article: RawArticle) -> RawArticle:
+        """When full-text extraction fails, use the feed snippet so paywalled /
+        bot-walled sources (NYT, WSJ) still yield their headline facts instead of
+        being dropped. Better a 1–2 sentence grounded snippet than nothing."""
+        if not article.text and article.snippet and article.snippet.strip():
+            logger.info(f"Using feed snippet fallback for: {article.url}")
+            article.text = article.snippet.strip()
+        return article
 
 if __name__ == "__main__":
     from datetime import datetime

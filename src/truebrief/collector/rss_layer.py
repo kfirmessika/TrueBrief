@@ -8,6 +8,7 @@ Primary real-time data source.
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 
 import feedparser
@@ -98,13 +99,19 @@ class RSSLayer(SourceLayer):
                 if raw_date:
                     pub_date = dateparser.parse(raw_date)
 
+                # Feed summary → snippet fallback (used if full-text fetch fails).
+                raw_summary = entry.get("summary") or entry.get("description") or ""
+                snippet = re.sub(r"<[^>]+>", " ", raw_summary)        # strip HTML tags
+                snippet = re.sub(r"\s+", " ", snippet).strip() or None
+
                 articles.append(RawArticle(
                     url=link,
                     title=title,
                     source_name=name,
                     source_type=ArticleSource.RSS,
                     published_at=pub_date,
-                    text=None  # RSS doesn't give full text, Extractor will handle
+                    text=None,  # RSS doesn't give full text, Extractor will handle
+                    snippet=snippet,
                 ))
             
             return articles

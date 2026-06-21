@@ -110,7 +110,17 @@ def run_truebrief(topic: str) -> tuple[str, str | None]:
 
         runner = PipelineRunner()
         brief = runner.run(topic, topic_id=temp_topic_id)
-        return (brief or "(pipeline returned empty brief)"), None
+        brief = brief or "(pipeline returned empty brief)"
+
+        # Fold the IC7 state-of-play board (generated in-process during the run) into
+        # the output so the judge sees the full TrueBrief experience, not just the feed.
+        sop = getattr(runner, "last_state_of_play", None)
+        if sop:
+            lines = ["STATE OF PLAY", sop.get("situation", "")]
+            for t in sop.get("threads", []):
+                lines.append(f"  - [{t.get('status', '')}] {t.get('label', '')} — {t.get('note', '')}")
+            brief = "\n".join(lines) + "\n\n" + brief
+        return brief, None
     except Exception as exc:
         return "", f"Pipeline error: {exc}"
     finally:

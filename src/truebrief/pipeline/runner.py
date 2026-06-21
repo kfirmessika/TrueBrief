@@ -90,6 +90,7 @@ class PipelineRunner:
         self.arbiter = Arbiter(vector_store=self.vector_store)
         self.briefer = Briefer()
         self.state_of_play = StateOfPlayGenerator(llm_client=self.vector_store.llm)
+        self.last_state_of_play = None  # latest generated block (IC7), exposed for callers
         self.source_logger = SourceQualityLogger()
         self.query_rotator = QueryRotator()
         self.story_manager = StoryManager(
@@ -510,6 +511,7 @@ class PipelineRunner:
 
             block = self.state_of_play.generate(facts, topic_name)
             if block:
+                self.last_state_of_play = block  # exposed for benchmark / callers
                 from truebrief.ledger.state_of_play_store import save_state_of_play
                 save_state_of_play(topic_id, block)
                 logger.info(

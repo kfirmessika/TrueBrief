@@ -34,6 +34,9 @@ class RawArticle:
     # For RSS it's populated by the Extractor after fetching the URL.
     text: Optional[str] = None
     topic_id: Optional[str] = None      # links back to the Topic that triggered collection
+    # Feed-provided summary/description. Used by the Extractor as a fallback when
+    # full-text fetch fails (paywalls / 403 / bot walls) so the article still yields facts.
+    snippet: Optional[str] = None
 
 
 @dataclass
