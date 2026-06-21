@@ -27,3 +27,13 @@ geopolitics:
     name: BBC World
   - url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
     name: NYT World
+  - url: https://www.aljazeera.com/xml/rss/all.xml
+    name: Al Jazeera
+  - url: https://www.haaretz.com/cmlink/1.628752
+    name: Haaretz
+  - url: https://www.timesofisrael.com/feed/
+    name: Times of Israel
+  - url: https://feeds.bbci.co.uk/news/world/middle_east/rss.xml
+    name: BBC Middle East
+  - url: https://www.theguardian.com/world/middleeast/rss
+    name: Guardian Middle East

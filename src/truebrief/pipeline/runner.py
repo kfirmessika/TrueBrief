@@ -59,7 +59,7 @@ MMR_DOMAIN_PENALTY = 0.35
 
 # V3_RELEVANCE_GATE: minimum cosine similarity between an alpha and the topic query.
 # Alphas below this are considered off-topic and dropped before the arbiter.
-_RELEVANCE_THRESHOLD = 0.35
+_RELEVANCE_THRESHOLD = 0.50
 
 # IC2 significance × recency (lede salience). Class weight sets the ceiling; recency
 # decays it so a current escalation outranks a stale state_change, while a current

@@ -53,8 +53,21 @@ class RSSLayer(SourceLayer):
         target_feeds = []
         seen_urls = set()
         
+        # Category aliases: map LLM-generated names to actual config keys
+        _ALIASES: dict[str, str] = {
+            "middle_east": "geopolitics",
+            "world": "geopolitics",
+            "politics": "geopolitics",
+            "international": "geopolitics",
+            "business": "finance",
+            "tech": "technology",
+        }
+
         for cat in query.rss_categories:
-            feeds = self._feeds_db.get(cat, [])
+            resolved = _ALIASES.get(cat.lower(), cat)
+            feeds = self._feeds_db.get(resolved, [])
+            if not feeds and resolved != cat:
+                logger.info(f"RSS category '{cat}' → alias '{resolved}' found no feeds.")
             for f in feeds:
                 f_url = f.get("url")
                 if f_url and f_url not in seen_urls:
@@ -62,8 +75,15 @@ class RSSLayer(SourceLayer):
                     seen_urls.add(f_url)
 
         if not target_feeds:
-            logger.warning(f"No feeds found for categories: {query.rss_categories}")
-            return []
+            logger.warning(
+                f"No feeds found for categories {query.rss_categories} — "
+                "falling back to 'geopolitics'."
+            )
+            for f in self._feeds_db.get("geopolitics", []):
+                f_url = f.get("url")
+                if f_url and f_url not in seen_urls:
+                    target_feeds.append(f)
+                    seen_urls.add(f_url)
 
         logger.info(f"Scanning {len(target_feeds)} RSS feeds for topic: {query.topic_name}")
 

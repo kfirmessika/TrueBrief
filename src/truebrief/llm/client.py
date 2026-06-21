@@ -53,6 +53,16 @@ class LLMClient:
         self._settings = settings
         self._gemini_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
+        self._local_embedder: Optional[Any] = None  # lazy-loaded LocalEmbedder
+
+    def _get_local_embedder(self):
+        """Return (and lazily init) the LocalEmbedder singleton."""
+        if self._local_embedder is None:
+            from truebrief.llm.local_embedder import LocalEmbedder
+            self._local_embedder = LocalEmbedder(
+                model_name=getattr(self._settings, "LOCAL_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+            )
+        return self._local_embedder
 
     def call(
         self,
@@ -105,11 +115,41 @@ class LLMClient:
         return ""
 
     def embed(self, text: str) -> List[float]:
-        """Generate a vector embedding for a single text string."""
+        """Generate a vector embedding for a single text string.
+
+        Delegates to the provider set by EMBED_PROVIDER:
+          "local"  → sentence-transformers (one batched CPU call, no quota)
+          "gemini" → gemini-embedding-2 (768 dim, 100 req/min free tier)
+        """
         if not text or not text.strip():
             logger.warning("Attempted to embed empty text. Returning zero vector.")
             return [0.0] * 768
 
+        provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
+        if provider == "local":
+            return self._get_local_embedder().embed(text)
+        return self._embed_gemini(text)
+
+    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """Generate vector embeddings for a list of strings.
+
+        "local"  → ONE batched forward pass, <500ms for 100 titles, no quota.
+        "gemini" → N parallel API calls via ThreadPoolExecutor (8 workers).
+                   Free tier: 100 req/min — bursts >100 titles will hit quota.
+        """
+        if not texts:
+            return []
+
+        provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
+        if provider == "local":
+            return self._get_local_embedder().embed_batch(texts)
+        return self._embed_batch_gemini(texts)
+
+    # ------------------------------------------------------------------
+    # Gemini embedding internals (kept intact — switch back via settings)
+    # ------------------------------------------------------------------
+
+    def _embed_gemini(self, text: str) -> List[float]:
         client = self._get_gemini_client()
         from google.genai import types
         try:
@@ -132,17 +172,8 @@ class LLMClient:
             logger.error(f"Embedding failed: {e}")
             raise LLMError(f"Embedding failed: {e}") from e
 
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
-        """Generate vector embeddings for a list of strings.
-
-        The Gemini SDK's embed_content treats contents=list as a single
-        multi-part document and returns exactly 1 embedding regardless of
-        list length. We work around this by dispatching one call per text
-        via a thread pool (8 workers → ~7x faster than serial, same result).
-        """
-        if not texts:
-            return []
-
+    def _embed_batch_gemini(self, texts: List[str]) -> List[List[float]]:
+        """Gemini batch embed via ThreadPoolExecutor (N separate API calls)."""
         valid_texts = [t if (t and t.strip()) else "[empty]" for t in texts]
         _client = self._get_gemini_client()
         from google.genai import types

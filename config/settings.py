@@ -91,6 +91,14 @@ class Settings(BaseSettings):
     # Prevents the briefer from leading with a subordinate fact. Zero extra LLM calls.
     V3_SOP_LEDE: bool = False
 
+    # --- Embedding provider ---
+    # "gemini"  → gemini-embedding-2 (768 dim, 100 req/min free tier)
+    # "local"   → sentence-transformers BAAI/bge-base-en-v1.5 (768 dim, unlimited, CPU)
+    # Both output 768 dims → pgvector column compatible with no migration.
+    EMBED_PROVIDER: str = "gemini"
+    # Which sentence-transformers model to use when EMBED_PROVIDER=local.
+    LOCAL_EMBED_MODEL: str = "BAAI/bge-base-en-v1.5"
+
     # --- Pipeline Observability (A.7 admin trace panel) ---
     # When True, every scan records a full per-run trace (pipeline_trace table) AND the
     # actual prompt/response of each LLM call (llm_call_log.prompt/response). Founder-only
