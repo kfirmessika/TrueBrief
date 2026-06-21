@@ -245,7 +245,17 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       Migration 016: table + `record_domain_extraction()` atomic PL/pgSQL function. Flag `V3_DYNAMIC_BLOCKLIST`.
       Degrades to no-op until migration 016 applied in Supabase. (2026-06-21)
 
-**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅ IC9 ✅ IC10 ✅ IC11 ✅ IC12 ✅.
+- [x] **IC13. Brave search + per-(topic x tool) UCB1 AYR matrix** — `BraveLayer` rewritten to use
+      `/news/search` endpoint (returns real news articles, not Wikipedia homepages); `_parse_age()`
+      converts relative strings to datetime. New `source_stats` table (migration 017) tracks
+      `(topic_id, tool_name)` with EMA-smoothed AYR. `update_tool_stats()` upserts after each run;
+      `get_tool_fire_set()` UCB1 bandit: cold-start fires all tools for first 3 scans then exploits
+      high-AYR tools; free tools always fire. Runner step 6c writes per-tool alpha counts back. Flag
+      `V3_TOOL_UCB1`. Israel benchmark 2026-06-21: 183 articles (vs 116 IC12 baseline), 13 stories
+      with 6 exclusive vs GPT 8 stories and Gemini 10 stories. Brave adds CFR/Arab News/IBTimes/
+      Iran International sources missing from Tavily. (2026-06-21)
+
+**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅ IC9 ✅ IC10 ✅ IC11 ✅ IC12 ✅ IC13 ✅.
 The **2026-06-21 benchmark (Iran War)** after IC5/IC6 jumped all four axes to **7/10** (from 3–5); the
 remaining loss (28 vs 37) was **completeness + lede-salience**, which IC7 (state-of-play, picks the lede
 as a grounded situation line) + IC4 (surfaces contradictions instead of burying them) directly target.
