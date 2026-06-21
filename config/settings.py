@@ -82,6 +82,14 @@ class Settings(BaseSettings):
     # overlapping time, incompatible value: Hormuz open/closed, toll 3,912 vs 3,468), flag the
     # pair instead of storing deadpan. Needs migration 015 (known_facts.contradicts_id). No-op fallback.
     V3_CONTRADICTION_FLAG: bool = False
+    # IC9 — Jina Reader fallback: when trafilatura / httpx fails to extract text (403, bot wall,
+    # paywall), retry via https://r.jina.ai/<url> which renders the page server-side.
+    # Free, no API key, recovers most paywalled / bot-walled sources (NYT, WSJ, AP).
+    V3_JINA_READER: bool = False
+    # IC10 — SOP lede: when True and a stored state-of-play exists for the topic, the runner
+    # passes its situation line to the briefer as an anchor for the "📌 Bottom line" synthesis.
+    # Prevents the briefer from leading with a subordinate fact. Zero extra LLM calls.
+    V3_SOP_LEDE: bool = False
 
     # --- Pipeline Observability (A.7 admin trace panel) ---
     # When True, every scan records a full per-run trace (pipeline_trace table) AND the

@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # Minimum and maximum articles processed per scan (adaptive-K, P2).
 # Actual K = min(max(MIN_K, candidates // 3), MAX_K) — ~⅓ of candidates.
 MIN_K = 5
-MAX_K = 20
+MAX_K = 25
 
 # MMR weights: relevance + recency together, minus diversity penalty.
 # Must sum such that a single best article scores ~1.0.
@@ -480,7 +480,19 @@ class PipelineRunner:
 
             # 6. Briefing
             logger.info("[6] Generating Brief")
-            brief_text = self.briefer.generate(decisions, query.topic_name)
+            # IC10 SOP lede: load the topic's stored state-of-play situation line
+            # (produced by last run's IC7) and pass it as an anchor so the briefer's
+            # "📌 Bottom line" stays grounded rather than synthesising from scratch.
+            _sop_situation = None
+            if settings.V3_SOP_LEDE and topic_id:
+                try:
+                    from truebrief.ledger.state_of_play_store import load_state_of_play
+                    _stored = load_state_of_play(topic_id)
+                    if _stored:
+                        _sop_situation = _stored.get("situation")
+                except Exception:
+                    pass
+            brief_text = self.briefer.generate(decisions, query.topic_name, situation=_sop_situation)
 
             # 6b. IC7 State-of-play: regenerate the topic status block ONLY when a
             # state_change fact landed this run (cheap — at most one extra LLM call,

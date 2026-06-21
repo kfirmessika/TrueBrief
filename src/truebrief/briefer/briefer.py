@@ -25,19 +25,25 @@ class Briefer:
     def __init__(self, llm_client: Optional[LLMClient] = None):
         self.llm = llm_client or LLMClient()
 
-    def generate(self, decisions: List[AlphaDecision], topic_name: str) -> str:
+    def generate(
+        self,
+        decisions: List[AlphaDecision],
+        topic_name: str,
+        situation: Optional[str] = None,
+    ) -> str:
         """
         Takes a list of Arbiter decisions and formats a brief.
         Only NEW and UPDATE decisions are included.
+        situation: if provided (from IC7 state-of-play), anchors the lede synthesis.
         """
         # Filter out duplicates
         active_decisions = [d for d in decisions if d.decision in (DecisionType.NEW, DecisionType.UPDATE)]
-        
+
         if not active_decisions:
             logger.info("No new facts to brief. Generating empty brief.")
             return ""
 
-        prompt = self._get_prompt(active_decisions, topic_name)
+        prompt = self._get_prompt(active_decisions, topic_name, situation=situation)
         
         try:
             logger.info(f"Generating brief for topic: {topic_name}")
@@ -53,7 +59,12 @@ class Briefer:
             raise
 
 
-    def _get_prompt(self, decisions: List[AlphaDecision], topic_name: str) -> str:
+    def _get_prompt(
+        self,
+        decisions: List[AlphaDecision],
+        topic_name: str,
+        situation: Optional[str] = None,
+    ) -> str:
         today = datetime.now().strftime("%B %d, %Y")
 
         # Prepare facts payload. Facts arrive PRE-SORTED by significance (IC2,
@@ -81,14 +92,20 @@ class Briefer:
             "UPDATES": update_facts
         }, indent=2)
 
+        situation_hint = ""
+        if situation:
+            situation_hint = (
+                f'\nCURRENT SITUATION (IC7 anchor — use this as the basis for your '
+                f'"📌 Bottom line"; the new facts below update it):\n{situation}\n'
+            )
+
         return f"""
 Generate a clean, professional intelligence brief based ONLY on the provided facts.
 Maximize signal-to-noise: lead with the single most important development, group
 related facts, and never repeat the same point.
 
 TOPIC: {topic_name}
-DATE: {today}
-
+DATE: {today}{situation_hint}
 INPUT FACTS (already ordered most-significant first; "significance" ranks them:
 state_change > escalation > development > incremental > tally > routine):
 {payload}

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Optional
 
 import httpx
 import trafilatura
@@ -77,7 +76,7 @@ class ArticleExtractor:
             if self._check_bot_detection(html):
                 logger.warning(f"Bot detection triggered for: {article.url}")
                 self._url_cache.add(url_hash) # Cache to avoid retrying blocked sites
-                return self._with_snippet_fallback(article)
+                return self._with_jina_or_snippet(article)
 
             text = trafilatura.extract(
                 html,
@@ -90,7 +89,7 @@ class ArticleExtractor:
                 article.text = text
             else:
                 logger.warning(f"Trafilatura failed to extract text from: {article.url}")
-                self._with_snippet_fallback(article)
+                self._with_jina_or_snippet(article)
 
             self._url_cache.add(url_hash)
             return article
@@ -98,12 +97,53 @@ class ArticleExtractor:
         except Exception as e:
             logger.error(f"Failed to fetch {article.url}: {e}")
             self._url_cache.add(url_hash) # Prevent retrying broken links
-            return self._with_snippet_fallback(article)
+            return self._with_jina_or_snippet(article)
 
     # A snippet shorter than this is a bare headline/link, not a real summary —
     # feeding it to the harvester invites hallucination, so we'd rather drop the
     # article. Real RSS summaries (BBC, Guardian, etc.) comfortably clear this.
     _MIN_SNIPPET_CHARS = 120
+
+    def _with_jina_or_snippet(self, article: RawArticle) -> RawArticle:
+        """Tier-2/3 fallback chain for failed extraction:
+        Jina Reader (free server-side render, bypasses soft paywalls + bot walls)
+        → substantial snippet → drop."""
+        from config.settings import settings  # lazy: config/ sits outside src/ import root
+        if settings.V3_JINA_READER:
+            jina_text = self._try_jina_reader(article.url)
+            if jina_text:
+                article.text = jina_text
+                return article
+        return self._with_snippet_fallback(article)
+
+    # Jina Reader: articles shorter than this (e.g. paywall stubs, error pages) are
+    # rejected so we don't hallucinate from "Subscribe to read more" body text.
+    _MIN_JINA_CHARS = 300
+
+    def _try_jina_reader(self, url: str) -> str | None:
+        """Fetch via https://r.jina.ai/<url> — Jina renders the page server-side
+        and returns clean plain text/markdown. Free, no API key, rate-limited gently
+        at low volume. Returns None on failure or when the returned body is too thin."""
+        jina_url = f"https://r.jina.ai/{url}"
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "text/plain, text/markdown, */*",
+                # Ask Jina to skip nav/footer boilerplate
+                "X-No-Cache": "true",
+            }
+            with httpx.Client(timeout=20.0, headers=headers, follow_redirects=True) as client:
+                resp = client.get(jina_url)
+                resp.raise_for_status()
+                body = resp.text.strip()
+            if len(body) >= self._MIN_JINA_CHARS:
+                logger.info(f"Jina Reader: recovered {len(body)} chars for {url}")
+                return body
+            logger.info(f"Jina Reader: stub response ({len(body)} chars) — not using: {url}")
+            return None
+        except Exception as e:
+            logger.info(f"Jina Reader failed for {url}: {e}")
+            return None
 
     def _with_snippet_fallback(self, article: RawArticle) -> RawArticle:
         """When full-text extraction fails, fall back to the feed snippet so

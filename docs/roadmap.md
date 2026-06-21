@@ -221,7 +221,18 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       buried lede (IC6), tally noise (IC2), duplicated soldiers (IC3 gate), Hormuz contradiction (IC4),
       missing state-of-play (IC7), tally≠contradiction (IC4 guard). CI-safe (no live LLM/DB). (commit pending)
 
-**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅.
+- [x] **IC9. Jina Reader extraction fallback** — `extractor._try_jina_reader()` retries failed
+      extractions (403, bot wall, soft paywall) via `https://r.jina.ai/<url>`. Free, no API key.
+      Tier order: trafilatura → Jina Reader → substantial snippet → drop. Flag `V3_JINA_READER`.
+      `_MIN_JINA_CHARS=300` guards against stub/paywall pages. (commit pending)
+- [x] **IC10. SOP lede anchor** — runner loads stored `state_of_play.situation` (IC7, previous scan)
+      and passes it to `Briefer.generate(situation=...)` as a `CURRENT SITUATION` anchor so the
+      `📌 Bottom line` synthesis is grounded in the established topic narrative rather than re-derived
+      from scratch. Flag `V3_SOP_LEDE`. Zero extra LLM calls. (commit pending)
+- [x] **MAX_K 20 → 25** — completeness lift for hot days (was capped at 20 even with 70+ candidates;
+      with `//3` adaptive-K, 70 candidates now reads 23 articles instead of 20). (commit pending)
+
+**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅ IC9 ✅ IC10 ✅.
 The **2026-06-21 benchmark (Iran War)** after IC5/IC6 jumped all four axes to **7/10** (from 3–5); the
 remaining loss (28 vs 37) was **completeness + lede-salience**, which IC7 (state-of-play, picks the lede
 as a grounded situation line) + IC4 (surfaces contradictions instead of burying them) directly target.
