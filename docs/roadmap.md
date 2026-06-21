@@ -175,10 +175,11 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 - [x] **IC3. Entity-dedup must fire on same-event facts** (1a.3 validation) — "4 Israeli soldiers killed" ×2
       (same date + entities + number) must merge to **one fact, `verified_count=2`**. Triple gate: entity_overlap≥0.80
       + temporal_overlap≥0.97 + raw_sim≥0.50 → DUPLICATE without LLM call. (commit 5d25c0e)
-- [ ] **IC4. Contradiction flag at merge** (arch §5/§8B — cheap precursor to Phase-5) — two facts on the same
-      `(metric/event, entities, overlapping dates)` with **different values** (Hormuz open vs closed; toll 3,912
-      vs 3,468) → flag the pair, don't store deadpan (a contradiction is usually the story). *Accept:* the
-      Hormuz pair renders as one flagged contradiction. Flag `V3_CONTRADICTION_FLAG`. (C: 12 | SONNET)
+- [x] **IC4. Contradiction flag at merge** (arch §5/§8B) — `arbiter/contradiction.py`: a NEW fact that
+      contradicts a stored one (shared subject + overlapping time + incompatible value: Hormuz open/closed,
+      toll 3,912 vs 3,468) is flagged (`contradicts_id` + note) and forced NEW — runs BEFORE the IC3 duplicate
+      fast-path so a contradiction is never silently merged. Conservative/deterministic (no LLM); excludes running
+      tallies. Migration 015 (no-op fallback), flag `V3_CONTRADICTION_FLAG`. 8 tests incl. arbiter integration. (commit pending)
 
 ### 2.5-B Presentation / synthesis
 > **Per the 2026-06-19 Launch Decision (§1):** we now build the **new calm surface (4-C)** rather than
@@ -196,22 +197,20 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       `topics.state_of_play` (migration 014); served at `GET /topics/{id}/state-of-play`; rendered atop the topic
       view. Flag `V3_STATE_OF_PLAY`. 8 unit tests + live-validated on real Iran-War facts. **⚠️ Apply migration 014
       in Supabase to activate persistence.** (commit pending)
-- [ ] **IC8. Golden case from this benchmark** (feeds A.2) — encode the labeled failures from
-      `docs/benchmarks/2026-06-19_iran-war_gpt-vs-truebrief.md` as regression assertions: buried lede, tally
-      collapse, duplicated soldiers fact, Hormuz contradiction, missing state-of-play. *Accept:* A.2 asserts all
-      fixed. (C: 5 | SONNET)
+- [x] **IC8. Golden case from this benchmark** (feeds A.2) — `tests/test_golden_iran_war.py` encodes the
+      labelled Iran-War failures as 6 standing regression assertions tied to the component that prevents each:
+      buried lede (IC6), tally noise (IC2), duplicated soldiers (IC3 gate), Hormuz contradiction (IC4),
+      missing state-of-play (IC7), tally≠contradiction (IC4 guard). CI-safe (no live LLM/DB). (commit pending)
 
-**Order (revised after 2026-06-21 re-run):** IC1 ✅ → IC2 ✅ → IC3 ✅ → IC5 ✅ → IC6 ✅. **2026-06-21
-benchmark (Iran War): all four axes jumped to 7/10** (from 3–5) — bottom-line lede + prose weaving landed.
-Still lose **28 vs 37** but the gap is now **completeness** (reference had the signed-agreement framing + 6
-context facts we missed), not presentation. Also our lede picked Hormuz-closure over the signed deal → IC7
-(state-of-play) should fix lede-salience. Next: **IC7** (highest leverage, closes the buried-lede + no-synthesis
-gaps) → **IC4** (contradiction) → **IC8** (golden case). *(Harness bug fixed: benchmark now uses a real temp
-topic so known_facts FK + cross-run dedup actually work.)*
-<!-- superseded order: IC7 → IC5 → IC6 -->
-needs IC2) → **IC4** (contradiction) → **IC8** (golden case, encodes both benchmarks). Re-run the §1 checkpoint
-after IC7. **How (architecture):** IC7 = `architecture_v3.md` §7.4 (topic-header status block, facts-only,
-regenerated on `state_change`, ~1 batched call); IC6 = §13 hierarchy + §10B.2a event-class weight (IC2 already live).
+**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅.
+The **2026-06-21 benchmark (Iran War)** after IC5/IC6 jumped all four axes to **7/10** (from 3–5); the
+remaining loss (28 vs 37) was **completeness + lede-salience**, which IC7 (state-of-play, picks the lede
+as a grounded situation line) + IC4 (surfaces contradictions instead of burying them) directly target.
+**Next: re-run `scripts/quality_benchmark.py` after applying migrations 014+015** to measure the IC4/IC7
+lift, then the §1 launch checkpoint. **Apply migrations 014 (state_of_play) + 015 (contradiction) in Supabase
+to activate persistence** (code degrades to no-op until then).
+**Architecture refs:** IC7 = §7.4 (facts-only header, regenerated on `state_change`); IC4 = §5/§8B
+(contradiction at merge); IC6 = §13 hierarchy + §10B.2a event-class weight.
 
 ---
 

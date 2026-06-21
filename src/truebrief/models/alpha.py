@@ -54,6 +54,10 @@ class Alpha:
     verified_count: int = 0                       # number of independent sources that confirmed this fact
     verifier_flags: list[str] = field(default_factory=list)  # e.g. ["retrospective", "ungrounded"]
 
+    # IC4 contradiction flag (set by the Arbiter when this fact contradicts a stored one).
+    contradicts_id: Optional[str] = None          # known_facts.id of the contradicted fact
+    contradiction_note: Optional[str] = None      # short reason, e.g. "status conflict: 'closed' vs 'open'"
+
 
 @dataclass
 class AlphaDecision:

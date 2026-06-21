@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # postponed/escalating checklist) generated from stored facts only, regenerated when a
     # state_change fact lands. Needs migration 014 (topics.state_of_play). Degrades to no-op.
     V3_STATE_OF_PLAY: bool = False
+    # IC4 — contradiction flag: when a NEW fact contradicts an existing fact (same actors +
+    # overlapping time, incompatible value: Hormuz open/closed, toll 3,912 vs 3,468), flag the
+    # pair instead of storing deadpan. Needs migration 015 (known_facts.contradicts_id). No-op fallback.
+    V3_CONTRADICTION_FLAG: bool = False
 
     # --- Pipeline Observability (A.7 admin trace panel) ---
     # When True, every scan records a full per-run trace (pipeline_trace table) AND the

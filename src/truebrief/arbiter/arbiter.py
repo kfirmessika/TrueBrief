@@ -27,6 +27,7 @@ from config.settings import (
     SIMILARITY_THRESHOLD_UPDATE,
     settings,
 )
+from truebrief.arbiter.contradiction import detect_contradiction
 from truebrief.arbiter.judge import JudgeLLM
 from truebrief.arbiter.temporal import adjusted_similarity, entity_overlap, temporal_overlap
 from truebrief.ledger.vector_store import VectorStore
@@ -214,6 +215,31 @@ class Arbiter:
 
         # Step 2 - Fetch similar facts from the Ledger
         raw_matches = self._fetch_matches(alpha, topic_id)
+
+        # Step 2b — IC4 contradiction flag (V3_CONTRADICTION_FLAG). A fact that contradicts
+        # an existing one (Hormuz open/closed; toll 3,912 vs 3,468) is NOT a duplicate — flag
+        # the pair and force NEW, so this runs BEFORE the IC3 duplicate fast-path below.
+        if settings.V3_CONTRADICTION_FLAG:
+            for match, _score in raw_matches:
+                reason = detect_contradiction(
+                    alpha.alpha_text, alpha.entities, alpha.event_date, alpha.event_class,
+                    match.alpha_text, match.entities, match.event_date, match.event_class,
+                )
+                if reason:
+                    alpha.contradicts_id = match.id
+                    alpha.contradiction_note = reason
+                    logger.info(
+                        f"{log_prefix} → CONTRADICTION-NEW (vs '{match.alpha_text[:50]}': {reason})"
+                    )
+                    return (
+                        AlphaDecision(
+                            alpha=alpha,
+                            decision=DecisionType.NEW,
+                            matched_alpha_id=match.id,
+                            reasoning=f"IC4 contradiction — {reason}. Stored as NEW and flagged.",
+                        ),
+                        [],
+                    )
 
         # Step 3 - Apply temporal (and optionally entity) adjustment to each raw score
         adjusted: List[Tuple[Alpha, float]] = []
