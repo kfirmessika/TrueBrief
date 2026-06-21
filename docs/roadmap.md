@@ -255,7 +255,21 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
       with 6 exclusive vs GPT 8 stories and Gemini 10 stories. Brave adds CFR/Arab News/IBTimes/
       Iran International sources missing from Tavily. (2026-06-21)
 
-**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅ IC9 ✅ IC10 ✅ IC11 ✅ IC12 ✅ IC13 ✅.
+- [x] **IC14. Lower MMR diversity + remove RSS pre-filter + scheduler enqueue gate + targeted follow-up** (2026-06-22)
+      - Scheduler triple-send fix: `_advance_next_run()` returns `bool`; enqueue skipped if
+        DB write failed so heartbeat cannot double-fire the same topic.
+      - RSS keyword pre-filter removed from `_collect_all` and `_collect_all_domains`. The
+        filter was silently dropping IDF press releases and government notices. `V3_RELEVANCE_GATE`
+        (LLM cosine ≥ 0.50) handles off-topic filtering instead.
+      - MMR diversity tuned: `MMR_LAMBDA` 0.55→0.62 (implicit diversity 0.30→0.23),
+        `MMR_DOMAIN_CAP` 2→3, `MMR_DOMAIN_PENALTY` 0.35→0.20 — allows a second article
+        from the same source when it carries a materially different sub-detail.
+      - `_collect_and_judge_followup()`: after main judging, re-queries Tavily once per
+        `state_change` NEW alpha (using `alpha_text[:100]` as the sub-query), extracts,
+        harvests, runs through relevance gate, judges, and appends NEW/UPDATE decisions
+        to the brief. Gated behind `V3_FOLLOWUP_FETCH` flag (default off).
+
+**Status — ALL Phase-1 ICs complete:** IC1 ✅ IC2 ✅ IC3 ✅ IC4 ✅ IC5 ✅ IC6 ✅ IC7 ✅ IC8 ✅ IC9 ✅ IC10 ✅ IC11 ✅ IC12 ✅ IC13 ✅ IC14 ✅.
 The **2026-06-21 benchmark (Iran War)** after IC5/IC6 jumped all four axes to **7/10** (from 3–5); the
 remaining loss (28 vs 37) was **completeness + lede-salience**, which IC7 (state-of-play, picks the lede
 as a grounded situation line) + IC4 (surfaces contradictions instead of burying them) directly target.
