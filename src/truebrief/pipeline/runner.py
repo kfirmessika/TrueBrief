@@ -241,8 +241,8 @@ class PipelineRunner:
 
             # 2. Collect Raw Articles
             logger.info("[2] Collecting Sources")
-            # Dynamic blocklist: skip domains with >75% extraction fail rate (≥5 attempts).
-            # Loaded here once per run; degrades to empty set if migration 016 not applied.
+
+            # 2a. Dynamic blocklist: skip domains with >75% extraction fail rate.
             _blocked_domains: set[str] = set()
             if settings.V3_DYNAMIC_BLOCKLIST:
                 try:
@@ -251,11 +251,38 @@ class PipelineRunner:
                 except Exception:
                     pass
 
+            # 2b. UCB1 tool selection: after cold-start (3 scans), skip low-AYR paid tools.
+            # Free tools (RSS, Google News) always fire. Degrades to all-fire if migration
+            # 017 not applied or if this is the first few scans (cold-start exploration).
+            _active_sources = self.sources
+            if settings.V3_TOOL_UCB1 and topic_id:
+                try:
+                    from truebrief.ledger.source_stats import get_tool_fire_set
+                    _fire_set = get_tool_fire_set(
+                        topic_id, [s.name for s in self.sources]
+                    )
+                    _active_sources = [s for s in self.sources if s.name in _fire_set]
+                    skipped = [s.name for s in self.sources if s.name not in _fire_set]
+                    if skipped:
+                        logger.info("    [UCB1-TOOL] Skipping low-AYR tools: %s", skipped)
+                except Exception:
+                    pass
+
             if settings.V3_DOMAIN_QUERIES and query.domains:
-                raw_articles = self._collect_all_domains(query, _blocked_domains)
+                raw_articles = self._collect_all_domains(
+                    query, _blocked_domains, sources=_active_sources
+                )
             else:
-                raw_articles = self._collect_all(query, _blocked_domains)
+                raw_articles = self._collect_all(
+                    query, _blocked_domains, sources=_active_sources
+                )
             logger.info(f"    Collected {len(raw_articles)} candidate articles total.")
+
+            # Build url→tool map for per-tool AYR attribution later in the run.
+            _url_to_tool: dict[str, str] = {
+                a.url: getattr(a.source_type, "value", "unknown")
+                for a in raw_articles
+            }
 
             if not raw_articles:
                 logger.info("    No articles found. Ending early.")
@@ -525,6 +552,44 @@ class PipelineRunner:
                 duplicates=_dupes,
                 brief_preview=(brief_text or "")[:2000],
             )
+            # 6c. Update per-tool AYR matrix (fire-and-forget; never blocks delivery).
+            # Attribute each new/update alpha back to the tool that sourced its article.
+            if topic_id:
+                try:
+                    from collections import Counter as _Counter
+                    from truebrief.ledger.source_stats import update_tool_stats
+
+                    # Count articles offered and selected per tool
+                    _tool_offered = _Counter(
+                        getattr(a.source_type, "value", "unknown") for a in raw_articles
+                    )
+                    _tool_selected = _Counter(
+                        _url_to_tool.get(a.url, "unknown") for a in selected
+                    )
+                    # Count new/update alphas per tool via url→tool map
+                    _tool_new: _Counter = _Counter()
+                    for d in decisions:
+                        if d.decision in (DecisionType.NEW, DecisionType.UPDATE):
+                            tool = _url_to_tool.get(d.alpha.source_url, "unknown")
+                            _tool_new[tool] += 1
+
+                    _tool_results = {}
+                    all_tool_names = (
+                        set(_tool_offered) | set(_tool_selected) | set(_tool_new)
+                    )
+                    for t in all_tool_names:
+                        _tool_results[t] = {
+                            "offered":    _tool_offered.get(t, 0),
+                            "selected":   _tool_selected.get(t, 0),
+                            "new_alphas": _tool_new.get(t, 0),
+                        }
+                    update_tool_stats(topic_id, _tool_results)
+                    logger.info("[6c] Tool AYR matrix updated: %s", {
+                        t: v["new_alphas"] for t, v in _tool_results.items()
+                    })
+                except Exception as _ts_err:
+                    logger.debug("Tool stats update failed (non-fatal): %s", _ts_err)
+
             # Expose counts so pipeline_task.py can pass them to finish_run.
             self.last_run_stats = {
                 "articles_collected":  len(raw_articles),
@@ -616,6 +681,7 @@ class PipelineRunner:
         self,
         query: SearchQuery,
         blocked_domains: Optional[set] = None,
+        sources: Optional[List[SourceLayer]] = None,
     ) -> List[RawArticle]:
         """
         Run all plugged-in sources and aggregate their results.
@@ -624,6 +690,7 @@ class PipelineRunner:
         blocked_domains: set of domains to skip (from dynamic blocklist).
         """
         blocked_domains = blocked_domains or set()
+        active_sources = sources if sources is not None else self.sources
         all_articles: List[RawArticle] = []
         seen_urls: set = set()
 
@@ -636,7 +703,7 @@ class PipelineRunner:
                     query_words.extend(q.lower().split())
         keywords = list({w for w in query_words if len(w) > 3})
 
-        for source in self.sources:
+        for source in active_sources:
             try:
                 articles = source.search(query)
                 logger.info(f"  [{source.name}] returned {len(articles)} articles.")
@@ -689,6 +756,7 @@ class PipelineRunner:
         self,
         query: SearchQuery,
         blocked_domains: Optional[set] = None,
+        sources: Optional[List[SourceLayer]] = None,
     ) -> List[RawArticle]:
         """
         Parallel multi-domain collection (V3_DOMAIN_QUERIES).
@@ -704,11 +772,12 @@ class PipelineRunner:
         """
         import concurrent.futures as _cf
         blocked_domains = blocked_domains or set()
+        active_sources = sources if sources is not None else self.sources
 
         # Targeted engines benefit from per-domain queries; broad sources are category-based.
         _TARGETED = {"tavily", "brave", "exa", "google_news"}
-        rss_sources = [s for s in self.sources if s.name not in _TARGETED]
-        targeted_sources = [s for s in self.sources if s.name in _TARGETED]
+        rss_sources = [s for s in active_sources if s.name not in _TARGETED]
+        targeted_sources = [s for s in active_sources if s.name in _TARGETED]
 
         all_articles: List[RawArticle] = []
         seen_urls: set = set()

@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     # success/fail rates in `domain_extraction_stats`. Domains with >75% fail rate and
     # ≥5 attempts are skipped during collection. Requires migration 016.
     V3_DYNAMIC_BLOCKLIST: bool = False
+    # IC13 — Per-(topic × tool) UCB1 AYR matrix: after 3 cold-start scans, runner uses
+    # UCB1 bandit to decide which paid tools (Tavily, Brave) to call per scan.
+    # Free tools (RSS, Google News) always fire. Requires migration 017.
+    V3_TOOL_UCB1: bool = False
 
     # --- Embedding provider ---
     # "gemini"  → gemini-embedding-2 (768 dim, 100 req/min free tier)

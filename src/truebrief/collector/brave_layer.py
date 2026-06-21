@@ -1,8 +1,12 @@
 """
 Brave Search Layer - collector/brave_layer.py
 
-Queries the Brave Search Web API for topic intelligence.
+Queries the Brave News Search API for topic intelligence.
 Uses httpx directly (no SDK); requires BRAVE_API_KEY in settings.
+
+Uses the /news/search endpoint (not /web/search): this returns only news articles,
+behaves like Tavily's topic="news" mode, and surfaces sources Tavily misses
+(Haaretz, Ynet, CFR, Arab News, IBTimes, regional press).
 
 Brave is a targeted search engine — results are already on-topic,
 so the pipeline's keyword pre-filter is skipped for this source.
@@ -11,12 +15,12 @@ so the pipeline's keyword pre-filter is skipped for this source.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from typing import List
 from urllib.parse import urlparse
 
 import httpx
-from dateutil.parser import parse as parse_date
 
 from config.settings import settings
 from truebrief.collector.base import SourceLayer
@@ -25,18 +29,19 @@ from truebrief.models.article import ArticleSource, RawArticle
 
 logger = logging.getLogger(__name__)
 
-_BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+# /news/search returns actual news articles (not generic web results).
+# Switched from /web/search which returned Wikipedia/homepages on abstract queries.
+_BRAVE_NEWS_ENDPOINT = "https://api.search.brave.com/res/v1/news/search"
 _TIMEOUT = 10.0
 _MAX_RESULTS = 5
 
 
 class BraveLayer(SourceLayer):
     """
-    Brave Search Web API source plugin.
+    Brave News Search API source plugin.
 
-    Freshness filter (pd = past day) keeps results timely.
-    The snippet from Brave's `description` field serves as the article text;
-    ArticleExtractor can optionally fetch the full body downstream.
+    Hits /news/search with freshness=pd (past 24h) — returns only recent news articles,
+    different source diversity than Tavily. The description field serves as article text.
     """
 
     def __init__(self) -> None:
@@ -56,7 +61,7 @@ class BraveLayer(SourceLayer):
 
         try:
             response = httpx.get(
-                _BRAVE_ENDPOINT,
+                _BRAVE_NEWS_ENDPOINT,
                 headers={
                     "X-Subscription-Token": self._api_key,
                     "Accept": "application/json",
@@ -65,8 +70,8 @@ class BraveLayer(SourceLayer):
                 params={
                     "q": query.primary_query,
                     "count": _MAX_RESULTS,
-                    "freshness": "pd",          # past 24 hours
-                    "result_filter": "web",
+                    "freshness": "pd",   # past 24 hours
+                    "country": "US",
                     "text_decorations": "false",
                 },
                 timeout=_TIMEOUT,
@@ -77,21 +82,17 @@ class BraveLayer(SourceLayer):
             logger.error("Brave search failed: %s", exc)
             return []
 
+        # /news/search returns top-level "results" list (not nested under "web")
         articles: List[RawArticle] = []
-        for result in data.get("web", {}).get("results", []):
+        for result in data.get("results", []):
             url: str = result.get("url", "")
             title: str = result.get("title", "")
             description: str = result.get("description", "")
             if not url or not title:
                 continue
 
-            pub_date: datetime | None = None
-            raw_age = result.get("page_age")  # ISO date string when present
-            if raw_age:
-                try:
-                    pub_date = parse_date(raw_age).replace(tzinfo=None)
-                except Exception:
-                    pass
+            # News endpoint returns age as relative string ("2 hours ago", "1 day ago")
+            pub_date = self._parse_age(result.get("age", ""))
 
             articles.append(
                 RawArticle(
@@ -106,6 +107,32 @@ class BraveLayer(SourceLayer):
 
         logger.info("Brave returned %d results.", len(articles))
         return articles
+
+    @staticmethod
+    def _parse_age(age_str: str) -> datetime | None:
+        """Convert Brave's relative age string to datetime.
+        Examples: '2 hours ago', '1 day ago', '30 minutes ago'
+        """
+        if not age_str:
+            return None
+        try:
+            now = datetime.utcnow()
+            age_str = age_str.lower().strip()
+            m = re.search(r'(\d+)\s+(minute|hour|day|week)', age_str)
+            if not m:
+                return None
+            n, unit = int(m.group(1)), m.group(2)
+            if unit == "minute":
+                return now - timedelta(minutes=n)
+            if unit == "hour":
+                return now - timedelta(hours=n)
+            if unit == "day":
+                return now - timedelta(days=n)
+            if unit == "week":
+                return now - timedelta(weeks=n)
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _domain(url: str) -> str:
