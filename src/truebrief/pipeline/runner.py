@@ -42,7 +42,7 @@ from truebrief.models.alpha import DecisionType
 logger = logging.getLogger(__name__)
 
 # Minimum and maximum articles processed per scan (adaptive-K, P2).
-# Actual K = min(max(MIN_K, candidates // 5), MAX_K) — ~20% of candidates.
+# Actual K = min(max(MIN_K, candidates // 3), MAX_K) — ~⅓ of candidates.
 MIN_K = 5
 MAX_K = 20
 
@@ -291,8 +291,11 @@ class PipelineRunner:
                 except Exception as nd_err:
                     logger.warning(f"    Near-dup collapse failed (non-fatal): {nd_err}")
 
-            # 3. MMR Selection (adaptive-K: ~20% of candidates, MIN_K–MAX_K)
-            _k = min(max(MIN_K, len(raw_articles) // 5), MAX_K)
+            # 3. MMR Selection (adaptive-K: ~⅓ of candidates, MIN_K–MAX_K).
+            # Widened from //5→//3 (2026-06-21): vs a full-index competitor the
+            # long-tail completeness facts (e.g. nuclear-inspection detail) sit in
+            # articles 7–12; reading only 18% of a hot day's pool left them on the floor.
+            _k = min(max(MIN_K, len(raw_articles) // 3), MAX_K)
             logger.info(f"[3] Selecting top {_k} diverse articles via MMR (adaptive-K from {len(raw_articles)} candidates)...")
             selected = self._mmr_select(query=query, articles=raw_articles, limit=_k)
             logger.info(f"    MMR selected {len(selected)} articles.")
