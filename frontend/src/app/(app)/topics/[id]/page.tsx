@@ -33,6 +33,19 @@ interface StoryNode {
   updated_at: string;
 }
 
+// IC7 — state-of-play topic header
+type SopStatus = 'agreed' | 'contested' | 'postponed' | 'escalating';
+interface StateOfPlayThread {
+  label: string;
+  status: SopStatus;
+  note?: string;
+}
+interface StateOfPlay {
+  situation?: string;
+  threads: StateOfPlayThread[];
+  updated_at?: string;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string | null): string {
@@ -404,6 +417,59 @@ function BriefSection({ section, idx, seen }: { section: BriefSection; idx: numb
             {section.sources.map((chip, ci) => <SourcePill key={`${chip.domain}-${ci}`} chip={chip} />)}
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── State of play (IC7) ──────────────────────────────────────────────────────
+
+const SOP_STATUS: Record<SopStatus, { icon: string; color: string; bg: string }> = {
+  agreed:     { icon: '✅', color: '#1A7A52', bg: '#E6F5EE' },
+  contested:  { icon: '⚠️', color: '#B45309', bg: '#FBF1E6' },
+  postponed:  { icon: '⏸', color: '#2B5FA5', bg: '#EEF3FB' },
+  escalating: { icon: '🔺', color: '#B42318', bg: '#FBEAE8' },
+};
+
+function StateOfPlayBlock({ sop }: { sop: StateOfPlay | null }) {
+  if (!sop || (!sop.situation && (!sop.threads || sop.threads.length === 0))) return null;
+  return (
+    <div style={{
+      background: 'var(--color-background-primary)',
+      border: '1px solid var(--color-border-tertiary)',
+      borderRadius: 12, padding: '14px 18px', margin: '16px 0 8px',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+        color: 'var(--color-text-tertiary)', marginBottom: 8,
+      }}>
+        State of play
+      </div>
+      {sop.situation && (
+        <p style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.55, margin: '0 0 10px', fontWeight: 500 }}>
+          {sop.situation}
+        </p>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {(sop.threads ?? []).map((t, i) => {
+          const s = SOP_STATUS[t.status] ?? SOP_STATUS.contested;
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13 }}>
+              <span style={{ flexShrink: 0 }}>{s.icon}</span>
+              <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{t.label}</span>
+              <span style={{
+                flexShrink: 0, fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 20,
+                background: s.bg, color: s.color, textTransform: 'capitalize',
+              }}>
+                {t.status}
+              </span>
+              {t.note && (
+                <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>· {t.note}</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -788,6 +854,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     setScanTaskId(null);
     qc.invalidateQueries({ queryKey: ['topic', id] });
     qc.invalidateQueries({ queryKey: ['topic-briefs', id] });
+    qc.invalidateQueries({ queryKey: ['topic-state-of-play', id] });
     qc.invalidateQueries({ queryKey: ['topics'] });
   }, [qc, id]);
 
@@ -842,6 +909,14 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const { data: knownFacts = [] } = useQuery<AlphaItem[]>({
     queryKey: ['topic-known-facts', id],
     queryFn: async () => (await api.get(`/topics/${id}/known-facts`)).data,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  // IC7 — state-of-play status block (topic header). Null until first state_change.
+  const { data: stateOfPlay = null } = useQuery<StateOfPlay | null>({
+    queryKey: ['topic-state-of-play', id],
+    queryFn: async () => (await api.get(`/topics/${id}/state-of-play`)).data?.state_of_play ?? null,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
@@ -971,6 +1046,9 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
       ) : (
         /* Thread */
         <div ref={threadRef} style={{ flex: 1, overflowY: 'auto', padding: '0 22px 40px' }}>
+          {/* IC7 — state-of-play status board, above the brief feed */}
+          <StateOfPlayBlock sop={stateOfPlay} />
+
           {isLoading && (
             <div style={{ paddingTop: 20 }}>
               <Skeleton />

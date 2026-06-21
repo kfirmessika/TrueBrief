@@ -33,6 +33,7 @@ from truebrief.ledger.story_manager import StoryManager
 from truebrief.ledger.story_summarizer import StorySummarizer
 from truebrief.arbiter.arbiter import Arbiter
 from truebrief.briefer.briefer import Briefer
+from truebrief.briefer.state_of_play import StateOfPlayGenerator
 from truebrief.verifier.verifier import Verifier
 from truebrief.models.article import RawArticle
 from truebrief.models.alpha import DecisionType
@@ -88,6 +89,7 @@ class PipelineRunner:
         self.vector_store = VectorStore()
         self.arbiter = Arbiter(vector_store=self.vector_store)
         self.briefer = Briefer()
+        self.state_of_play = StateOfPlayGenerator(llm_client=self.vector_store.llm)
         self.source_logger = SourceQualityLogger()
         self.query_rotator = QueryRotator()
         self.story_manager = StoryManager(
@@ -441,6 +443,12 @@ class PipelineRunner:
             logger.info("[6] Generating Brief")
             brief_text = self.briefer.generate(decisions, query.topic_name)
 
+            # 6b. IC7 State-of-play: regenerate the topic status block ONLY when a
+            # state_change fact landed this run (cheap — at most one extra LLM call,
+            # and only on material change). Facts-only, fire-and-forget, never blocks.
+            if settings.V3_STATE_OF_PLAY and topic_id:
+                self._maybe_refresh_state_of_play(decisions, topic_id, query.topic_name)
+
             end_time = time.time()
             logger.info(f"--- PIPELINE COMPLETE ({end_time - start_time:.1f}s) ---")
             self._trace(
@@ -468,6 +476,47 @@ class PipelineRunner:
             logger.error(f"PIPELINE CRASHED: {e}\nTraceback:\n{tb}")
             self._trace("error", f"Pipeline crashed: {e}", error=str(e), traceback=tb[:4000])
             raise e
+
+    # -------------------------------------------------------------------------
+    # IC7: state-of-play regeneration (only on material change)
+    # -------------------------------------------------------------------------
+
+    def _maybe_refresh_state_of_play(
+        self, decisions: List, topic_id: str, topic_name: str
+    ) -> None:
+        """Regenerate the topic status block iff a state_change fact landed. Never raises."""
+        try:
+            landed_state_change = any(
+                d.decision in (DecisionType.NEW, DecisionType.UPDATE)
+                and (d.alpha.event_class == "state_change")
+                for d in decisions
+            )
+            if not landed_state_change:
+                logger.info("[6b] No state_change this run — state-of-play unchanged.")
+                return
+
+            # Pull the topic's recent stored facts (most significant/recent first).
+            res = (
+                self.vector_store.db.table("known_facts")
+                .select("alpha_text, event_class, event_date, source_domain")
+                .eq("topic_id", topic_id)
+                .order("event_date", desc=True)
+                .limit(40)
+                .execute()
+            )
+            facts = res.data or []
+            if not facts:
+                return
+
+            block = self.state_of_play.generate(facts, topic_name)
+            if block:
+                from truebrief.ledger.state_of_play_store import save_state_of_play
+                save_state_of_play(topic_id, block)
+                logger.info(
+                    f"[6b] State-of-play refreshed: {len(block.get('threads', []))} threads."
+                )
+        except Exception as exc:
+            logger.warning(f"[6b] State-of-play refresh skipped (non-fatal): {exc}")
 
     # -------------------------------------------------------------------------
     # Observability: per-run trace (writes to pipeline_trace via TelemetryLogger)

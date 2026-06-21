@@ -227,6 +227,16 @@ def get_known_facts(topic_id: str, user: User = Depends(get_current_user)):
     return res.data
 
 
+@router.get("/topics/{topic_id}/state-of-play")
+def get_state_of_play(topic_id: str, user: User = Depends(get_current_user)):
+    """Return the IC7 state-of-play block for a topic, or null if none yet."""
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+    from truebrief.ledger.state_of_play_store import load_state_of_play
+    return {"state_of_play": load_state_of_play(topic_id)}
+
+
 @router.delete("/topics/{topic_id}")
 @limiter.limit("30/hour")
 def delete_topic(request: Request, topic_id: str, user: User = Depends(get_current_user)):

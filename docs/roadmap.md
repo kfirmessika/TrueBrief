@@ -190,10 +190,12 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 - [x] **IC6. Importance hierarchy in the brief** — briefer now receives `significance` (event_class) +
       `corroborating_sources` per fact, preserves IC2 sort, leads with a **📌 Bottom line** synthesis line,
       and collapses running tallies into one bullet. *needs IC2 (done).* (commit pending)
-- [ ] **IC7. "State of play" topic-header block** (arch §7) — grounded status line + 3–6 item ✅/⚠️ checklist of
-      open threads (`agreed/contested/postponed/escalating`), generated **only from our facts + sources**,
-      regenerated only on a `state_change` (batched, ~1 call), **no prediction**. *Accept:* topic header shows the
-      GPT-style status, fully sourced. (C: 12 | SONNET)
+- [x] **IC7. "State of play" topic-header block** (arch §7.4) — `StateOfPlayGenerator` produces a grounded
+      situation line + ≤6 `agreed/contested/postponed/escalating` checklist from stored facts only (no prediction);
+      runner regenerates it ONLY when a `state_change` fact lands (1 LLM call, fire-and-forget); stored on
+      `topics.state_of_play` (migration 014); served at `GET /topics/{id}/state-of-play`; rendered atop the topic
+      view. Flag `V3_STATE_OF_PLAY`. 8 unit tests + live-validated on real Iran-War facts. **⚠️ Apply migration 014
+      in Supabase to activate persistence.** (commit pending)
 - [ ] **IC8. Golden case from this benchmark** (feeds A.2) — encode the labeled failures from
       `docs/benchmarks/2026-06-19_iran-war_gpt-vs-truebrief.md` as regression assertions: buried lede, tally
       collapse, duplicated soldiers fact, Hormuz contradiction, missing state-of-play. *Accept:* A.2 asserts all

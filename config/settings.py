@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # IC1 — running-total / tally collapse: incoming tally fact with entity-overlap to an
     # existing tally → force UPDATE (never NEW), preventing N duplicate casualty-count rows.
     V3_TALLY_COLLAPSE: bool = False
+    # IC7 — state-of-play: topic-header status block (situation line + agreed/contested/
+    # postponed/escalating checklist) generated from stored facts only, regenerated when a
+    # state_change fact lands. Needs migration 014 (topics.state_of_play). Degrades to no-op.
+    V3_STATE_OF_PLAY: bool = False
 
     # --- Pipeline Observability (A.7 admin trace panel) ---
     # When True, every scan records a full per-run trace (pipeline_trace table) AND the
@@ -122,6 +126,10 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
 
     # Story Summarizer: Merges previous summary + new fact → updated summary (Phase 3, Task 3.3).
     "story_summarizer": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+
+    # State of Play (IC7): synthesizes the topic-level status block from stored facts.
+    # High reasoning (must rank threads + assign statuses), strict JSON output.
+    "state_of_play":  {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
 }
 
 
