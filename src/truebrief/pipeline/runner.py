@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import List, Optional
 
 from config.settings import settings
@@ -59,6 +60,46 @@ MMR_DOMAIN_PENALTY = 0.35
 # V3_RELEVANCE_GATE: minimum cosine similarity between an alpha and the topic query.
 # Alphas below this are considered off-topic and dropped before the arbiter.
 _RELEVANCE_THRESHOLD = 0.35
+
+# IC2 significance × recency (lede salience). Class weight sets the ceiling; recency
+# decays it so a current escalation outranks a stale state_change, while a current
+# state_change still outranks a current tally. Floor keeps significance always relevant.
+_CLASS_WEIGHT = {
+    "state_change": 1.0,
+    "escalation":   0.8,
+    "development":  0.6,
+    "incremental":  0.4,
+    "routine":      0.2,
+    "tally":        0.1,
+}
+_SALIENCE_RECENCY_FLOOR = 0.4   # a fact never decays below 40% of its class weight
+_SALIENCE_HALF_LIFE_DAYS = 4.0  # recency multiplier ≈0.5 at 4 days old
+
+
+def _salience_score(event_class: Optional[str], event_date, now: Optional[datetime] = None) -> float:
+    """Significance × recency. Higher = leads the brief.
+
+    salience = class_weight × (FLOOR + (1-FLOOR) × exp(-age_days / HALF_LIFE))
+    Unknown class → neutral 0.5; unknown/future date → no recency penalty.
+    """
+    import math
+    base = _CLASS_WEIGHT.get(event_class or "", 0.5)
+    now = now or datetime.now()
+    age_days = 0.0
+    if event_date is not None:
+        try:
+            d = event_date
+            if isinstance(d, str):
+                d = datetime.fromisoformat(d.replace("Z", "+00:00"))
+            if getattr(d, "tzinfo", None) is not None:
+                d = d.replace(tzinfo=None)
+            age_days = max(0.0, (now.replace(tzinfo=None) - d).total_seconds() / 86400.0)
+        except Exception:
+            age_days = 0.0
+    recency = _SALIENCE_RECENCY_FLOOR + (1.0 - _SALIENCE_RECENCY_FLOOR) * math.exp(
+        -age_days / _SALIENCE_HALF_LIFE_DAYS
+    )
+    return base * recency
 
 
 class PipelineRunner:
@@ -422,23 +463,17 @@ class PipelineRunner:
                     logger.warning(f"    [ROTATOR] record_result failed: {rot_err}")
 
 
-            # 5d. IC2 significance sort: order NEW/UPDATE decisions so the briefer LLM
-            # sees state_change/escalation first and tally facts last.
+            # 5d. IC2 significance × recency sort: order NEW/UPDATE decisions so the briefer
+            # leads with the most significant CURRENT development. A stale state_change no
+            # longer outranks a fresh escalation; a fresh tally still sits last.
             if settings.V3_DEV_CLASS_RANK:
-                _CLASS_WEIGHT = {
-                    "state_change": 1.0,
-                    "escalation":   0.8,
-                    "development":  0.6,
-                    "incremental":  0.4,
-                    "routine":      0.2,
-                    "tally":        0.1,
-                }
+                _now = datetime.now()
                 decisions = sorted(
                     decisions,
-                    key=lambda d: _CLASS_WEIGHT.get(d.alpha.event_class or "", 0.5),
+                    key=lambda d: _salience_score(d.alpha.event_class, d.alpha.event_date, _now),
                     reverse=True,
                 )
-                logger.info("[5d] Decisions sorted by event_class significance.")
+                logger.info("[5d] Decisions sorted by significance × recency (lede salience).")
 
             # 6. Briefing
             logger.info("[6] Generating Brief")
