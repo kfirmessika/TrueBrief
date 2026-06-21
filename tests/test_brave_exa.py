@@ -37,23 +37,24 @@ class TestBraveLayer:
         return layer
 
     def test_search_parses_results(self):
-        """BraveLayer maps Brave web results to RawArticle objects correctly."""
+        """BraveLayer maps Brave news results to RawArticle objects correctly."""
         fake_response = MagicMock()
+        # /news/search returns top-level "results" (not nested under "web")
         fake_response.json.return_value = {
-            "web": {
-                "results": [
-                    {
-                        "url": "https://reuters.com/story/1",
-                        "title": "Bitcoin ETF Approved",
-                        "description": "The SEC has approved...",
-                    },
-                    {
-                        "url": "https://bloomberg.com/story/2",
-                        "title": "Bitcoin Hits Record",
-                        "description": "Markets reacted...",
-                    },
-                ]
-            }
+            "results": [
+                {
+                    "url": "https://reuters.com/story/1",
+                    "title": "Bitcoin ETF Approved",
+                    "description": "The SEC has approved...",
+                    "age": "2 hours ago",
+                },
+                {
+                    "url": "https://bloomberg.com/story/2",
+                    "title": "Bitcoin Hits Record",
+                    "description": "Markets reacted...",
+                    "age": "1 day ago",
+                },
+            ]
         }
         fake_response.raise_for_status = MagicMock()
 
@@ -79,13 +80,11 @@ class TestBraveLayer:
         """BraveLayer skips results that have no url or no title."""
         fake_response = MagicMock()
         fake_response.json.return_value = {
-            "web": {
-                "results": [
-                    {"url": "", "title": "No URL result", "description": "..."},
-                    {"url": "https://ok.com/", "title": "", "description": "..."},
-                    {"url": "https://ok.com/article", "title": "Good", "description": "..."},
-                ]
-            }
+            "results": [
+                {"url": "", "title": "No URL result", "description": "..."},
+                {"url": "https://ok.com/", "title": "", "description": "..."},
+                {"url": "https://ok.com/article", "title": "Good", "description": "..."},
+            ]
         }
         fake_response.raise_for_status = MagicMock()
 
