@@ -84,10 +84,18 @@ def check_and_schedule_topics() -> dict:
             raw_query = topic["raw_query"]
             interval = topic.get("poll_interval_seconds") or 3600
 
-            # Step 1: Advance next_run_at BEFORE enqueuing (prevents double-schedule)
-            _advance_next_run(db, topic_id, interval)
+            # Step 1: Advance next_run_at BEFORE enqueuing (prevents double-schedule).
+            # If the advance fails, skip the enqueue — the topic stays due and will be
+            # retried on the next heartbeat. Never enqueue without advancing first, as
+            # that causes the triple-send bug (heartbeat sees topic still due and fires again).
+            if not _advance_next_run(db, topic_id, interval):
+                logger.error(
+                    f"  Skipping enqueue for '{raw_query[:50]}' (id={topic_id}) "
+                    f"— next_run_at advance failed; will retry next heartbeat."
+                )
+                continue
 
-            # Step 2: Enqueue the pipeline task
+            # Step 2: Enqueue only after advance succeeded
             task = run_pipeline_task.delay(topic_id=topic_id, raw_query=raw_query)
             scheduled.append(topic_id)
             logger.info(
@@ -102,10 +110,13 @@ def check_and_schedule_topics() -> dict:
         return {"scheduled": [], "skipped": -1, "error": str(exc)}
 
 
-def _advance_next_run(db, topic_id: str, interval_seconds: int) -> None:
+def _advance_next_run(db, topic_id: str, interval_seconds: int) -> bool:
     """
     Set next_run_at = now() + interval_seconds AND update last_run_at = now().
     Done BEFORE enqueuing to prevent double-scheduling on overlapping heartbeats.
+
+    Returns True if the DB write succeeded, False otherwise.
+    Caller must skip the enqueue if this returns False.
     """
     from datetime import timedelta
 
@@ -117,8 +128,10 @@ def _advance_next_run(db, topic_id: str, interval_seconds: int) -> None:
             "next_run_at": next_run.isoformat(),
             "last_run_at": now.isoformat(),
         }).eq("id", topic_id).execute()
+        return True
     except Exception as exc:
         logger.error(f"Failed to advance next_run_at for topic {topic_id}: {exc}")
+        return False
 
 
 def set_next_run(topic_id: str, interval_seconds: int | None = None) -> None:

@@ -48,14 +48,16 @@ MAX_K = 25
 
 # MMR weights: relevance + recency together, minus diversity penalty.
 # Must sum such that a single best article scores ~1.0.
-MMR_LAMBDA = 0.55    # relevance weight (was 0.65 — reduced to make room for recency)
+MMR_LAMBDA = 0.62    # relevance weight (raised from 0.55; lowers implicit diversity to 0.23)
 MMR_RECENCY = 0.15   # recency weight: today=+0.15, 5-day-old=+~0.02
-# Implicit diversity weight: 1 - MMR_LAMBDA - MMR_RECENCY = 0.30
+# Implicit diversity weight: 1 - MMR_LAMBDA - MMR_RECENCY = 0.23
 
 # Per-domain cap: after this many articles from one domain are selected,
-# add a heavy score penalty so other sources get a chance.
-MMR_DOMAIN_CAP = 2
-MMR_DOMAIN_PENALTY = 0.35
+# add a score penalty so other sources get a chance.
+# Raised cap 2→3 and lowered penalty 0.35→0.20 so a second article from
+# the same domain can still get in if it carries a materially different sub-detail.
+MMR_DOMAIN_CAP = 3
+MMR_DOMAIN_PENALTY = 0.20
 
 # V3_RELEVANCE_GATE: minimum cosine similarity between an alpha and the topic query.
 # Alphas below this are considered off-topic and dropped before the arbiter.
@@ -487,6 +489,32 @@ class PipelineRunner:
                             logger.warning(f"    Summary refresh failed: {sum_err}")
             logger.info(f"    Novelty check complete. {len(decisions)} decisions made.")
 
+            # 5.5 Targeted follow-up fetch on state_change NEW facts.
+            # The main MMR diversity penalty can suppress a second article from the same event
+            # thread even when that article contains a materially different sub-detail (e.g.,
+            # delegation walkout buried inside a broader Switzerland talks piece). Here we
+            # re-query Tavily once per state_change alpha to catch those sub-details.
+            # Runs AFTER add_fact() above, so the arbiter deduplicates correctly.
+            if settings.V3_FOLLOWUP_FETCH:
+                try:
+                    _state_changes = [
+                        d for d in decisions
+                        if d.decision == DecisionType.NEW
+                        and getattr(d.alpha, "event_class", "") == "state_change"
+                    ][:3]
+                    if _state_changes:
+                        _followup = self._collect_and_judge_followup(
+                            _state_changes, query, topic_input, topic_id,
+                            seen_urls={a.url for a in raw_articles},
+                        )
+                        if _followup:
+                            decisions.extend(_followup)
+                            logger.info(
+                                "[5.5] Follow-up added %d new decision(s).", len(_followup)
+                            )
+                except Exception as _fu_err:
+                    logger.debug("[5.5] Follow-up fetch failed (non-fatal): %s", _fu_err)
+
             # 5b. Log source quality (fire-and-forget - never blocks the pipeline)
             _alphas = sum(1 for d in decisions if d.decision.value in ("NEW", "UPDATE"))
             _dupes  = len(decisions) - _alphas
@@ -607,6 +635,93 @@ class PipelineRunner:
             raise e
 
     # -------------------------------------------------------------------------
+    # IC14: targeted follow-up fetch on high-significance state_change facts
+    # -------------------------------------------------------------------------
+
+    def _collect_and_judge_followup(
+        self,
+        state_changes: list,
+        query,
+        topic_input: str,
+        topic_id,
+        seen_urls: set,
+    ) -> list:
+        """
+        Re-query Tavily once per state_change NEW alpha using the alpha text as the
+        search query. Catches sub-details (delegation walkouts, command changes, etc.)
+        that MMR diversity suppressed because the parent article was already selected.
+
+        Returns a list of additional AlphaDecision objects with decision=NEW/UPDATE.
+        Runs after add_fact() for the main pass, so the arbiter can correctly
+        deduplicate against facts already committed to the ledger.
+        """
+        from truebrief.models.alpha import DecisionType as _DT
+
+        tavily = next((s for s in self.sources if s.name == "tavily"), None)
+        if not tavily:
+            return []
+
+        extra: list = []
+        for sc_decision in state_changes:
+            try:
+                # Use alpha_text[:100] as the targeted sub-query.
+                claim = sc_decision.alpha.alpha_text[:100]
+                from truebrief.collector.query_builder import SearchQuery as _SQ
+                fq = _SQ(topic_name=query.topic_name, primary_query=claim, alt_queries=[])
+                articles = tavily.search(fq)
+                new_arts = [a for a in articles if a.url not in seen_urls]
+                if not new_arts:
+                    continue
+                seen_urls.update(a.url for a in new_arts)
+                logger.info("[5.5] '%s...' → %d follow-up articles", claim[:50], len(new_arts))
+
+                # Extract text
+                extracted = [self.extractor.extract(a) for a in new_arts]
+                extracted = [a for a in extracted if a.text]
+                if not extracted:
+                    continue
+
+                # Harvest facts
+                fu_alphas = []
+                for article in extracted:
+                    try:
+                        fu_alphas.extend(self.harvester.harvest(article))
+                    except Exception:
+                        pass
+                if not fu_alphas:
+                    continue
+
+                # Relevance gate
+                if settings.V3_RELEVANCE_GATE and fu_alphas:
+                    topic_text = query.topic_name or topic_input
+                    topic_emb = self.vector_store.llm.embed(topic_text)
+                    embs = self.vector_store.llm.embed_batch([a.alpha_text for a in fu_alphas])
+                    gated = []
+                    for alpha, emb in zip(fu_alphas, embs):
+                        alpha.embedding = emb
+                        if self._cosine_similarity(emb, topic_emb) >= _RELEVANCE_THRESHOLD:
+                            gated.append(alpha)
+                    fu_alphas = gated
+                if not fu_alphas:
+                    continue
+
+                # Judge and store new facts
+                judged = self.arbiter.judge_alphas(fu_alphas, topic_id=topic_id)
+                for alpha, decision in zip(fu_alphas, judged):
+                    if decision.decision in (_DT.NEW, _DT.UPDATE):
+                        try:
+                            self.vector_store.add_fact(decision.alpha)
+                        except Exception:
+                            pass
+                        extra.append(decision)
+                        logger.info("[5.5] NEW follow-up: %s", alpha.alpha_text[:80])
+
+            except Exception as e:
+                logger.debug("[5.5] Follow-up for '%s' failed: %s", sc_decision.alpha.alpha_text[:40], e)
+
+        return extra
+
+    # -------------------------------------------------------------------------
     # IC7: state-of-play regeneration (only on material change)
     # -------------------------------------------------------------------------
 
@@ -694,15 +809,6 @@ class PipelineRunner:
         all_articles: List[RawArticle] = []
         seen_urls: set = set()
 
-        # Build keyword set for basic relevance pre-filter (used for RSS/broad sources).
-        # When domain queries are available, include ALL domain query words for richer filtering.
-        query_words = (query.topic_name + " " + query.primary_query).lower().split()
-        if query.domains:
-            for d in query.domains:
-                for q in d.queries:
-                    query_words.extend(q.lower().split())
-        keywords = list({w for w in query_words if len(w) > 3})
-
         for source in active_sources:
             try:
                 articles = source.search(query)
@@ -720,25 +826,16 @@ class PipelineRunner:
                         if _to_domain(a.url) in blocked_domains:
                             continue
 
-                    # For broad sources (RSS, Google News), apply keyword filter.
-                    # Targeted engines (Tavily, Brave, Exa) already return on-topic results.
-                    _TARGETED = {"tavily", "brave", "exa"}
-                    if source.name not in _TARGETED and keywords:
-                        text = (a.title + " " + (a.text or "")).lower()
-                        if not any(k in text for k in keywords):
-                            continue
-
                     all_articles.append(a)
                     kept_here.append(a)
 
                 self._trace(
                     "collect",
-                    f"[{source.name}] returned {len(articles)}, kept {len(kept_here)} after keyword/dedup filter.",
+                    f"[{source.name}] returned {len(articles)}, kept {len(kept_here)} after dedup filter.",
                     source=source.name,
                     query=query.primary_query,
                     returned=len(articles),
                     kept=len(kept_here),
-                    keywords=keywords if source.name not in {"tavily", "brave", "exa"} else None,
                     articles=[{"title": a.title, "url": a.url} for a in kept_here[:20]],
                 )
 
@@ -782,13 +879,6 @@ class PipelineRunner:
         all_articles: List[RawArticle] = []
         seen_urls: set = set()
 
-        # Combined keywords from all domain queries (for RSS keyword filter)
-        all_words = (query.topic_name).lower().split()
-        for d in query.domains:
-            for q in d.queries:
-                all_words.extend(q.lower().split())
-        keywords = list({w for w in all_words if len(w) > 3})
-
         def _add(articles: List[RawArticle]) -> int:
             added = 0
             for a in articles:
@@ -815,10 +905,6 @@ class PipelineRunner:
                     if blocked_domains:
                         from truebrief.ledger.domain_stats import _to_domain
                         if _to_domain(a.url) in blocked_domains:
-                            continue
-                    if keywords:
-                        text = (a.title + " " + (a.text or "")).lower()
-                        if not any(k in text for k in keywords):
                             continue
                     all_articles.append(a)
                     kept.append(a)

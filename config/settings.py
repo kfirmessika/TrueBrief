@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     # UCB1 bandit to decide which paid tools (Tavily, Brave) to call per scan.
     # Free tools (RSS, Google News) always fire. Requires migration 017.
     V3_TOOL_UCB1: bool = False
+    # IC14 — Targeted follow-up fetch: after the main judging pass, re-query Tavily once
+    # per state_change NEW alpha to catch sub-details MMR diversity may have suppressed.
+    V3_FOLLOWUP_FETCH: bool = False
 
     # --- Embedding provider ---
     # "gemini"  → gemini-embedding-2 (768 dim, 100 req/min free tier)
