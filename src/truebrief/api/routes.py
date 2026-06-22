@@ -974,6 +974,33 @@ def get_dashboard(user: User = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
+# Per-user delta feed (architecture §8 — the V3 home & daily summary engine)
+# ---------------------------------------------------------------------------
+
+class SeenRequest(BaseModel):
+    topic_ids: Optional[List[str]] = None   # None = mark all subscribed topics seen
+
+
+@router.get("/feed")
+def get_feed(user: User = Depends(get_current_user)):
+    """The cross-topic 'what's new since you looked' feed (live window, §8).
+
+    $0 LLM — pure delta over known_facts vs each topic's last_seen_at. Returns
+    `all_quiet: true` when there's nothing new (the 'all caught up' hero state)."""
+    from truebrief.ledger.delta_engine import get_delta_feed
+    return get_delta_feed(user.id, anchor="seen")
+
+
+@router.post("/feed/seen")
+def mark_feed_seen(body: SeenRequest = SeenRequest(), user: User = Depends(get_current_user)):
+    """Advance last_seen_at (default: all subscribed topics) so the next look shows
+    'all caught up'. Called on view / 'mark all caught up'."""
+    from truebrief.ledger.delta_engine import advance_seen
+    advance_seen(user.id, body.topic_ids)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Topic facts (for the thread-based topic view)
 # ---------------------------------------------------------------------------
 
