@@ -216,14 +216,28 @@ def get_known_facts(topic_id: str, user: User = Depends(get_current_user)):
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
-    res = (
-        db.table("known_facts")
-        .select("source_domain, source_url, alpha_text, first_seen_at")
-        .eq("topic_id", topic_id)
-        .order("first_seen_at", desc=True)
-        .limit(300)
-        .execute()
-    )
+    # IC4 columns (contradicts_id, contradiction_note) come from migration 015.
+    # Fall back to the base columns if that migration hasn't been applied yet, so
+    # the source-chip tooltips never break on a pre-015 database.
+    base_cols = "source_domain, source_url, alpha_text, first_seen_at"
+    try:
+        res = (
+            db.table("known_facts")
+            .select(base_cols + ", contradicts_id, contradiction_note")
+            .eq("topic_id", topic_id)
+            .order("first_seen_at", desc=True)
+            .limit(300)
+            .execute()
+        )
+    except Exception:
+        res = (
+            db.table("known_facts")
+            .select(base_cols)
+            .eq("topic_id", topic_id)
+            .order("first_seen_at", desc=True)
+            .limit(300)
+            .execute()
+        )
     return res.data
 
 
@@ -839,6 +853,15 @@ def _brief_preview(content: str, max_len: int = 200) -> str:
     if not content:
         return ""
 
+    # Lede-first: the "📌 Bottom line" sentence is the single best preview, so
+    # prefer it over the first bullet when present.
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if "Bottom line" in line and ("📌" in line or line.lstrip("*").startswith("📌")):
+            cleaned = _clean_brief_line(re.sub(r'^\**\s*📌?\s*Bottom line:?\**\s*', '', line), max_len)
+            if cleaned:
+                return cleaned
+
     fallback = ""
     for raw_line in content.splitlines():
         line = raw_line.strip()
@@ -846,6 +869,9 @@ def _brief_preview(content: str, max_len: int = 200) -> str:
             continue
         # Header line: "📋 TrueBrief | Topic | Date"
         if "TrueBrief" in line or line.startswith("📋"):
+            continue
+        # Bottom-line lede is handled above; skip it in the bullet/fallback scan.
+        if "Bottom line" in line and "📌" in line:
             continue
         # Divider line: only divider / box-drawing chars
         if all(ch in _DIVIDER_CHARS or ch.isspace() for ch in line):

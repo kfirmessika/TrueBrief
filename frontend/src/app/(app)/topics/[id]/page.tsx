@@ -73,6 +73,24 @@ function parseContent(raw: string): string {
   return lines.slice(start).join('\n').trim();
 }
 
+// Pull the "📌 Bottom line" sentence out of the body so it can be rendered as a
+// hero lede above the sections. Returns the lede text (markdown stripped of the
+// label) and the body with that line removed. Older briefs without a bottom line
+// return { lede: null, body } unchanged.
+function extractLede(body: string): { lede: string | null; body: string } {
+  const lines = body.split('\n');
+  const idx = lines.findIndex(l => /📌\s*\**\s*Bottom line/i.test(l) || /\bBottom line:/i.test(l));
+  if (idx === -1) return { lede: null, body };
+  const raw = lines[idx];
+  // Strip a leading "**📌 Bottom line:**" / "📌 Bottom line:" label, keep the sentence.
+  const lede = raw
+    .replace(/^\s*\**\s*📌?\s*\**\s*Bottom line:?\**\s*/i, '')
+    .replace(/\*\*/g, '')
+    .trim();
+  lines.splice(idx, 1);
+  return { lede: lede || null, body: lines.join('\n').trim() };
+}
+
 // ── Source chip data ────────────────────────────────────────────────────────
 
 interface SourceChip {
@@ -86,10 +104,15 @@ interface AlphaItem {
   source_url: string | null;
   alpha_text: string;
   first_seen_at: string;
+  contradiction_note?: string | null;   // IC4: set when this fact contradicts a stored one
 }
 
 // Domain → alpha articles collected for this topic (page-level, read in SourcePill)
 const DomainAlphasCtx = createContext<Map<string, AlphaItem[]>>(new Map());
+
+// IC4 — full article URL → contradiction note ("status conflict: 'open' vs 'closed'").
+// Read by ContradictionBadge to flag bullets whose source fact is disputed.
+const ContradictionCtx = createContext<Map<string, string>>(new Map());
 
 function parseSourceLine(line: string): SourceChip[] {
   const after = line.replace(/^[→↳✓\s]*[Ss]ources?:\s*/i, '');
@@ -226,8 +249,24 @@ function renderBodyLine(line: string, key: number): React.ReactNode {
 
   // Split inline " → Sources: ..." from end of line (works for bullets and paragraphs)
   const srcSplit = t.match(/^(.*?)\s+(→\s*[Ss]ources?:.+)$/);
-  const mainText = srcSplit ? srcSplit[1] : t;
+  let mainText = srcSplit ? srcSplit[1] : t;
   const inlineSources = srcSplit ? parseSourceLine(srcSplit[2]) : [];
+
+  // Pull a trailing "(N sources)" corroboration marker out of the prose so it can
+  // render as a styled pill instead of raw text.
+  const countMatch = mainText.match(/\((\d+)\s*sources?\)\s*$/i);
+  const sourceCount = countMatch ? countMatch[1] : null;
+  if (countMatch) mainText = mainText.replace(/\s*\(\d+\s*sources?\)\s*$/i, '');
+
+  // Shared trailing row: source chips → corroboration count → contradiction flag.
+  const trailing = (
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 3, marginLeft: 5, verticalAlign: 'middle' }}>
+      {inlineSources.map((chip, ci) => <SourcePill key={ci} chip={chip} />)}
+      {sourceCount && <SourceCountPill n={sourceCount} />}
+      <ContradictionBadge urls={inlineSources.map(c => c.url)} />
+    </span>
+  );
+  const hasTrailing = inlineSources.length > 0 || !!sourceCount;
 
   // Bullet
   if (/^[\*\-•]\s+/.test(mainText)) {
@@ -237,11 +276,7 @@ function renderBodyLine(line: string, key: number): React.ReactNode {
         <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0, fontSize: 16, lineHeight: '1.55' }}>·</span>
         <span style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.6 }}>
           {inlineFormat(bulletContent)}
-          {inlineSources.length > 0 && (
-            <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, marginLeft: 5, verticalAlign: 'middle' }}>
-              {inlineSources.map((chip, ci) => <SourcePill key={ci} chip={chip} />)}
-            </span>
-          )}
+          {hasTrailing && trailing}
         </span>
       </div>
     );
@@ -250,11 +285,7 @@ function renderBodyLine(line: string, key: number): React.ReactNode {
   return (
     <p key={key} style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.65, margin: '0' }}>
       {inlineFormat(mainText)}
-      {inlineSources.length > 0 && (
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, marginLeft: 5, verticalAlign: 'middle' }}>
-          {inlineSources.map((chip, ci) => <SourcePill key={ci} chip={chip} />)}
-        </span>
-      )}
+      {hasTrailing && trailing}
     </p>
   );
 }
@@ -375,6 +406,74 @@ function SourcePill({ chip }: { chip: SourceChip }) {
   );
 }
 
+// ── Corroboration count pill ─────────────────────────────────────────────────
+
+function SourceCountPill({ n }: { n: string }) {
+  return (
+    <span
+      title={`${n} independent sources reported this`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-tertiary)',
+        background: 'var(--color-background-tertiary)',
+        borderRadius: 5, padding: '1px 6px', verticalAlign: 'middle',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {n} sources
+    </span>
+  );
+}
+
+// ── Contradiction flag (IC4) ──────────────────────────────────────────────────
+
+function ContradictionBadge({ urls }: { urls: (string | undefined)[] }) {
+  const map = useContext(ContradictionCtx);
+  let note: string | undefined;
+  for (const u of urls) {
+    if (u && map.has(u)) { note = map.get(u); break; }
+  }
+  if (!note) return null;
+  return (
+    <span
+      title={`Disputed — ${note}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        fontSize: 10.5, fontWeight: 600, color: '#B45309',
+        background: '#FBF1E6', border: '1px solid #F3D9B8',
+        borderRadius: 5, padding: '1px 6px', verticalAlign: 'middle',
+        whiteSpace: 'nowrap', cursor: 'help',
+      }}
+    >
+      ⚠️ Disputed
+    </span>
+  );
+}
+
+// ── Bottom-line hero lede ─────────────────────────────────────────────────────
+
+function HeroLede({ text }: { text: string }) {
+  return (
+    <div style={{
+      borderLeft: '3px solid var(--tb-green)',
+      paddingLeft: 13, margin: '2px 0 18px',
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+        color: 'var(--tb-green)', marginBottom: 5,
+      }}>
+        Bottom line
+      </div>
+      <p style={{
+        fontSize: 15.5, lineHeight: 1.5, fontWeight: 500,
+        color: 'var(--color-text-primary)', margin: 0,
+      }}>
+        {inlineFormat(text)}
+      </p>
+    </div>
+  );
+}
+
 // ── Brief section renderer ──────────────────────────────────────────────────
 
 function BriefSection({ section, idx, seen }: { section: BriefSection; idx: number; seen: boolean }) {
@@ -402,12 +501,18 @@ function BriefSection({ section, idx, seen }: { section: BriefSection; idx: numb
   return (
     <div key={idx} style={{ marginBottom: 18 }}>
       {section.heading && (
-        <p style={{
-          fontSize: 13, fontWeight: 650, color: 'var(--color-text-primary)',
-          margin: '0 0 6px', letterSpacing: '0.01em',
-        }}>
-          {section.heading}
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '0 0 6px' }}>
+          <span style={{
+            width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+            background: 'var(--tb-green)', opacity: 0.7,
+          }} />
+          <p style={{
+            fontSize: 13, fontWeight: 650, color: 'var(--color-text-primary)',
+            margin: 0, letterSpacing: '0.01em',
+          }}>
+            {section.heading}
+          </p>
+        </div>
       )}
       <div style={{ fontSize: 14, color: 'var(--color-text-primary)', lineHeight: 1.65 }}>
         {bodyLines.map((line, li) => renderBodyLine(line, li))}
@@ -478,11 +583,13 @@ function StateOfPlayBlock({ sop }: { sop: StateOfPlay | null }) {
 // ── Brief bubble ───────────────────────────────────────────────────────────
 
 function BriefBubble({ brief, isLast, seen }: { brief: Brief; isLast: boolean; seen: boolean }) {
-  const body = parseContent(brief.content);
-  const isError = body.toLowerCase().includes('error generating') || body.length < 30;
+  const fullBody = parseContent(brief.content);
+  const isError = fullBody.toLowerCase().includes('error generating') || fullBody.length < 30;
 
   if (isError) return null;
 
+  // Lift the "📌 Bottom line" out of the body so it renders as a hero lede.
+  const { lede, body } = extractLede(fullBody);
   const sections = parseBriefSections(body);
   // Collect all unique domains for the footer
   const allDomains = Array.from(new Set(sections.flatMap(s => s.sources.map(c => c.domain)))).slice(0, 8);
@@ -500,6 +607,7 @@ function BriefBubble({ brief, isLast, seen }: { brief: Brief; isLast: boolean; s
         border: '1px solid var(--color-border-tertiary)',
         boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
       }}>
+        {lede && <HeroLede text={lede} />}
         {sections.map((s, i) => <BriefSection key={i} section={s} idx={i} seen={seen} />)}
       </div>
 
@@ -933,6 +1041,17 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     return map;
   }, [knownFacts]);
 
+  // IC4 — map full article URL → contradiction note, for the ⚠️ Disputed badge.
+  const contradictionByUrl = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of knownFacts) {
+      if (item.source_url && item.contradiction_note) {
+        map.set(item.source_url, item.contradiction_note);
+      }
+    }
+    return map;
+  }, [knownFacts]);
+
   // When briefs load, record all current brief IDs as seen
   useEffect(() => {
     if (isLoading || briefs.length === 0) return;
@@ -965,6 +1084,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
 
   return (
     <DomainAlphasCtx.Provider value={domainAlphas}>
+    <ContradictionCtx.Provider value={contradictionByUrl}>
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Sticky header */}
       <div style={{
@@ -1092,6 +1212,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         </div>
       )}
     </div>
+    </ContradictionCtx.Provider>
     </DomainAlphasCtx.Provider>
   );
 }
