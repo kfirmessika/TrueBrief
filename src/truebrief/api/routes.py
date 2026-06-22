@@ -1000,6 +1000,18 @@ def mark_feed_seen(body: SeenRequest = SeenRequest(), user: User = Depends(get_c
     return {"ok": True}
 
 
+@router.get("/feed/digest")
+def get_feed_digest(user: User = Depends(get_current_user)):
+    """The same delta feed in the DIGEST envelope (§13) — everything new since the
+    user's last digest (last_digest_at), for the in-app dated digest card. Read-only:
+    viewing the mirror does not advance the anchor (the email send does)."""
+    from datetime import datetime as _dt, timezone as _tz
+    from truebrief.ledger.delta_engine import get_delta_feed
+    feed = get_delta_feed(user.id, anchor="digest")
+    feed["date_label"] = _dt.now(_tz.utc).strftime("%a %b %d")
+    return feed
+
+
 # ---------------------------------------------------------------------------
 # Topic facts (for the thread-based topic view)
 # ---------------------------------------------------------------------------

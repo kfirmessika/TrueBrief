@@ -28,14 +28,57 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from truebrief.tasks.celery_app import celery_app
+from truebrief.ledger.delta_engine import get_delta_feed, advance_digest
 
 logger = logging.getLogger(__name__)
 
-# Lookback windows with a 1-hour buffer to handle scheduler drift
-_LOOKBACK_HOURS: dict[str, int] = {
-    "daily": 25,
-    "weekly": 169,
-}
+# A weekly subscriber is only "due" once ~7 days have passed since their last digest.
+_WEEKLY_MIN_DAYS = 6.5
+
+
+def _age_label(first_seen_at) -> str:
+    """Compact 'how long ago we first saw it' label, e.g. '2h' / '3d'."""
+    if not first_seen_at:
+        return ""
+    try:
+        s = str(first_seen_at).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return ""
+    mins = max(int((datetime.now(timezone.utc) - dt).total_seconds() // 60), 0)
+    if mins < 60:
+        return f"{mins}m"
+    hrs = mins // 60
+    if hrs < 24:
+        return f"{hrs}h"
+    return f"{hrs // 24}d"
+
+
+def _weekly_due(db, user_id: str) -> bool:
+    """True if a weekly user's most recent last_digest_at is ~7+ days old.
+    Missing state (pre-019) → treat as due so they still get a digest."""
+    try:
+        res = (
+            db.table("user_topic_state")
+            .select("last_digest_at")
+            .eq("user_id", user_id)
+            .order("last_digest_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return True
+        last = res.data[0].get("last_digest_at")
+        if not last:
+            return True
+        dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt) >= timedelta(days=_WEEKLY_MIN_DAYS)
+    except Exception:
+        return True  # table missing / error → don't block delivery
 
 
 @celery_app.task(
@@ -94,7 +137,12 @@ def send_digest_task() -> dict:
 
 def _process_user(db, user_id: str, frequency: str, send_fn, render_fn) -> str:
     """
-    Handle one user's digest. Returns 'sent' or 'skipped'.
+    Handle one user's V3 fact-delta digest (§13 — same feed, digest envelope).
+    Returns 'sent' or 'skipped'.
+
+    The digest is the per-user delta feed (§8) anchored on last_digest_at: everything
+    new since the last digest, grouped by topic. After a successful send we advance
+    last_digest_at so the next digest starts where this one ended ("two markers, one feed").
 
     Args:
         db:        Supabase client.
@@ -102,109 +150,52 @@ def _process_user(db, user_id: str, frequency: str, send_fn, render_fn) -> str:
         frequency: 'daily' | 'weekly'.
         send_fn:   Injected send function (allows mocking in tests).
         render_fn: Injected render function (allows mocking in tests).
-
-    Returns:
-        'sent' or 'skipped'
     """
-    # 1. Resolve user email and display name
+    # 1. Resolve user email and display name.
     user_res = db.table("users").select("email").eq("id", user_id).execute()
     if not user_res.data:
         logger.warning("User %s not found in users table, skipping.", user_id)
         return "skipped"
-
     user_email: str = user_res.data[0]["email"]
-    user_name: str = user_email.split("@")[0]  # friendly fallback name
+    user_name: str = user_email.split("@")[0]
 
-    # 2. Determine lookback window
-    lookback_hours = _LOOKBACK_HOURS.get(frequency, 25)
-    since = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
-    since_iso = since.isoformat()
-
-    # 3. Get all topic_ids the user is subscribed to
-    subs_res = (
-        db.table("topic_subscriptions")
-        .select("topic_id")
-        .eq("user_id", user_id)
-        .execute()
-    )
-    topic_ids = [s["topic_id"] for s in (subs_res.data or [])]
-
-    if not topic_ids:
-        logger.debug("User %s has no subscriptions, skipping.", user_id)
+    # 2. Weekly cadence gate (daily always proceeds).
+    if frequency == "weekly" and not _weekly_due(db, user_id):
+        logger.debug("Weekly user %s not due yet, skipping.", user_id)
         return "skipped"
 
-    # 4. Fetch topics for name lookup
-    topics_res = (
-        db.table("topics")
-        .select("id, raw_query")
-        .in_("id", topic_ids)
-        .execute()
-    )
-    topic_map: dict[str, str] = {
-        t["id"]: t["raw_query"] for t in (topics_res.data or [])
-    }
-
-    # 5. Fetch recent briefs (most recent per topic within the window)
-    briefs_res = (
-        db.table("briefs")
-        .select("id, topic_id, content, delivered_at")
-        .in_("topic_id", topic_ids)
-        .gte("delivered_at", since_iso)
-        .order("delivered_at", desc=True)
-        .execute()
-    )
-    all_briefs = briefs_res.data or []
-
-    # One brief per topic (the most recent, since results are ordered desc)
-    seen_topics: set[str] = set()
-    digest_briefs: list[dict] = []
-    for brief in all_briefs:
-        tid = brief["topic_id"]
-        if tid in seen_topics:
-            continue
-        seen_topics.add(tid)
-
-        # Build a clean preview (strip markdown)
-        preview = (
-            brief["content"]
-            .replace("#", "")
-            .replace("*", "")
-            .replace("`", "")
-            .replace("_", "")
-            .replace("\n", " ")
-            .strip()
-        )[:200]
-
-        # Format the date for display
-        raw_date = brief.get("delivered_at", "")
-        try:
-            dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
-            friendly_date = dt.strftime("%B %d, %Y at %H:%M UTC")
-        except Exception:
-            friendly_date = raw_date
-
-        digest_briefs.append(
-            {
-                "topic_name": topic_map.get(tid, "Intelligence Brief"),
-                "brief_id": brief["id"],
-                "summary_preview": preview,
-                "delivered_at": friendly_date,
-            }
-        )
-
-    if not digest_briefs:
-        logger.debug("No new briefs for user %s in last %dh, skipping.", user_id, lookback_hours)
+    # 3. Assemble the delta feed since the user's last digest.
+    feed = get_delta_feed(user_id, anchor="digest", db=db)
+    if feed.get("all_quiet") or not feed.get("topics"):
+        logger.debug("Nothing new for user %s since last digest, skipping.", user_id)
         return "skipped"
 
-    # 6. Render HTML
-    html = render_fn(user_name=user_name, briefs=digest_briefs)
+    # 4. Shape topics for the template (add compact age labels).
+    render_topics = [
+        {
+            "topic_name": t["topic_name"],
+            "facts": [
+                {
+                    "text":          f["text"],
+                    "source_domain": f.get("source_domain"),
+                    "event_class":   f.get("event_class"),
+                    "age_label":     _age_label(f.get("first_seen_at")),
+                }
+                for f in t["facts"]
+            ],
+        }
+        for t in feed["topics"]
+    ]
+    total = feed.get("total", sum(len(t["facts"]) for t in render_topics))
+    date_label = datetime.now(timezone.utc).strftime("%a %b %d")
 
-    # 7. Build subject line
-    topic_count = len(digest_briefs)
-    subject = (
-        f"Your TrueBrief Digest — {topic_count} new brief{'s' if topic_count != 1 else ''}"
-    )
-
-    # 8. Send
+    # 5. Render + send.
+    html = render_fn(user_name=user_name, date_label=date_label, total=total, topics=render_topics)
+    subject = f"Your brief · {date_label} — {total} new"
     ok = send_fn(to_email=user_email, subject=subject, html_body=html)
-    return "sent" if ok else "skipped"
+    if not ok:
+        return "skipped"
+
+    # 6. Advance the digest anchor so tomorrow's digest starts here.
+    advance_digest(user_id, db=db)
+    return "sent"

@@ -1,10 +1,11 @@
 """
 Unit Tests — tests/test_digest.py
 
-Tests for the email digest feature (Step 3.15).
+Tests for the V3 fact-delta email digest (§13 — same delta feed, digest envelope).
+The digest is assembled from the per-user delta engine (anchor=last_digest_at), not
+from stored brief documents.
 
-All tests are pure unit tests: no network calls, no Supabase, no Resend.
-External dependencies are mocked via unittest.mock.
+All tests are pure unit tests: no network, no Supabase, no Resend — externals mocked.
 
 Run with:
   pytest tests/test_digest.py -v
@@ -12,28 +13,29 @@ Run with:
 
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures — the fact-delta shape render_digest now expects
 # ---------------------------------------------------------------------------
 
-SAMPLE_BRIEFS = [
+SAMPLE_TOPICS = [
     {
         "topic_name": "AI Regulation",
-        "brief_id": "brief-001",
-        "summary_preview": "The EU passed new AI Act amendments covering open-source models",
-        "delivered_at": "May 18, 2026 at 08:00 UTC",
+        "facts": [
+            {"text": "The EU passed new AI Act amendments covering open-source models.",
+             "source_domain": "reuters.com", "event_class": "state_change", "age_label": "3h"},
+            {"text": "France objected to the open-weight carve-out.",
+             "source_domain": "politico.eu", "event_class": "development", "age_label": "9h"},
+        ],
     },
     {
         "topic_name": "Semiconductor Supply",
-        "brief_id": "brief-002",
-        "summary_preview": "TSMC announced a new fab in Arizona with 2nm capacity",
-        "delivered_at": "May 18, 2026 at 07:45 UTC",
+        "facts": [
+            {"text": "TSMC announced a new fab in Arizona with 2nm capacity.",
+             "source_domain": "bloomberg.com", "event_class": "development", "age_label": "1d"},
+        ],
     },
 ]
 
@@ -43,34 +45,34 @@ SAMPLE_BRIEFS = [
 # ---------------------------------------------------------------------------
 
 def test_render_digest_html():
-    """Rendered HTML must contain user name, brief data, and CTA links."""
+    """Rendered HTML must contain the greeting, dated header, topics, facts, and close."""
     from truebrief.digest.renderer import render_digest
 
-    html = render_digest(user_name="Alice", briefs=SAMPLE_BRIEFS)
+    html = render_digest(user_name="Alice", date_label="Tue Jun 16", total=3, topics=SAMPLE_TOPICS)
 
     assert "Alice" in html
+    assert "Tue Jun 16" in html
     assert "AI Regulation" in html
     assert "Semiconductor Supply" in html
-    assert "Read Full Brief" in html
-    assert "brief-001" in html
-    assert "brief-002" in html
+    assert "TSMC announced a new fab in Arizona" in html
+    assert "3 new across 2 topic" in html
+    assert "That's everything" in html
     assert "unsubscribe" in html.lower()
 
 
 # ---------------------------------------------------------------------------
-# 2. render_digest — empty briefs
+# 2. render_digest — empty digest
 # ---------------------------------------------------------------------------
 
 def test_render_digest_empty():
-    """Rendering with an empty brief list must not raise and produce valid HTML."""
+    """Rendering with no topics must not raise and shows the all-caught-up copy."""
     from truebrief.digest.renderer import render_digest
 
-    html = render_digest(user_name="Bob", briefs=[])
+    html = render_digest(user_name="Bob", date_label="Wed Jun 17", total=0, topics=[])
 
     assert "Bob" in html
     assert "<html" in html.lower()
-    # Should show the empty-state message
-    assert "No new briefs" in html
+    assert "caught up" in html.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +81,6 @@ def test_render_digest_empty():
 
 def test_send_email_no_key():
     """send_digest_email must return False (not raise) when RESEND_API_KEY is not set."""
-    # Patch the module-level constant directly
     with patch("truebrief.digest.mailer.RESEND_API_KEY", ""):
         from truebrief.digest.mailer import send_digest_email
 
@@ -105,7 +106,6 @@ def test_send_email_api_error():
         patch("truebrief.digest.mailer.RESEND_API_KEY", "re_test_key"),
         patch.dict("sys.modules", {"resend": mock_resend}),
     ):
-        # Re-import so it picks up the patched module
         import importlib
         import truebrief.digest.mailer as mailer_mod
         importlib.reload(mailer_mod)
@@ -119,168 +119,128 @@ def test_send_email_api_error():
     assert result is False
 
 
-# ---------------------------------------------------------------------------
-# 5. digest_task — skip when no recent briefs
-# ---------------------------------------------------------------------------
-
-def test_digest_task_skip_no_briefs():
-    """
-    _process_user must return 'skipped' when there are no briefs in the window.
-    """
-    from truebrief.tasks.digest_task import _process_user
-
+def _db_with_email(email: str = "user@example.com") -> MagicMock:
+    """A MagicMock db whose users lookup returns one email row."""
     db = MagicMock()
-
-    # User exists
     db.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
-        {"email": "alice@example.com"}
+        {"email": email}
     ]
+    return db
 
-    # Subscribed to one topic
-    subs_mock = MagicMock()
-    subs_mock.data = [{"topic_id": "topic-aaa"}]
 
-    # Topic name lookup
-    topics_mock = MagicMock()
-    topics_mock.data = [{"id": "topic-aaa", "raw_query": "AI regulation"}]
+# ---------------------------------------------------------------------------
+# 5. _process_user — skip when the delta feed is all-quiet
+# ---------------------------------------------------------------------------
 
-    # No recent briefs
-    briefs_mock = MagicMock()
-    briefs_mock.data = []
+def test_digest_task_skip_all_quiet():
+    """_process_user returns 'skipped' when nothing is new since the last digest."""
+    from truebrief.tasks import digest_task
 
-    # Chain: table("X").select().eq().execute()  vs  table("X").select().in_().gte().order().execute()
-    # We use side_effect on db.table to return different mocks per table name.
-    def table_router(table_name):
-        m = MagicMock()
-        if table_name == "users":
-            m.select.return_value.eq.return_value.execute.return_value.data = [
-                {"email": "alice@example.com"}
-            ]
-        elif table_name == "topic_subscriptions":
-            m.select.return_value.eq.return_value.execute.return_value = subs_mock
-        elif table_name == "topics":
-            m.select.return_value.in_.return_value.execute.return_value = topics_mock
-        elif table_name == "briefs":
-            m.select.return_value.in_.return_value.gte.return_value.order.return_value.execute.return_value = briefs_mock
-        return m
+    db = _db_with_email("alice@example.com")
+    quiet_feed = {"all_quiet": True, "total": 0, "topic_count": 2, "topics": []}
 
-    db.table.side_effect = table_router
-
-    result = _process_user(
-        db=db,
-        user_id="user-111",
-        frequency="daily",
-        send_fn=MagicMock(),
-        render_fn=MagicMock(),
-    )
+    with patch.object(digest_task, "get_delta_feed", return_value=quiet_feed):
+        result = digest_task._process_user(
+            db=db, user_id="user-111", frequency="daily",
+            send_fn=MagicMock(), render_fn=MagicMock(),
+        )
 
     assert result == "skipped"
 
 
 # ---------------------------------------------------------------------------
-# 6. digest_task — sends when briefs exist
+# 6. _process_user — sends when the delta feed has new facts
 # ---------------------------------------------------------------------------
 
 def test_digest_task_sends():
-    """
-    _process_user must return 'sent' when there are recent briefs and send_fn returns True.
-    """
-    from truebrief.tasks.digest_task import _process_user
+    """_process_user returns 'sent', renders, sends, and advances the digest anchor."""
+    from truebrief.tasks import digest_task
 
-    db = MagicMock()
-
-    subs_mock = MagicMock()
-    subs_mock.data = [{"topic_id": "topic-bbb"}]
-
-    topics_mock = MagicMock()
-    topics_mock.data = [{"id": "topic-bbb", "raw_query": "TSMC chips"}]
-
-    briefs_mock = MagicMock()
-    briefs_mock.data = [
-        {
-            "id": "brief-xyz",
-            "topic_id": "topic-bbb",
-            "content": "TSMC announced a new fab in Arizona.",
-            "delivered_at": "2026-05-18T08:00:00+00:00",
-        }
-    ]
-
-    def table_router(table_name):
-        m = MagicMock()
-        if table_name == "users":
-            m.select.return_value.eq.return_value.execute.return_value.data = [
-                {"email": "bob@example.com"}
-            ]
-        elif table_name == "topic_subscriptions":
-            m.select.return_value.eq.return_value.execute.return_value = subs_mock
-        elif table_name == "topics":
-            m.select.return_value.in_.return_value.execute.return_value = topics_mock
-        elif table_name == "briefs":
-            m.select.return_value.in_.return_value.gte.return_value.order.return_value.execute.return_value = briefs_mock
-        return m
-
-    db.table.side_effect = table_router
-
+    db = _db_with_email("bob@example.com")
+    feed = {
+        "all_quiet": False, "total": 1, "topic_count": 1,
+        "topics": [{
+            "topic_id": "topic-bbb", "topic_name": "TSMC chips", "new_count": 1,
+            "facts": [{
+                "text": "TSMC announced a new fab in Arizona.",
+                "context": None, "event_class": "development",
+                "event_date": "2026-05-18", "first_seen_at": "2026-05-18T08:00:00+00:00",
+                "source_domain": "bloomberg.com", "source_url": "https://bloomberg.com/x",
+                "verified_count": 2,
+            }],
+        }],
+    }
     mock_send = MagicMock(return_value=True)
     mock_render = MagicMock(return_value="<html>digest</html>")
 
-    result = _process_user(
-        db=db,
-        user_id="user-222",
-        frequency="daily",
-        send_fn=mock_send,
-        render_fn=mock_render,
-    )
+    with (
+        patch.object(digest_task, "get_delta_feed", return_value=feed),
+        patch.object(digest_task, "advance_digest") as mock_advance,
+    ):
+        result = digest_task._process_user(
+            db=db, user_id="user-222", frequency="daily",
+            send_fn=mock_send, render_fn=mock_render,
+        )
 
     assert result == "sent"
     mock_render.assert_called_once()
     mock_send.assert_called_once()
+    mock_advance.assert_called_once()      # digest anchor advanced after send
 
-    call_kwargs = mock_send.call_args
-    assert call_kwargs.kwargs["to_email"] == "bob@example.com"
-    assert "TSMC" in call_kwargs.kwargs["subject"] or "brief" in call_kwargs.kwargs["subject"].lower()
+    # render got the fact-delta shape
+    render_kwargs = mock_render.call_args.kwargs
+    assert render_kwargs["total"] == 1
+    assert render_kwargs["topics"][0]["topic_name"] == "TSMC chips"
+    assert render_kwargs["topics"][0]["facts"][0]["age_label"]  # computed, non-empty
+
+    send_kwargs = mock_send.call_args.kwargs
+    assert send_kwargs["to_email"] == "bob@example.com"
+    assert "new" in send_kwargs["subject"].lower()
 
 
 # ---------------------------------------------------------------------------
-# 7. digest settings upsert logic
+# 7. _process_user — weekly user not yet due is skipped
+# ---------------------------------------------------------------------------
+
+def test_digest_task_weekly_not_due():
+    """A weekly user whose last digest is recent is skipped without building a feed."""
+    from truebrief.tasks import digest_task
+
+    db = _db_with_email("weekly@example.com")
+
+    with (
+        patch.object(digest_task, "_weekly_due", return_value=False),
+        patch.object(digest_task, "get_delta_feed") as mock_feed,
+    ):
+        result = digest_task._process_user(
+            db=db, user_id="user-333", frequency="weekly",
+            send_fn=MagicMock(), render_fn=MagicMock(),
+        )
+
+    assert result == "skipped"
+    mock_feed.assert_not_called()          # gated before assembling the feed
+
+
+# ---------------------------------------------------------------------------
+# 8. digest settings logic (unchanged)
 # ---------------------------------------------------------------------------
 
 def test_digest_settings_defaults():
-    """
-    get_digest_settings should return sensible defaults even when no DB row exists.
-    The default: enabled=True, frequency='daily', send_hour_utc=8.
-    """
-    # We test the FastAPI endpoint logic indirectly by calling the DB branch
-    # that returns no data and checking the defaults the endpoint constructs.
-
-    # Simulate the "no row exists" code path from digest_routes.get_digest_settings
-    row_data = None  # pretend DB returned nothing
-
-    enabled = True
-    frequency = "daily"
-    send_hour_utc = 8
-
+    """get_digest_settings returns sensible defaults when no DB row exists."""
+    row_data = None
+    enabled, frequency, send_hour_utc = True, "daily", 8
     if row_data:
         enabled = row_data["enabled"]
         frequency = row_data["frequency"]
         send_hour_utc = row_data["send_hour_utc"]
-
     assert enabled is True
     assert frequency == "daily"
     assert send_hour_utc == 8
 
 
 def test_digest_settings_upsert_values():
-    """
-    Upserted settings should contain exactly the values from the request body.
-    """
-    upsert_data = {
-        "user_id": "user-999",
-        "enabled": False,
-        "frequency": "weekly",
-        "send_hour_utc": 18,
-    }
-
+    """Upserted settings contain exactly the request-body values."""
+    upsert_data = {"user_id": "user-999", "enabled": False, "frequency": "weekly", "send_hour_utc": 18}
     assert upsert_data["enabled"] is False
     assert upsert_data["frequency"] == "weekly"
     assert upsert_data["send_hour_utc"] == 18

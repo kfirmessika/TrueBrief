@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { Check } from 'lucide-react';
 
 // ── Types (architecture §8 — per-user delta feed) ────────────────────────────
@@ -28,7 +29,10 @@ interface Feed {
   total: number;
   topic_count: number;
   topics: FeedTopic[];
+  date_label?: string;   // digest envelope only
 }
+
+type Envelope = 'live' | 'digest';
 
 // Only high-signal classes get a chip; everything else stays quiet (§13 subtraction).
 const CLASS_CHIP: Record<string, { label: string; color: string; bg: string }> = {
@@ -82,22 +86,26 @@ export default function DashboardPage() {
   const router = useRouter();
   const qc = useQueryClient();
 
+  // Two envelopes, one feed (§13): the live window vs the dated daily digest.
+  const [envelope, setEnvelope] = useState<Envelope>('live');
+  const isDigest = envelope === 'digest';
+
   const { data, isLoading } = useQuery<Feed>({
-    queryKey: ['feed'],
-    queryFn: async () => (await api.get('/feed')).data,
+    queryKey: ['feed', envelope],
+    queryFn: async () => (await api.get(isDigest ? '/feed/digest' : '/feed')).data,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
 
-  // Advance last_seen so the next look shows "all caught up" (§8).
+  // Advance last_seen so the next look shows "all caught up" (§8). Live only.
   const markAllSeen = async () => {
     try { await api.post('/feed/seen', {}); } catch { /* non-fatal */ }
-    qc.invalidateQueries({ queryKey: ['feed'] });
+    qc.invalidateQueries({ queryKey: ['feed', 'live'] });
   };
 
   const openTopic = (tid: string) => {
-    // Mark just this topic seen (we've read it), then navigate.
-    api.post('/feed/seen', { topic_ids: [tid] }).catch(() => {});
+    // Mark just this topic seen (we've read it), then navigate. Live only.
+    if (!isDigest) api.post('/feed/seen', { topic_ids: [tid] }).catch(() => {});
     router.push(`/topics/${tid}`);
   };
 
@@ -105,35 +113,59 @@ export default function DashboardPage() {
   const topics = data?.topics ?? [];
   const allQuiet = !isLoading && (data?.all_quiet ?? topics.length === 0);
 
+  const EnvelopeToggle = (
+    <div style={{ display: 'inline-flex', background: 'var(--color-background-tertiary)', borderRadius: 8, padding: 2 }}>
+      {(['live', 'digest'] as Envelope[]).map(env => (
+        <button
+          key={env}
+          onClick={() => setEnvelope(env)}
+          style={{
+            fontSize: 12, fontWeight: envelope === env ? 600 : 400,
+            color: envelope === env ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+            background: envelope === env ? 'var(--color-background-primary)' : 'transparent',
+            border: 'none', borderRadius: 6, padding: '3px 11px', cursor: 'pointer',
+            boxShadow: envelope === env ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+          }}
+        >
+          {env === 'live' ? 'Today' : 'Daily digest'}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div style={{ flex: 1 }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '20px 22px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '20px 22px 14px', gap: 12 }}>
         <div>
           <p style={{ fontSize: 20, fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>
-            Today
+            {isDigest ? `Your brief · ${data?.date_label ?? 'today'}` : 'Today'}
           </p>
           {!isLoading && !allQuiet && (
             <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '3px 0 0' }}>
               <span style={{ color: 'var(--tb-green)' }}>●</span>{' '}
-              {total} new across {topics.length} {topics.length === 1 ? 'topic' : 'topics'} since you looked
+              {total} new across {topics.length} {topics.length === 1 ? 'topic' : 'topics'}{' '}
+              {isDigest ? 'since your last digest' : 'since you looked'}
             </p>
           )}
         </div>
-        {!isLoading && !allQuiet && (
-          <button
-            onClick={markAllSeen}
-            title="Mark everything as seen"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              fontSize: 12, color: 'var(--color-text-secondary)',
-              background: 'none', border: '1px solid var(--color-border-secondary)',
-              borderRadius: 8, padding: '4px 10px', cursor: 'pointer',
-            }}
-          >
-            <Check size={13} /> Mark all caught up
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {!isDigest && !isLoading && !allQuiet && (
+            <button
+              onClick={markAllSeen}
+              title="Mark everything as seen"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 12, color: 'var(--color-text-secondary)',
+                background: 'none', border: '1px solid var(--color-border-secondary)',
+                borderRadius: 8, padding: '4px 10px', cursor: 'pointer',
+              }}
+            >
+              <Check size={13} /> Mark all caught up
+            </button>
+          )}
+          {EnvelopeToggle}
+        </div>
       </div>
 
       <div style={{ padding: '0 22px 28px' }}>
@@ -164,7 +196,9 @@ export default function DashboardPage() {
             </p>
             <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: 0 }}>
               {data && data.topic_count > 0
-                ? `Nothing new across your ${data.topic_count} ${data.topic_count === 1 ? 'topic' : 'topics'}.`
+                ? isDigest
+                  ? 'Nothing new since your last digest.'
+                  : `Nothing new across your ${data.topic_count} ${data.topic_count === 1 ? 'topic' : 'topics'}.`
                 : 'Add a topic to start tracking.'}
             </p>
           </div>
@@ -211,6 +245,13 @@ export default function DashboardPage() {
             </div>
           );
         })}
+
+        {/* Digest envelope: explicit close (§13) */}
+        {isDigest && !isLoading && !allQuiet && (
+          <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--color-text-tertiary)', margin: '18px 0 4px' }}>
+            That&apos;s everything. See you tomorrow.
+          </p>
+        )}
       </div>
     </div>
   );

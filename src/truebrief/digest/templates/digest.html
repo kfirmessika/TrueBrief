@@ -3,89 +3,65 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Your TrueBrief Digest</title>
+  <title>Your TrueBrief Daily Digest</title>
 </head>
 <body style="margin:0;padding:0;background-color:#0f1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 
-  <!-- Wrapper -->
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0f1117;padding:32px 16px;">
     <tr>
       <td align="center">
 
-        <!-- Card -->
         <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#1a1d2e;border-radius:16px;overflow:hidden;border:1px solid #2a2d3e;">
 
           <!-- Header -->
           <tr>
-            <td style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);padding:40px 40px 32px;">
-              <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td>
-                    <p style="margin:0;font-size:13px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.7);">Intelligence Digest</p>
-                    <h1 style="margin:8px 0 0;font-size:28px;font-weight:700;color:#ffffff;line-height:1.2;">TrueBrief</h1>
-                  </td>
-                  <td align="right" valign="middle">
-                    <div style="width:48px;height:48px;background:rgba(255,255,255,0.15);border-radius:12px;display:inline-block;text-align:center;line-height:48px;font-size:24px;">⚡</div>
-                  </td>
-                </tr>
-              </table>
+            <td style="background:linear-gradient(135deg,#0f9d58 0%,#1a7a52 100%);padding:36px 40px 28px;">
+              <p style="margin:0;font-size:13px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.75);">Daily Digest</p>
+              <h1 style="margin:6px 0 0;font-size:26px;font-weight:700;color:#ffffff;line-height:1.2;">Your brief · {{ date_label }}</h1>
             </td>
           </tr>
 
-          <!-- Greeting -->
+          <!-- Greeting + count ceremony -->
           <tr>
-            <td style="padding:32px 40px 0;">
-              <h2 style="margin:0 0 8px;font-size:22px;font-weight:600;color:#e2e4f0;">Hi {{ user_name }},</h2>
+            <td style="padding:28px 40px 0;">
+              <h2 style="margin:0 0 6px;font-size:20px;font-weight:600;color:#e2e4f0;">Hi {{ user_name }},</h2>
+              {% if total > 0 %}
               <p style="margin:0;font-size:15px;color:#8b8fa8;line-height:1.6;">
-                Here's your intelligence digest — everything new across your tracked topics.
+                <span style="color:#0f9d58;">&#9679;</span> {{ total }} new across {{ topics|length }} topic{{ 's' if topics|length != 1 else '' }} since your last digest.
               </p>
+              {% else %}
+              <p style="margin:0;font-size:15px;color:#8b8fa8;line-height:1.6;">
+                Nothing new since your last digest — you're all caught up.
+              </p>
+              {% endif %}
             </td>
           </tr>
 
-          {% if briefs %}
-
-          <!-- Divider -->
+          {% for topic in topics %}
           <tr>
-            <td style="padding:24px 40px 0;">
-              <div style="height:1px;background:linear-gradient(90deg,#6366f1,transparent);"></div>
-            </td>
-          </tr>
-
-          <!-- Brief Cards -->
-          {% for brief in briefs %}
-          <tr>
-            <td style="padding:{% if loop.first %}24px{% else %}16px{% endif %} 40px 0;">
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#222538;border-radius:12px;border:1px solid #2e3150;overflow:hidden;">
+            <td style="padding:{% if loop.first %}24px{% else %}20px{% endif %} 40px 0;">
+              <!-- Topic label -->
+              <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0f9d58;">
+                {{ topic.topic_name }}
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#222538;border-radius:12px;border:1px solid #2e3150;">
                 <tr>
-                  <td style="padding:24px;">
-
-                    <!-- Topic badge -->
-                    <p style="margin:0 0 12px;display:inline-block;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6366f1;background:rgba(99,102,241,0.12);padding:4px 10px;border-radius:20px;">
-                      {{ brief.topic_name }}
-                    </p>
-
-                    <!-- Preview text -->
-                    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:#c4c7da;">
-                      {{ brief.summary_preview }}…
-                    </p>
-
-                    <!-- CTA -->
-                    <table cellpadding="0" cellspacing="0" border="0">
+                  <td style="padding:18px 20px;">
+                    {% for fact in topic.facts %}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:{% if not loop.last %}14px{% else %}0{% endif %};">
                       <tr>
-                        <td style="border-radius:8px;background:linear-gradient(135deg,#6366f1,#8b5cf6);">
-                          <a href="https://app.truebrief.ai/brief/{{ brief.brief_id }}"
-                             style="display:inline-block;padding:10px 22px;font-size:13px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">
-                            Read Full Brief →
-                          </a>
+                        <td style="vertical-align:top;width:14px;padding-top:5px;">
+                          <div style="width:6px;height:6px;border-radius:50%;background:{% if fact.event_class in ['state_change','escalation'] %}#0f9d58{% else %}#545870{% endif %};"></div>
+                        </td>
+                        <td style="vertical-align:top;padding-left:8px;">
+                          <p style="margin:0;font-size:14px;line-height:1.55;color:#c4c7da;">{{ fact.text }}</p>
+                          <p style="margin:4px 0 0;font-size:12px;color:#6b6f87;">
+                            {% if fact.source_domain %}{{ fact.source_domain }}{% endif %}{% if fact.source_domain and fact.age_label %} &nbsp;·&nbsp; {% endif %}{% if fact.age_label %}{{ fact.age_label }}{% endif %}
+                          </p>
                         </td>
                       </tr>
                     </table>
-
-                    <!-- Timestamp -->
-                    <p style="margin:12px 0 0;font-size:12px;color:#545870;">
-                      {{ brief.delivered_at }}
-                    </p>
-
+                    {% endfor %}
                   </td>
                 </tr>
               </table>
@@ -93,34 +69,27 @@
           </tr>
           {% endfor %}
 
-          {% else %}
-
-          <!-- Empty state -->
+          <!-- Explicit close (§13) -->
           <tr>
-            <td style="padding:32px 40px;text-align:center;">
-              <p style="margin:0;font-size:40px;">📭</p>
-              <p style="margin:12px 0 0;font-size:15px;color:#8b8fa8;">
-                No new briefs in the last 24 hours. Check back tomorrow!
+            <td style="padding:28px 40px 0;text-align:center;">
+              <p style="margin:0;font-size:14px;color:#8b8fa8;">
+                {% if total > 0 %}That's everything. See you tomorrow.{% else %}Check back tomorrow.{% endif %}
               </p>
             </td>
           </tr>
 
-          {% endif %}
-
           <!-- Footer -->
           <tr>
-            <td style="padding:32px 40px 40px;">
-              <div style="height:1px;background:#2a2d3e;margin-bottom:24px;"></div>
+            <td style="padding:28px 40px 36px;">
+              <div style="height:1px;background:#2a2d3e;margin-bottom:20px;"></div>
               <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td>
                     <p style="margin:0;font-size:12px;color:#545870;line-height:1.6;">
                       You're receiving this because you have an active TrueBrief account.<br/>
-                      <a href="https://app.truebrief.ai/settings/digest?unsubscribe=true"
-                         style="color:#6366f1;text-decoration:none;">Unsubscribe from digests</a>
+                      <a href="https://app.truebrief.ai/settings?unsubscribe=true" style="color:#0f9d58;text-decoration:none;">Unsubscribe from digests</a>
                       &nbsp;·&nbsp;
-                      <a href="https://app.truebrief.ai/dashboard"
-                         style="color:#6366f1;text-decoration:none;">Go to Dashboard</a>
+                      <a href="https://app.truebrief.ai/dashboard" style="color:#0f9d58;text-decoration:none;">Go to Dashboard</a>
                     </p>
                   </td>
                   <td align="right">
@@ -132,12 +101,10 @@
           </tr>
 
         </table>
-        <!-- /Card -->
 
       </td>
     </tr>
   </table>
-  <!-- /Wrapper -->
 
 </body>
 </html>

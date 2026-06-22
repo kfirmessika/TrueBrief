@@ -1125,6 +1125,14 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const { mutate: markRead } = useMarkBriefsRead();
   useEffect(() => { markRead(id); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // §8 — viewing a topic advances its delta anchor, so the home feed drops it
+  // from "new since you looked". Fire-and-forget; invalidates the live feed.
+  useEffect(() => {
+    api.post('/feed/seen', { topic_ids: [id] })
+      .then(() => qc.invalidateQueries({ queryKey: ['feed', 'live'] }))
+      .catch(() => {});
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Track which brief IDs this user has already seen (persisted in localStorage)
   const [seenBriefIds, setSeenBriefIds] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set();
