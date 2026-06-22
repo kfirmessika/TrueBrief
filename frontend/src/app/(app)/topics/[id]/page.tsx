@@ -668,6 +668,161 @@ function Skeleton() {
   );
 }
 
+// ── History view (V3 §7.2 — the "story so far" timeline) ─────────────────────
+
+interface HistoryFact {
+  text: string;
+  context: string | null;
+  event_class: string | null;
+  event_date: string | null;
+  first_seen_at: string | null;
+  source_domain: string | null;
+  source_url: string | null;
+  verified_count: number;
+  contradiction_note: string | null;
+}
+interface HistoryGroup { date: string; facts: HistoryFact[]; }
+interface HistoryDoc { built_at?: string; fact_count?: number; timeline: HistoryGroup[]; }
+
+// Only high-signal classes get a chip; routine/tally/incremental stay quiet.
+const CLASS_CHIP: Record<string, { label: string; color: string; bg: string }> = {
+  state_change: { label: 'Milestone', color: '#1A7A52', bg: '#E6F5EE' },
+  escalation:   { label: 'Escalation', color: '#B42318', bg: '#FBEAE8' },
+};
+
+function formatDayLabel(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(y, m - 1, d);
+  const now = new Date();
+  const sameYear = dt.getFullYear() === now.getFullYear();
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+function HistoryFactRow({ fact }: { fact: HistoryFact }) {
+  const chip = fact.event_class ? CLASS_CHIP[fact.event_class] : undefined;
+  const domain = fact.source_domain ?? undefined;
+  const favicon = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=32` : null;
+  return (
+    <div style={{ position: 'relative', paddingLeft: 22, paddingBottom: 16 }}>
+      {/* timeline marker */}
+      <span style={{
+        position: 'absolute', left: 0, top: 5, width: 9, height: 9, borderRadius: '50%',
+        background: chip ? chip.color : 'var(--color-border-secondary)',
+        boxShadow: chip ? `0 0 0 3px ${chip.bg}` : 'none',
+      }} />
+      <p style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--color-text-primary)', margin: 0 }}>
+        {fact.text}
+      </p>
+      {fact.context && (
+        <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--color-text-tertiary)', margin: '3px 0 0' }}>
+          {fact.context}
+        </p>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+        {chip && (
+          <span style={{
+            fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 20,
+            background: chip.bg, color: chip.color,
+          }}>
+            {chip.label}
+          </span>
+        )}
+        {domain && (
+          <a href={fact.source_url ?? `https://${domain}`} target="_blank" rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11,
+              color: 'var(--color-text-secondary)', textDecoration: 'none',
+              border: '1px solid var(--color-border-secondary)', borderRadius: 5, padding: '1px 6px 1px 4px',
+            }}>
+            {favicon && <img src={favicon} alt={domain} width={11} height={11} style={{ borderRadius: 2 }}
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />}
+            {domain}
+          </a>
+        )}
+        {fact.verified_count > 1 && (
+          <span title={`${fact.verified_count} independent sources`} style={{
+            fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-tertiary)',
+            background: 'var(--color-background-tertiary)', borderRadius: 5, padding: '1px 6px',
+          }}>
+            {fact.verified_count} sources
+          </span>
+        )}
+        {fact.contradiction_note && (
+          <span title={`Disputed — ${fact.contradiction_note}`} style={{
+            fontSize: 10.5, fontWeight: 600, color: '#B45309',
+            background: '#FBF1E6', border: '1px solid #F3D9B8', borderRadius: 5, padding: '1px 6px', cursor: 'help',
+          }}>
+            ⚠️ Disputed
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HistoryView({ topicId }: { topicId: string }) {
+  const api = useApi();
+  const { data, isLoading } = useQuery<HistoryDoc>({
+    queryKey: ['topic-history', topicId],
+    queryFn: async () => (await api.get(`/topics/${topicId}/history`)).data,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: '24px 22px' }}>
+        {[1, 2, 3].map(i => (
+          <div key={i} style={{ marginBottom: 14, paddingLeft: 22 }}>
+            <div style={{ height: 12, width: '85%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 6 }} />
+            <div style={{ height: 11, width: '60%', background: 'var(--color-background-tertiary)', borderRadius: 4 }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const timeline = data?.timeline ?? [];
+  if (timeline.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', paddingTop: 80 }}>
+        <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
+          No history yet. Run a scan to start the timeline.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '8px 22px 48px' }}>
+      <div style={{
+        fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 14px',
+      }}>
+        {data?.fact_count ?? 0} facts · the story so far, newest first
+      </div>
+      {timeline.map(group => (
+        <div key={group.date} style={{ marginBottom: 8 }}>
+          <div style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            color: 'var(--color-text-secondary)', margin: '6px 0 10px',
+          }}>
+            {formatDayLabel(group.date)}
+          </div>
+          {/* vertical timeline rail */}
+          <div style={{ position: 'relative' }}>
+            <div style={{
+              position: 'absolute', left: 4, top: 4, bottom: 8, width: 1,
+              background: 'var(--color-border-tertiary)',
+            }} />
+            {group.facts.map((f, i) => <HistoryFactRow key={i} fact={f} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Story-native view ──────────────────────────────────────────────────────
 
 const ACTIVE_WINDOW_HOURS = 48;
@@ -918,7 +1073,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const threadRef = useRef<HTMLDivElement>(null);
 
   const storyGraphPaused = process.env.NEXT_PUBLIC_V3_PAUSE_STORY_GRAPH === 'true';
-  const [activeTab, setActiveTab] = useState<'briefs' | 'stories'>('briefs');
+  const [activeTab, setActiveTab] = useState<'briefs' | 'history' | 'stories'>('briefs');
   const [scanError, setScanError] = useState<string | null>(null);
 
   const { mutate: triggerScan, isPending: isScanPending } = useTriggerScan();
@@ -1137,7 +1292,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
 
         {/* Tab bar */}
         <div style={{ display: 'flex', gap: 4, marginTop: 12, borderBottom: '0.5px solid var(--color-border-tertiary)', paddingBottom: 0 }}>
-          {((['briefs', ...(!storyGraphPaused ? ['stories'] : [])] as Array<'briefs' | 'stories'>)).map(tab => (
+          {((['briefs', 'history', ...(!storyGraphPaused ? ['stories'] : [])] as Array<'briefs' | 'history' | 'stories'>)).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -1152,14 +1307,18 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                 transition: 'color 0.1s',
               }}
             >
-              {tab === 'briefs' ? 'Briefs' : 'Stories'}
+              {tab === 'briefs' ? 'Briefs' : tab === 'history' ? 'History' : 'Stories'}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Content: Briefs thread or Stories view */}
-      {activeTab === 'stories' ? (
+      {/* Content: Briefs thread · History timeline · Stories view */}
+      {activeTab === 'history' ? (
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <HistoryView topicId={id} />
+        </div>
+      ) : activeTab === 'stories' ? (
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <StoriesView topicId={id} />
         </div>

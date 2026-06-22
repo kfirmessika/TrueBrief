@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     # IC14 — Targeted follow-up fetch: after the main judging pass, re-query Tavily once
     # per state_change NEW alpha to catch sub-details MMR diversity may have suppressed.
     V3_FOLLOWUP_FETCH: bool = False
+    # History doc (architecture §7.2) — after facts land, rebuild the topic's no-LLM
+    # "story so far" timeline and store it in history_docs. Requires migration 018.
+    V3_HISTORY_DOC: bool = False
 
     # --- Embedding provider ---
     # "gemini"  → gemini-embedding-2 (768 dim, 100 req/min free tier)

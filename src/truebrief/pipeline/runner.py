@@ -568,6 +568,15 @@ class PipelineRunner:
             if settings.V3_STATE_OF_PLAY and topic_id:
                 self._maybe_refresh_state_of_play(decisions, topic_id, query.topic_name)
 
+            # 6b-2. History doc (§7.2) — rebuild the topic's no-LLM "story so far" timeline
+            # whenever new/updated facts landed this run. Pure data, fire-and-forget.
+            if settings.V3_HISTORY_DOC and topic_id and _alphas > 0:
+                try:
+                    from truebrief.ledger.history_doc import store_history_doc
+                    store_history_doc(topic_id)
+                except Exception as _hist_err:
+                    logger.debug("History doc rebuild failed (non-fatal): %s", _hist_err)
+
             end_time = time.time()
             logger.info(f"--- PIPELINE COMPLETE ({end_time - start_time:.1f}s) ---")
             self._trace(

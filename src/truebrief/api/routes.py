@@ -251,6 +251,19 @@ def get_state_of_play(topic_id: str, user: User = Depends(get_current_user)):
     return {"state_of_play": load_state_of_play(topic_id)}
 
 
+@router.get("/topics/{topic_id}/history")
+def get_history(topic_id: str, user: User = Depends(get_current_user)):
+    """Return the V3 history doc (§7.2) — the topic's no-LLM 'story so far' timeline.
+
+    Reads the stored doc when present, falling back to a live build so it works even
+    before the pipeline has rebuilt it (or if migration 018 isn't applied yet)."""
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+    from truebrief.ledger.history_doc import get_history_doc
+    return get_history_doc(topic_id, db=db)
+
+
 @router.delete("/topics/{topic_id}")
 @limiter.limit("30/hour")
 def delete_topic(request: Request, topic_id: str, user: User = Depends(get_current_user)):
