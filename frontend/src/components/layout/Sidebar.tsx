@@ -15,19 +15,16 @@ interface Topic {
   is_active: boolean;
   last_scan_at?: string | null;
   frequency?: string;
+  is_scanning?: boolean;
 }
 
 function StatusDot({ topic }: { topic: Topic }) {
-  const isScanning = false; // TODO: track via scan polling
-  const hasUnread = false;  // TODO: track read state
+  const isScanning = !!topic.is_scanning;  // live signal from the backend (scan_started_at)
   if (isScanning) return (
-    <span style={{
+    <span title="Scanning…" style={{
       width: 7, height: 7, borderRadius: '50%', flexShrink: 0, display: 'inline-block',
       background: 'var(--tb-amber)', animation: 'tb-pulse 1.5s ease-in-out infinite',
     }} />
-  );
-  if (hasUnread) return (
-    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, display: 'inline-block', background: 'var(--tb-coral-dot)' }} />
   );
   return (
     <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, display: 'inline-block', background: 'var(--color-border-secondary)' }} />
@@ -51,7 +48,9 @@ export default function Sidebar() {
       const r = await api.get('/topics');
       return r.data;
     },
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 8_000,          // keep the per-topic scanning dot live
+    refetchOnWindowFocus: true,
   });
 
   const deleteTopic = useMutation({
@@ -68,6 +67,8 @@ export default function Sidebar() {
       if (data?.data?.task_id) {
         localStorage.setItem(`scan_task_${topicId}`, data.data.task_id);
       }
+      // Backend stamped scan_started_at — refresh topics so the dot lights up now.
+      queryClient.invalidateQueries({ queryKey: ['topics'] });
     },
     onError: (err: any, topicId) => {
       const status = err?.response?.status;

@@ -3,8 +3,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { Check } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Check, Loader2 } from 'lucide-react';
 
 // ── Types (architecture §8 — per-user delta feed) ────────────────────────────
 
@@ -97,6 +97,23 @@ export default function DashboardPage() {
     refetchOnWindowFocus: false,
   });
 
+  // Live scan state across all topics — drives the "Scanning…" banner. Shares the
+  // ['topics'] cache the sidebar already polls; when a scan finishes, refresh the feed.
+  const { data: topicList = [] } = useQuery<{ id: string; is_scanning?: boolean }[]>({
+    queryKey: ['topics'],
+    queryFn: async () => (await api.get('/topics')).data,
+    staleTime: 10_000,
+    refetchInterval: 8_000,
+  });
+  const scanningCount = topicList.filter(t => t.is_scanning).length;
+  const prevScanning = useRef(0);
+  useEffect(() => {
+    if (prevScanning.current > 0 && scanningCount === 0) {
+      qc.invalidateQueries({ queryKey: ['feed'] });   // a scan just finished → refresh
+    }
+    prevScanning.current = scanningCount;
+  }, [scanningCount, qc]);
+
   // Advance last_seen so the next look shows "all caught up" (§8). Live only.
   const markAllSeen = async () => {
     try { await api.post('/feed/seen', {}); } catch { /* non-fatal */ }
@@ -169,6 +186,20 @@ export default function DashboardPage() {
       </div>
 
       <div style={{ padding: '0 22px 28px' }}>
+        {/* Live scan banner — so a running scan is always visible on the home */}
+        {scanningCount > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: 'var(--tb-amber-light, #FBF1E6)', border: '0.5px solid #F3D9B8',
+            borderRadius: 10, padding: '9px 13px', marginBottom: 14,
+          }}>
+            <Loader2 size={14} color="#B45309" style={{ animation: 'spin 1s linear infinite' }} />
+            <span style={{ fontSize: 12.5, color: '#92400E' }}>
+              Scanning {scanningCount} {scanningCount === 1 ? 'topic' : 'topics'} for new developments…
+            </span>
+          </div>
+        )}
+
         {/* Loading */}
         {isLoading && (
           <>

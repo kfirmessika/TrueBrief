@@ -67,19 +67,38 @@ class TopicCreate(BaseModel):
     raw_query: str
     poll_interval_seconds: Optional[int] = None  # None = use tier default
 
+def _scan_is_recent(started_at, max_minutes: int = 15) -> bool:
+    """True if scan_started_at is set and within max_minutes (staleness guard: a
+    crashed run that never cleared its stamp must not show 'scanning' forever)."""
+    if not started_at:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+        if dt.tzinfo:
+            dt = dt.replace(tzinfo=None)
+        return (datetime.utcnow() - dt).total_seconds() < max_minutes * 60
+    except Exception:
+        return False
+
+
 class TopicResponse(BaseModel):
     id: str
     raw_query: str
     frequency: Optional[str] = None
     is_active: bool
     last_scan_at: Optional[str] = None
+    scan_started_at: Optional[str] = None
+    is_scanning: bool = False
 
     @model_validator(mode='before')
     @classmethod
-    def _map_last_run_at(cls, data):
-        if isinstance(data, dict) and 'last_run_at' in data and 'last_scan_at' not in data:
+    def _derive_fields(cls, data):
+        if isinstance(data, dict):
             data = dict(data)
-            data['last_scan_at'] = data.get('last_run_at')
+            if 'last_run_at' in data and 'last_scan_at' not in data:
+                data['last_scan_at'] = data.get('last_run_at')
+            # Live scan state, with a staleness guard so a crashed run never sticks "on".
+            data['is_scanning'] = _scan_is_recent(data.get('scan_started_at'))
         return data
 
 class BriefResponse(BaseModel):
@@ -162,6 +181,13 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
                 )
                 _first_task_id = _task.id
                 logger.info(f"First scan enqueued for new topic {topic_record['id']} task={_first_task_id}")
+                # Stamp scanning immediately so the new topic shows a live state at once.
+                try:
+                    db.table("topics").update(
+                        {"scan_started_at": datetime.utcnow().isoformat()}
+                    ).eq("id", topic_record["id"]).execute()
+                except Exception:
+                    pass
             except Exception as sched_err:
                 logger.warning(f"Could not enqueue first scan: {sched_err}")
             # Attach task_id to response so frontend can show progress bar
@@ -381,6 +407,15 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
 
     from truebrief.tasks.pipeline_task import enqueue_pipeline
     task = enqueue_pipeline(topic_id=topic_id, raw_query=raw_query)
+
+    # Stamp scanning immediately so the UI shows a live state before the worker
+    # picks the task up (the task clears it when the run ends).
+    try:
+        db.table("topics").update(
+            {"scan_started_at": datetime.utcnow().isoformat()}
+        ).eq("id", topic_id).execute()
+    except Exception:
+        pass
 
     logger.info(f"Scan queued: topic_id={topic_id} task_id={task.id}")
     return {

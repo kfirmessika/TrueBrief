@@ -20,6 +20,7 @@ interface Topic {
   raw_query: string;
   frequency: string;
   last_scan_at: string | null;
+  is_scanning?: boolean;
 }
 
 interface StoryNode {
@@ -1003,7 +1004,7 @@ const SCAN_STEPS = [
   'Almost done…',
 ];
 
-function ScanProgressBar({ topicId, taskId, onDone }: { topicId: string; taskId: string; onDone: () => void }) {
+function ScanProgressBar({ topicId, taskId, active, onDone }: { topicId: string; taskId: string | null; active: boolean; onDone: () => void }) {
   const { data: status } = useScanStatus(taskId, topicId);
   const [stepIdx, setStepIdx] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -1011,8 +1012,12 @@ function ScanProgressBar({ topicId, taskId, onDone }: { topicId: string; taskId:
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
-  const state = status?.state ?? 'PENDING';
-  const isDone = state === 'SUCCESS' || state === 'FAILURE';
+  // Manual scans (taskId present) complete on the polled task status — works even
+  // if migration 020 isn't applied. Automatic/first scans (no taskId) complete when
+  // the backend scan signal (is_scanning → active) clears.
+  const taskState = status?.state;
+  const taskDone = taskState === 'SUCCESS' || taskState === 'FAILURE';
+  const isDone = taskId ? taskDone : active === false;
 
   useEffect(() => {
     if (isDone) {
@@ -1118,6 +1123,8 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     qc.invalidateQueries({ queryKey: ['topic', id] });
     qc.invalidateQueries({ queryKey: ['topic-briefs', id] });
     qc.invalidateQueries({ queryKey: ['topic-state-of-play', id] });
+    qc.invalidateQueries({ queryKey: ['topic-history', id] });
+    qc.invalidateQueries({ queryKey: ['feed'] });
     qc.invalidateQueries({ queryKey: ['topics'] });
   }, [qc, id]);
 
@@ -1161,7 +1168,13 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     staleTime: 0,               // always treat as stale → re-fetch on every mount
     refetchOnMount: true,
     refetchOnWindowFocus: false,
-    refetchInterval: 60_000,    // silently keep last_scan_at up to date
+    // Poll fast while a scan is running (backend is_scanning OR a local manual task),
+    // so the progress bar completes promptly; idle otherwise.
+    refetchInterval: (q) => {
+      const d = q.state.data as Topic | undefined;
+      const localTask = typeof window !== 'undefined' && !!localStorage.getItem(`scan_task_${id}`);
+      return (d?.is_scanning || localTask) ? 3_000 : 60_000;
+    },
   });
 
   const { data: briefs = [], isLoading } = useQuery<Brief[]>({
@@ -1245,6 +1258,10 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     return !(body.toLowerCase().includes('error generating') || body.length < 30);
   });
 
+  // A scan is "running" if we have a local manual task OR the backend says so
+  // (covers automatic + first scans that the frontend never triggered).
+  const scanning = !!scanTaskId || !!topic?.is_scanning;
+
   return (
     <DomainAlphasCtx.Provider value={domainAlphas}>
     <ContradictionCtx.Provider value={contradictionByUrl}>
@@ -1261,14 +1278,14 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Clock size={11} color="var(--color-text-tertiary)" />
-          {scanTaskId ? (
-            <ScanProgressBar topicId={id} taskId={scanTaskId} onDone={handleScanDone} />
+          {scanning ? (
+            <ScanProgressBar topicId={id} taskId={scanTaskId} active={topic?.is_scanning ?? false} onDone={handleScanDone} />
           ) : (
             <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
               Last scanned {timeAgo(topic?.last_scan_at ?? null)}
             </span>
           )}
-          {!scanTaskId && (
+          {!scanning && (
             <button
               onClick={handleScanNow}
               disabled={isScanPending}

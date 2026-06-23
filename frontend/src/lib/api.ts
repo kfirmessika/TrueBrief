@@ -17,6 +17,8 @@ export interface Topic {
   frequency: string;
   is_active: boolean;
   last_scan_at?: string | null;
+  scan_started_at?: string | null;
+  is_scanning?: boolean;
 }
 
 // Brief Types

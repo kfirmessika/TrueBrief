@@ -38,6 +38,20 @@ def _has_redis() -> bool:
     return bool(os.getenv("REDIS_URL", "").strip())
 
 
+def _set_scanning(topic_id: str, scanning: bool) -> None:
+    """Stamp/clear topics.scan_started_at so every screen can show a live scan state.
+    Wrapped so a pre-migration-020 database (no column) never breaks the pipeline."""
+    if not topic_id:
+        return
+    try:
+        from truebrief.ledger.database import get_supabase
+        from datetime import datetime, timezone
+        value = datetime.now(timezone.utc).isoformat() if scanning else None
+        get_supabase().table("topics").update({"scan_started_at": value}).eq("id", topic_id).execute()
+    except Exception:
+        pass  # column may not exist yet / transient error — never block the scan
+
+
 class _ThreadTaskHandle:
     """Mimics the .id attribute of a Celery AsyncResult so callers are identical."""
     def __init__(self, task_id: str):
@@ -60,6 +74,7 @@ def enqueue_pipeline(topic_id: str, raw_query: str) -> _ThreadTaskHandle:
     def _run():
         with _thread_tasks_lock:
             _thread_tasks[task_id]["state"] = "STARTED"
+        _set_scanning(topic_id, True)
         try:
             # Import here to avoid circular imports at module load time
             from truebrief.pipeline.runner import PipelineRunner
@@ -82,6 +97,8 @@ def enqueue_pipeline(topic_id: str, raw_query: str) -> _ThreadTaskHandle:
             logger.error(f"[THREAD] Pipeline FAILED for topic {topic_id}: {exc}", exc_info=True)
             with _thread_tasks_lock:
                 _thread_tasks[task_id] = {"state": "FAILURE", "result": {"error": str(exc)}}
+        finally:
+            _set_scanning(topic_id, False)
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
@@ -133,6 +150,9 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
     # Set context var so LLMClient auto-tags every call with this run_id
     from truebrief.llm.client import pipeline_run_id_var
     token = pipeline_run_id_var.set(run_id)
+
+    # Mark the topic as scanning so every screen can show a live progress state.
+    _set_scanning(topic_id, True)
 
     brief_length = 0
     exit_status = "error"
@@ -224,7 +244,8 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
         raise
 
     finally:
-        # Always restore context var
+        # Always clear the scanning signal and restore the context var.
+        _set_scanning(topic_id, False)
         pipeline_run_id_var.reset(token)
 
 

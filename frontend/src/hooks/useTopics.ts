@@ -67,8 +67,8 @@ export function useMarkBriefsRead() {
   return useMutation({
     mutationFn: (topicId: string) => api.post(`/topics/${topicId}/briefs/mark-read`),
     onSuccess: () => {
-      // Refresh dashboard so the topic disappears (or new_count drops to 0)
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      // Refresh the delta feed (the V3 home) so counts update.
+      queryClient.invalidateQueries({ queryKey: ['feed'] });
     },
   });
 }
@@ -112,9 +112,12 @@ export function useScanStatus(taskId: string | null, topicId?: string) {
   useEffect(() => {
     if (scanState !== 'SUCCESS' && scanState !== 'FAILURE') return;
     queryClient.invalidateQueries({ queryKey: ['topics'] });
+    // Refresh the V3 home feed so a completed scan's new facts appear.
+    queryClient.invalidateQueries({ queryKey: ['feed'] });
     if (topicId) {
       queryClient.invalidateQueries({ queryKey: ['topic', topicId] });
       queryClient.invalidateQueries({ queryKey: ['topic-briefs', topicId] });
+      queryClient.invalidateQueries({ queryKey: ['topic-history', topicId] });
     }
   }, [scanState, topicId, queryClient]);
 
