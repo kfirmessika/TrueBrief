@@ -24,6 +24,23 @@ from truebrief.models.tier import TIER_LIMITS, Tier, TierLimits
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Admin bypass
+# ---------------------------------------------------------------------------
+
+def is_admin(email: Optional[str]) -> bool:
+    """True for founder/admin accounts (settings.ADMIN_EMAILS) — these bypass ALL
+    tier limits (scan speed, topic cap). Case-insensitive, comma-separated list."""
+    if not email:
+        return False
+    try:
+        from config.settings import settings
+        admins = {e.strip().lower() for e in (settings.ADMIN_EMAILS or "").split(",") if e.strip()}
+    except Exception:
+        admins = set()
+    return email.strip().lower() in admins
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 

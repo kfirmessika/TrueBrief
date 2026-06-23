@@ -139,7 +139,9 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         .execute()
     )
     current_count = count_res.count or 0
-    enforce_topic_limit(val_uuid, tier_str, current_count)
+    from truebrief.billing.tiers import is_admin
+    if not is_admin(user.email):
+        enforce_topic_limit(val_uuid, tier_str, current_count)
 
     # 1. Check if topic already exists (canonical match on lowercased raw_query)
     normalized_query = topic.raw_query.strip().lower()
@@ -361,7 +363,7 @@ def update_topic_frequency(
 
 
 @router.post("/topics/{topic_id}/scan")
-@limiter.limit("10/hour")
+@limiter.limit("60/hour")   # coarse per-IP abuse guard; per-user tier limit is the real throttle (admins bypass it)
 def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_current_user)):
     """
     Queue the intelligence pipeline for a topic as a background task.
@@ -380,30 +382,34 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
     topic_row = res.data[0]
     raw_query = topic_row["raw_query"]
 
-    # --- Tier Enforcement: scan frequency ---
+    # --- Tier Enforcement: scan frequency (admins bypass entirely) ---
     val_uuid = user.id
-    try:
-        sub_res = (
-            db.table("user_subscriptions")
-            .select("tier")
-            .eq("user_id", val_uuid)
-            .execute()
-        )
-        tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
+    from truebrief.billing.tiers import is_admin
+    if is_admin(user.email):
+        logger.info("Admin %s — bypassing scan speed limit.", user.email)
+    else:
+        try:
+            sub_res = (
+                db.table("user_subscriptions")
+                .select("tier")
+                .eq("user_id", val_uuid)
+                .execute()
+            )
+            tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
 
-        last_scan_at: Optional[datetime] = None
-        raw_last = topic_row.get("last_run_at")
-        if raw_last:
-            try:
-                last_scan_at = datetime.fromisoformat(raw_last.replace("Z", "+00:00")).replace(tzinfo=None)
-            except Exception:
-                pass
+            last_scan_at: Optional[datetime] = None
+            raw_last = topic_row.get("last_run_at")
+            if raw_last:
+                try:
+                    last_scan_at = datetime.fromisoformat(raw_last.replace("Z", "+00:00")).replace(tzinfo=None)
+                except Exception:
+                    pass
 
-        enforce_speed_limit(val_uuid, tier_str, last_scan_at)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning("Speed limit check skipped due to error: %s", e)
+            enforce_speed_limit(val_uuid, tier_str, last_scan_at)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("Speed limit check skipped due to error: %s", e)
 
     from truebrief.tasks.pipeline_task import enqueue_pipeline
     task = enqueue_pipeline(topic_id=topic_id, raw_query=raw_query)

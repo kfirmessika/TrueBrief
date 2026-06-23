@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     # "story so far" timeline and store it in history_docs. Requires migration 018.
     V3_HISTORY_DOC: bool = False
 
+    # --- Admin / founder accounts ---
+    # Comma-separated emails that bypass tier limits (scan speed, topic cap) entirely.
+    # These users are treated as unlimited regardless of their subscription tier.
+    ADMIN_EMAILS: str = "kfirmessika@gmail.com"
+
     # --- Embedding provider ---
     # "gemini"  → gemini-embedding-2 (768 dim, 100 req/min free tier)
     # "local"   → sentence-transformers BAAI/bge-base-en-v1.5 (768 dim, unlimited, CPU)
