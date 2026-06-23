@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import Link from 'next/link';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { RefreshCw, AlertCircle, GitCompare } from 'lucide-react';
 
 interface AdminMetrics {
   totals: {
@@ -115,22 +115,38 @@ export default function AdminPage() {
             Pipeline health and LLM cost overview
           </p>
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            background: 'var(--color-background-secondary)',
-            border: '0.5px solid var(--color-border-secondary)',
-            borderRadius: 8, padding: '7px 14px',
-            fontSize: 13, color: 'var(--color-text-primary)',
-            cursor: 'pointer', fontFamily: 'inherit',
-            opacity: isFetching ? 0.6 : 1,
-          }}
-        >
-          <RefreshCw size={13} style={{ animation: isFetching ? 'spin 1s linear infinite' : 'none' }} />
-          Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Link
+            href="/admin/compare"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'var(--color-background-secondary)',
+              border: '0.5px solid var(--color-border-secondary)',
+              borderRadius: 8, padding: '7px 14px',
+              fontSize: 13, color: 'var(--color-text-primary)',
+              cursor: 'pointer', textDecoration: 'none',
+            }}
+          >
+            <GitCompare size={13} />
+            Compare briefs
+          </Link>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'var(--color-background-secondary)',
+              border: '0.5px solid var(--color-border-secondary)',
+              borderRadius: 8, padding: '7px 14px',
+              fontSize: 13, color: 'var(--color-text-primary)',
+              cursor: 'pointer', fontFamily: 'inherit',
+              opacity: isFetching ? 0.6 : 1,
+            }}
+          >
+            <RefreshCw size={13} style={{ animation: isFetching ? 'spin 1s linear infinite' : 'none' }} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stat grid */}
