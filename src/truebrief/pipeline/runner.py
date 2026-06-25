@@ -548,9 +548,8 @@ class PipelineRunner:
 
             # 6. Briefing
             logger.info("[6] Generating Brief")
-            # IC10 SOP lede: load the topic's stored state-of-play situation line
-            # (produced by last run's IC7) and pass it as an anchor so the briefer's
-            # "📌 Bottom line" stays grounded rather than synthesising from scratch.
+            # SOP lede: load the topic's stored state-of-play situation line (grounded,
+            # re-derived from facts) as the bottom-line anchor.
             _sop_situation = None
             if settings.V3_SOP_LEDE and topic_id:
                 try:
@@ -560,7 +559,14 @@ class PipelineRunner:
                         _sop_situation = _stored.get("situation")
                 except Exception:
                     pass
-            brief_text = self.briefer.generate(decisions, query.topic_name, situation=_sop_situation)
+            # V3 (§5/§15 step 4): assemble the brief from fact+context with NO LLM — removes
+            # the briefer's editorial synthesis. Falls back to the LLM briefer when flag is off.
+            if settings.V3_NO_LLM_BRIEF:
+                from truebrief.briefer.assembler import assemble_brief
+                brief_text = assemble_brief(decisions, query.topic_name, situation=_sop_situation)
+                logger.info("[6] Brief assembled from facts (no LLM).")
+            else:
+                brief_text = self.briefer.generate(decisions, query.topic_name, situation=_sop_situation)
 
             # 6b. IC7 State-of-play: regenerate the topic status block ONLY when a
             # state_change fact landed this run (cheap — at most one extra LLM call,
