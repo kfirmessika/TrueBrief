@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     # History doc (architecture §7.2) — after facts land, rebuild the topic's no-LLM
     # "story so far" timeline and store it in history_docs. Requires migration 018.
     V3_HISTORY_DOC: bool = False
+    # §8B development-lag gate — drop stale one-time events (development long predates the
+    # reporting article) from the harvest so old news never leads "today". Tallies exempt.
+    V3_LAG_GATE: bool = False
+    # §5/§15 step 4 — assemble the live brief from fact+context with NO LLM briefer
+    # (kills editorial synthesis + saves a Gemini call/scan). The briefer becomes optional.
+    V3_NO_LLM_BRIEF: bool = False
 
     # --- Admin / founder accounts ---
     # Comma-separated emails that bypass tier limits (scan speed, topic cap) entirely.

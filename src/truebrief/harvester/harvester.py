@@ -30,6 +30,12 @@ class Harvester:
     # Maximum days an event_date may differ from article.published_at before the fact is dropped.
     _MAX_DATE_DELTA_DAYS = 365
 
+    # §8B lag gate: a one-time event whose development predates the reporting article by more
+    # than this is stale "background" → dropped from the live harvest (belongs in history).
+    _LAG_DROP_DAYS = 45
+    # Anything the LLM explicitly flagged as background is held to a tighter window.
+    _LAG_BACKGROUND_DAYS = 14
+
     def extract(
         self,
         article: RawArticle,
@@ -73,6 +79,7 @@ class Harvester:
             alphas: List[Alpha] = []
             dropped_no_date = 0
             dropped_bad_date = 0
+            dropped_stale = 0
 
             for item in fact_list:
                 if not isinstance(item, dict):
@@ -160,6 +167,24 @@ class Harvester:
                 raw_class = str(item.get("event_class") or "").strip().lower()
                 event_class = raw_class if raw_class in _VALID_CLASSES else None
 
+                _raw_basis = str(item.get("date_basis") or "").strip().lower()
+                date_basis = _raw_basis if _raw_basis in ("explicit", "relative", "inferred") else None
+                is_background = bool(item.get("is_background", False))
+
+                # §8B development-lag gate: a fact whose development long predates the article
+                # that reports it is "new to us, not new to the world" — it belongs in history,
+                # not at the top of today. Drop such stale one-time events from the live harvest.
+                # Tallies are exempt (they legitimately reference a cumulative period).
+                if settings.V3_LAG_GATE and anchor is not None and event_class != "tally":
+                    lag_days = (anchor - event_date).days
+                    if lag_days > self._LAG_DROP_DAYS or (is_background and lag_days > self._LAG_BACKGROUND_DAYS):
+                        dropped_stale += 1
+                        logger.info(
+                            "Lag gate: dropped stale fact (lag=%dd, bg=%s): %s",
+                            lag_days, is_background, item.get("alpha_text", "")[:70],
+                        )
+                        continue
+
                 alpha = Alpha(
                     alpha_text=item.get("alpha_text", "").strip(),
                     entities=item.get("entities", []),
@@ -170,15 +195,19 @@ class Harvester:
                     confidence=confidence,
                     topic_id=topic_id,
                     event_class=event_class,
+                    published_at=anchor,
+                    date_basis=date_basis,
+                    is_background=is_background,
                 )
 
                 if alpha.alpha_text:
                     alphas.append(alpha)
 
-            if dropped_no_date or dropped_bad_date:
+            if dropped_no_date or dropped_bad_date or dropped_stale:
                 logger.info(
-                    f"Harvester date filter: kept {len(alphas)}, "
-                    f"dropped {dropped_no_date} (no date), {dropped_bad_date} (bad date)"
+                    f"Harvester filter: kept {len(alphas)}, "
+                    f"dropped {dropped_no_date} (no date), {dropped_bad_date} (bad date), "
+                    f"{dropped_stale} (stale/background)"
                 )
 
             return alphas
@@ -227,13 +256,44 @@ ARTICLE TEXT:
 TASK:
 Extract every atomic, verifiable fact from this article into a structured JSON list.
 
+A FACT is an observable, checkable event or state: who did what, when, where, how many.
+NOT a fact: a writer's interpretation of meaning, cause, consequence, or significance.
+
+STRIP THE EDITORIAL CLAUSE — keep only the verifiable core:
+- BAD : "Khamenei's death has created a significant leadership vacuum and political instability."
+  GOOD: "Iranian Supreme Leader Ali Khamenei died during U.S.-Israeli airstrikes."
+  (drop "created a leadership vacuum and political instability" — that is analysis, not fact)
+- BAD : "Israeli troops in Syria constitute a violation undermining established diplomatic norms."
+  GOOD: "Israeli troops and tanks were present in the Syrian countryside near the 1974 buffer zone."
+  (drop "constitute a violation undermining norms" — that is a judgement, not fact)
+- BAD : "The IRGC closed the Strait of Hormuz, disrupting regional maritime security."
+  GOOD: "The IRGC declared the Strait of Hormuz closed on June 20."
+  (drop "disrupting regional maritime security" — that is a consequence the writer asserts)
+- BAD : "The killing complicates current diplomatic efforts."  → DROP ENTIRELY (pure commentary).
+
+ATTRIBUTION RULE — assessments are facts ONLY when attributed to a named actor, and then the
+fact is that they SAID it:
+- GOOD: "Hezbollah said the killing of two people in southern Lebanon violated the ceasefire."
+- GOOD: "A UN commission report alleged Israeli actions in Gaza amount to genocidal intent."
+- BAD : "The strike was a clear violation of international law."  (whose claim? → drop or attribute)
+
 For each fact extract:
-1. "alpha_text": The fact as one clean standalone sentence.
+1. "alpha_text": The verifiable event as ONE clean standalone sentence — core event only,
+   no causal/evaluative/predictive clause ("creating…", "undermining…", "which could…",
+   "in a major shift…", "complicating…", "amid growing…").
 2. "entities": List of named entities (companies, people, countries, products).
 3. "event_date": {date_instruction}
-4. "context": 20-40 words - why does this fact matter? What story does it belong to?
-5. "confidence": How verifiable is this? (0.0-1.0)
-6. "event_class": The development type. Choose EXACTLY ONE:
+4. "date_basis": How you determined event_date — EXACTLY ONE of:
+   - "explicit"  — the article states an absolute date for this event.
+   - "relative"  — you resolved it from "yesterday/last week/Tuesday" against the publish date.
+   - "inferred"  — a weak guess; the article does not clearly date this event.
+5. "is_background": true if this event is referenced as PAST CONTEXT/BACKGROUND rather than
+   reported as a NEW development in this article (e.g. "since the war began in March…",
+   "after the leader's death months ago…"). Date such facts to when they actually happened,
+   and set is_background=true — do NOT present old background as today's news.
+6. "context": 20-40 words - why does this fact matter? What story does it belong to?
+7. "confidence": How verifiable is this? (0.0-1.0)
+8. "event_class": The development type. Choose EXACTLY ONE:
    - "state_change"  — a discrete, durable status flip: ceasefire signed, treaty agreed, leadership change,
                        strait opened/closed, law passed, company acquired, person dies/resigns.
    - "escalation"    — a new discrete aggressive or deteriorating act: strike, attack, front opens,
@@ -248,7 +308,9 @@ For each fact extract:
 
 RULES:
 - ONLY extract facts relevant to the TOPIC FILTER above (if specified).
-- NEVER extract opinions, predictions, or editorial commentary.
+- NEVER extract opinions, predictions, analysis, or editorial commentary. If a sentence mixes a
+  fact with interpretation, KEEP THE FACT, DROP THE INTERPRETATION (see STRIP examples above).
+- An assessment/judgement is allowed ONLY when attributed to a named actor (ATTRIBUTION RULE above).
 - NEVER extract meta-information about the article itself (download links, app info, copyright notices).
 - Drop anything with confidence < 0.6.
 - DROP any fact where you cannot determine a specific event_date — omit it entirely.
@@ -258,9 +320,11 @@ RULES:
 EXPECTED OUTPUT FORMAT:
 [
   {{
-    "alpha_text": "Fact sentence.",
+    "alpha_text": "Fact sentence — verifiable event only, no editorial clause.",
     "entities": ["Entity1", "Entity2"],
     "event_date": "2026-04-15",
+    "date_basis": "explicit",
+    "is_background": false,
     "context": "Context string.",
     "confidence": 0.95,
     "event_class": "state_change"

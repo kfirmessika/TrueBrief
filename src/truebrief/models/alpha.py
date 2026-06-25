@@ -36,9 +36,14 @@ class Alpha:
     entities: list[str]                     # Named entities (companies, people, places)
     source_url: str                         # Article URL the fact came from
     source_name: str                        # Human-readable source label
-    event_date: Optional[datetime] = None   # When did the event happen? (not published_at)
+    event_date: Optional[datetime] = None   # When did the DEVELOPMENT happen? (not published_at)
     context: Optional[str] = None           # Extra context (e.g. broader headline)
     confidence: float = 1.0                 # 0.0–1.0; facts < 0.6 are dropped by Harvester
+
+    # §8B two-clock model — the second clock + how trustworthy event_date is.
+    published_at: Optional[datetime] = None  # When the ARTICLE was released (the reliable clock)
+    date_basis: Optional[str] = None         # explicit | relative | inferred (trust level for event_date)
+    is_background: bool = False              # event referenced as past context, not today's development
     id: str = field(default_factory=lambda: str(uuid4()))
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     topic_id: Optional[str] = None
