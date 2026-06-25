@@ -41,6 +41,7 @@ _CLASS_WEIGHT = {
     "state_change": 1.0,
     "escalation":   0.8,
     "development":  0.6,
+    "casualty":     0.45,   # an individual death/injury — never leads over a state_change
     "incremental":  0.4,
     "routine":      0.2,
     "tally":        0.1,

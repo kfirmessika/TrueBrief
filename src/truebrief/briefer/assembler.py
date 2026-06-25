@@ -27,10 +27,13 @@ from truebrief.models.alpha import AlphaDecision, DecisionType
 logger = logging.getLogger(__name__)
 
 # Significance weights — same ordering the runner/history/feed use (IC2).
+# "casualty" (an individual death/injury) sits below development so a single death never
+# leads over a topic-level state_change (ceasefire, court ruling, leadership change).
 _CLASS_WEIGHT = {
     "state_change": 1.0,
     "escalation":   0.8,
     "development":  0.6,
+    "casualty":     0.45,
     "incremental":  0.4,
     "routine":      0.2,
     "tally":        0.1,
@@ -62,18 +65,27 @@ def _salience(d: AlphaDecision, now: datetime) -> float:
         age_days = 0
     recency = 0.5 ** (age_days / 4.0)              # half-weight per 4 days
     verified = min(int(a.verified_count or 0), 5) / 50.0
-    return base * (0.6 + 0.4 * recency) + verified
+    score = base * (0.6 + 0.4 * recency) + verified
+    # Single-source facts sort just below otherwise-equal corroborated ones.
+    if int(a.verified_count or 0) <= 1:
+        score -= 0.03
+    return score
 
 
 def _render_bullet(d: AlphaDecision) -> str:
-    """One fact → one bullet, clean fact text + source chip + corroboration count."""
+    """One fact → one bullet: clean fact text + source chip + corroboration marker.
+
+    The count is labelled "reports" (not "sources"): verified_count is the number of
+    distinct domains running related coverage, not outlets that confirmed THIS exact
+    claim — so we never imply auditable confirmation we can't show.
+    """
     a = d.alpha
     # For UPDATEs, lead with the delta (what changed) when the arbiter provided one.
     text = (d.delta or a.alpha_text or "").strip()
     if text and not text.endswith((".", "!", "?")):
         text += "."
     n = max(int(a.verified_count or 0), 1)
-    count = f" ({n} sources)" if n > 1 else ""
+    count = f" ({n} reports)" if n > 1 else ""
     dom = _domain(a.source_url, a.source_name)
     src = f"→ Sources: [{dom}]({a.source_url})" if a.source_url else f"→ Sources: {dom}"
     return f"• {text}{count} {src}"
@@ -92,7 +104,11 @@ def assemble_brief(
         topic_name: display name for the header.
         situation:  IC7 state-of-play situation line (grounded), used as the bottom line.
     """
-    active = [d for d in decisions if d.decision in (DecisionType.NEW, DecisionType.UPDATE)]
+    # Defense-in-depth: background/standing-state facts are not "new" developments and must
+    # never headline (the harvester already drops them when V3_LAG_GATE is on).
+    active = [d for d in decisions
+              if d.decision in (DecisionType.NEW, DecisionType.UPDATE)
+              and not getattr(d.alpha, "is_background", False)]
     if not active:
         return ""
 
@@ -105,9 +121,15 @@ def assemble_brief(
     today = datetime.now().strftime("%B %d, %Y")
     out: List[str] = [f"📋 TrueBrief | {topic_name} | {today}", ""]
 
-    # Grounded bottom line — state-of-play situation, else the top new fact, verbatim.
-    lead_pool = new or updates
-    bottom = (situation or "").strip() or (lead_pool[0].alpha.alpha_text.strip() if lead_pool else "")
+    # Grounded bottom line — state-of-play situation, else the single highest-salience
+    # development across BOTH pools (a structural UPDATE can outrank every NEW fact), using
+    # its delta when an UPDATE wins so the lede shows what changed.
+    bottom = (situation or "").strip()
+    if not bottom:
+        lead = sorted(active, key=lambda d: _salience(d, now), reverse=True)
+        if lead:
+            top = lead[0]
+            bottom = (top.delta or top.alpha.alpha_text or "").strip()
     if bottom:
         if not bottom.endswith((".", "!", "?")):
             bottom += "."

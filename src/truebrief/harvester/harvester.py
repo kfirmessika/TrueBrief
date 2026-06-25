@@ -162,7 +162,7 @@ class Harvester:
 
                 _VALID_CLASSES = {
                     "state_change", "escalation", "development",
-                    "incremental", "tally", "routine",
+                    "incremental", "tally", "routine", "casualty",
                 }
                 raw_class = str(item.get("event_class") or "").strip().lower()
                 event_class = raw_class if raw_class in _VALID_CLASSES else None
@@ -171,16 +171,19 @@ class Harvester:
                 date_basis = _raw_basis if _raw_basis in ("explicit", "relative", "inferred") else None
                 is_background = bool(item.get("is_background", False))
 
-                # §8B development-lag gate: a fact whose development long predates the article
-                # that reports it is "new to us, not new to the world" — it belongs in history,
-                # not at the top of today. Drop such stale one-time events from the live harvest.
+                # §8B development-lag gate: a fact "new to us, not new to the world" belongs in
+                # history, not at the top of today. Drop (a) anything the LLM flagged as
+                # background/standing-state — it is referenced as context, not reported as today's
+                # development (this catches evergreens like "since 1991"/"ongoing talks" whose
+                # event_date the LLM anchors to now, so lag alone can't catch them); and (b) any
+                # one-time event whose development predates the article by > _LAG_DROP_DAYS.
                 # Tallies are exempt (they legitimately reference a cumulative period).
-                if settings.V3_LAG_GATE and anchor is not None and event_class != "tally":
-                    lag_days = (anchor - event_date).days
-                    if lag_days > self._LAG_DROP_DAYS or (is_background and lag_days > self._LAG_BACKGROUND_DAYS):
+                if settings.V3_LAG_GATE and event_class != "tally":
+                    lag_days = (anchor - event_date).days if anchor is not None else 0
+                    if is_background or lag_days > self._LAG_DROP_DAYS:
                         dropped_stale += 1
                         logger.info(
-                            "Lag gate: dropped stale fact (lag=%dd, bg=%s): %s",
+                            "Lag gate: dropped stale/background fact (lag=%dd, bg=%s): %s",
                             lag_days, is_background, item.get("alpha_text", "")[:70],
                         )
                         continue
@@ -270,11 +273,20 @@ STRIP THE EDITORIAL CLAUSE — keep only the verifiable core:
   GOOD: "The IRGC declared the Strait of Hormuz closed on June 20."
   (drop "disrupting regional maritime security" — that is a consequence the writer asserts)
 - BAD : "The killing complicates current diplomatic efforts."  → DROP ENTIRELY (pure commentary).
+- BAD : "Hamas is attempting to redevelop its rocket-firing capabilities."
+  → an attempt/effort/goal is NOT a discrete checkable event. Either extract the OBSERVABLE action
+  GOOD: "Hamas fired three rockets from northern Gaza on June 24." (if the article states it), or
+  ATTRIBUTE it GOOD: "The IDF said Hamas is rebuilding its rocket capability." — otherwise DROP.
+- BAD : "The ceasefire is likely to collapse within weeks."  → prediction; DROP unless attributed
+  GOOD: "A senior Israeli official said the ceasefire is likely to collapse within weeks."
+- BAD : "It was the deadliest strike since the war began."  → keep the verifiable core, drop the
+  comparative-significance claim:  GOOD: "The strike killed 14 people on June 24."
 
-ATTRIBUTION RULE — assessments are facts ONLY when attributed to a named actor, and then the
-fact is that they SAID it:
+ATTRIBUTION RULE — assessments, intentions, predictions, and significance claims are facts ONLY
+when attributed to a named actor, and then the fact is that they SAID/ASSESS it:
 - GOOD: "Hezbollah said the killing of two people in southern Lebanon violated the ceasefire."
 - GOOD: "A UN commission report alleged Israeli actions in Gaza amount to genocidal intent."
+- GOOD: "Iran announced it will enrich uranium to 60%."  (a discrete plan announced by a named actor)
 - BAD : "The strike was a clear violation of international law."  (whose claim? → drop or attribute)
 
 For each fact extract:
@@ -287,17 +299,26 @@ For each fact extract:
    - "explicit"  — the article states an absolute date for this event.
    - "relative"  — you resolved it from "yesterday/last week/Tuesday" against the publish date.
    - "inferred"  — a weak guess; the article does not clearly date this event.
-5. "is_background": true if this event is referenced as PAST CONTEXT/BACKGROUND rather than
-   reported as a NEW development in this article (e.g. "since the war began in March…",
-   "after the leader's death months ago…"). Date such facts to when they actually happened,
-   and set is_background=true — do NOT present old background as today's news.
+5. "is_background": true if this is NOT a fresh development reported today, but rather:
+   - PAST CONTEXT referenced as background ("since the war began in March…", "after the
+     leader's death months ago…"), OR
+   - a STANDING STATE / ongoing condition / institutional fact with no new dated action this
+     article: "X has been involved in a dispute since 1991", "the talks are ongoing", "X is
+     engaged in…", "the unit was established [years ago]", "X continues to…".
+   Set is_background=true for these. Only set it FALSE when the sentence reports a concrete
+   action that happened on/near the article date. Do NOT present background or standing
+   conditions as today's news.
 6. "context": 20-40 words - why does this fact matter? What story does it belong to?
 7. "confidence": How verifiable is this? (0.0-1.0)
 8. "event_class": The development type. Choose EXACTLY ONE:
-   - "state_change"  — a discrete, durable status flip: ceasefire signed, treaty agreed, leadership change,
-                       strait opened/closed, law passed, company acquired, person dies/resigns.
+   - "state_change"  — a discrete, durable, TOPIC-LEVEL status flip: ceasefire signed, treaty agreed,
+                       court ruling issued, law passed, strait opened/closed, company acquired,
+                       or a HEAD-OF-STATE / leadership change (a head of state or org leader dies/resigns).
    - "escalation"    — a new discrete aggressive or deteriorating act: strike, attack, front opens,
                        sanctions imposed, talks collapsed, troops deployed.
+   - "casualty"      — an INDIVIDUAL person (or small group) killed, wounded, or detained in an
+                       incident: "X was shot dead", "a contractor was killed", "two were wounded".
+                       This is NOT a durable status flip — never the lede over a state_change.
    - "development"   — a discrete new fact inside an ongoing story that does not flip a status:
                        meeting held, statement issued, vote scheduled, person arrested.
    - "incremental"   — a follow-up or minor update: "X now says…", clarification, minor revision.

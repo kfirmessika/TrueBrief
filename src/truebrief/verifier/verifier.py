@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
 # How close two event_dates must be for cross-source confirmation (days)
 CROSS_SOURCE_DATE_WINDOW_DAYS = 7
 
+# Generic-entity stop-list (cross-source corroboration): only apply it to batches of at
+# least this many alphas, and treat an entity as "generic" (too ubiquitous to corroborate)
+# when it appears in more than this fraction of the batch. Small batches keep all entities.
+_STOPLIST_MIN_BATCH = 8
+_GENERIC_ENTITY_FRACTION = 0.5
+
 # How old an event_date can be before we flag it "retrospective"
 RETROSPECTIVE_THRESHOLD_DAYS = 90
 
@@ -128,20 +134,41 @@ class Verifier:
     def _cross_source(self, alphas: List[Alpha]) -> List[Alpha]:
         """
         For each alpha, count how many DISTINCT source domains reported a
-        fact sharing ≥1 entity within CROSS_SOURCE_DATE_WINDOW_DAYS days.
+        fact sharing ≥1 SPECIFIC entity within CROSS_SOURCE_DATE_WINDOW_DAYS days.
 
         verified_count starts at 1 (the alpha's own source). Any additional
         confirming domain increments it. Adds "cross_source_confirmed" flag
         when verified_count ≥ 2.
+
+        Generic-entity stop-list: an entity present in a large fraction of a sizeable
+        batch (e.g. "Israel"/"Hamas"/"IDF" in a Middle-East scan) is too ubiquitous to
+        corroborate a specific claim — it would hand almost every fact 6–7 free
+        "confirmations". Such entities are excluded from the match so the count reflects
+        shared SPECIFIC subjects, not topic co-occurrence. (Small batches keep all
+        entities, so single-subject corroboration still works.)
         """
-        # Build entity → alpha indices map (lowercase normalised)
+        generic: set[str] = set()
+        if len(alphas) >= _STOPLIST_MIN_BATCH:
+            from collections import Counter
+            ent_docs: Counter = Counter()
+            for a in alphas:
+                for e in {x.lower() for x in a.entities}:
+                    ent_docs[e] += 1
+            threshold = len(alphas) * _GENERIC_ENTITY_FRACTION
+            generic = {e for e, c in ent_docs.items() if c > threshold}
+            if generic:
+                logger.debug("[VERIFIER] generic entities excluded from corroboration: %s", sorted(generic))
+
+        # Build entity → alpha indices map over SPECIFIC (non-generic) entities only.
         entity_index: Dict[str, List[int]] = {}
         for i, alpha in enumerate(alphas):
             for entity in alpha.entities:
                 key = entity.lower()
+                if key in generic:
+                    continue
                 entity_index.setdefault(key, []).append(i)
 
-        # For each alpha, find all other alphas that share ≥1 entity
+        # For each alpha, find all other alphas that share ≥1 specific entity
         # and have a close event_date, from a different source domain
         for i, alpha in enumerate(alphas):
             alpha.verified_count = 1  # always counts its own source
@@ -149,7 +176,10 @@ class Verifier:
 
             candidate_indices: set[int] = set()
             for entity in alpha.entities:
-                for j in entity_index.get(entity.lower(), []):
+                key = entity.lower()
+                if key in generic:
+                    continue
+                for j in entity_index.get(key, []):
                     if j != i:
                         candidate_indices.add(j)
 

@@ -86,7 +86,12 @@ If MERGE (duplicate/trivial restatement - no new information):
   {{"decision": "MERGE"}}
 
 If UPDATE (new information that extends or corrects a known fact):
-  {{"decision": "UPDATE", "delta": "One sentence describing exactly what is new."}}
+  {{"decision": "UPDATE", "delta": "One sentence stating exactly the new verifiable fact."}}
+  The delta must be a FACT, not characterization: state what changed (the new status, number,
+  or action), NOT a read of its trajectory or significance. Do NOT use evaluative verbs like
+  "progressed/advanced/improved/worsened/escalated" or phrases like "in a major step".
+  BAD : "Talks have progressed to peace-specific negotiations."
+  GOOD: "Lebanon and Israel held a round of negotiations focused on a peace agreement on June 25."
 
 If NEW (no existing knowledge matches - brand new information):
   {{"decision": "NEW"}}
