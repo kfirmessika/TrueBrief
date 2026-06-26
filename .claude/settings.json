@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(d:/projects/Apps/TrueBrief/.env)",
+      "Edit(d:/projects/Apps/TrueBrief/.env)"
+    ]
+  }
+}

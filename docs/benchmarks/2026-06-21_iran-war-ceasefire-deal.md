@@ -7,93 +7,88 @@
 |---|---|---|
 | lede_quality | 7 | 9 |
 | completeness | 8 | 9 |
-| synthesis | 8 | 7 |
-| noise_level | 7 | 6 |
-| **TOTAL** | **30** | **31** |
+| synthesis | 9 | 7 |
+| noise_level | 7 | 8 |
+| **TOTAL** | **31** | **33** |
 
-**Verdict:** Brief B wins by a significant margin because its lede immediately captures the most critical development (Strait of Hormuz closure), while Brief A's lede is more ambiguous; Brief B also covers more of the key unfolding events and provides a clearer picture of the diplomatic complexities.
+**Verdict:** Brief B wins by a small margin due to its clearer lede and slightly better completeness, though Brief A offers a superior synthesis of the current state of play.
 
 ## Gaps in TrueBrief
 
-- Iran closing the Strait of Hormuz due to alleged violations of the MOU.
-- U.S. disputing Iran's closure of the Strait of Hormuz.
-- Pakistan's role as mediator in the initial U.S.-Iran ceasefire.
-- Qatari mediators participating in the talks in Switzerland.
-- U.S. threat to impose tolls on the Strait of Hormuz if a final deal isn't reached within 60 days.
+- US-Iran talks in Switzerland are aimed at implementing their interim agreement to halt the war.
+- US Central Command disputes Iran's claim about the Strait of Hormuz closure, stating traffic continues to flow.
+- An emergency session on the Israel-Hezbollah conflict has been added to the Switzerland peace talks.
+- Pakistan is playing a mediating role in the implementation of the US-Iran agreement, with Prime Minister Shehbaz Sharif and Army Chief Asim Munir attending the technical-level talks in Switzerland.
+- The interim deal signed on June 17, 2026, included a cessation of hostilities on all fronts, an end to Iranian restrictions on the Strait of Hormuz, and a reduction of US military assets from the region, with a 60-day timeline for an agreement on Iran's nuclear program.
+- The war began on February 28, 2026, with US-Israeli airstrikes targeting Iranian military and government sites, which resulted in the assassination of Supreme Leader Ali Khamenei. Iran retaliated with missile and drone strikes across the region, effectively blocking the Strait of Hormuz.
 
 ## False Positives in TrueBrief
 
-- Humanitarian Progress: UN reporting indicates that food insecurity among households in conflict-affected areas has dropped from 92% to 36% since the implementation of the Israel-Hamas ceasefire.
+- The Strait of Hormuz Authority will waive transit fees for ships for the next 60 days as part of the implementation of the broader U.S.-Iran deal.
 
 ## TrueBrief Output
 
 ```
 STATE OF PLAY
-A ceasefire between Israel and Hezbollah remains in effect following an interim U.S.-Iran agreement, despite ongoing active hostilities and casualties in the region. The next phase of diplomatic negotiations is scheduled for June 21, 2026.
-  - [contested] Israel-Hezbollah Ceasefire — 47 killed in air strikes on Jun 20
-  - [agreed] U.S.-Iran Peace Talks — Interim agreement reached Jun 20
-  - [agreed] Strait of Hormuz Transit — 55 ships transited on Jun 20
-  - [postponed] Diplomatic Negotiations — Next phase begins Jun 21
+Ceasefire negotiations between the United States and Iran are set to resume in Switzerland, despite persistent hostilities and the Iranian closure of the Strait of Hormuz. While multiple ceasefire agreements exist, ongoing military actions in Lebanon and drone launches indicate a highly volatile environment.
+  - [postponed] U.S.-Iran Negotiations — Next phase of talks scheduled June 21, 2026.
+  - [contested] Israel-Hezbollah Ceasefire — Violated by ongoing air strikes and drone launches.
+  - [escalating] Strait of Hormuz — Closure announced by Iranian military June 20.
+  - [contested] U.S.-Iran Interim Deal — Fragile deal signed June 18.
 
 📋 TrueBrief | Iran-Israel Conflict Ceasefire | June 21, 2026
 
-**📌 Bottom line:** The U.S. and Iran have formalized a foundational ceasefire agreement, though implementation remains volatile due to ongoing cross-border strikes in Lebanon and conflicting territorial directives in Gaza.
+**📌 Bottom line:** The Iranian military has closed the Strait of Hormuz in response to the collapse of the recent U.S.-Iran ceasefire deal and escalating hostilities in Lebanon.
 
-🆕 NEW STORIES (10)
+🆕 NEW STORIES (11)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-**U.S.-Iran Diplomatic Framework**
-• The United States and Iran have signed an initial 14-point memorandum of understanding intended to end hostilities on all fronts, including Lebanon, and mandate the reopening of the Strait of Hormuz to restore global energy stability (3 sources). → Sources: [BBC News](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss), [independent.co.uk](https://www.independent.co.uk/news/world/middle-east/iran-us-war-live-trump-strait-of-hormuz-deal-ceasefire-b2999541.html), [NYT World](https://www.nytimes.com/2026/06/20/world/europe/world-iran-reaction.html)
+**Strait of Hormuz Closure**
+• The Iranian military ordered the closure of the Strait of Hormuz, a critical escalation stemming from the breakdown of the U.S.-Iran peace framework and ongoing regional tensions. → Sources: [bbc.com](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss)
 
-**Israel-Hezbollah Ceasefire Status**
-• Following a directive from President Trump, Israel and Hezbollah agreed to a ceasefire on June 19, 2026, though the agreement faces significant implementation challenges as combat operations continue (3 sources). → Sources: [BBC News](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss), [independent.co.uk](https://www.independent.co.uk/news/world/middle-east/iran-us-war-live-trump-strait-of-hormuz-deal-ceasefire-b2999541.html), [NYT Homepage](https://www.nytimes.com/2026/06/20/world/middleeast/israel-hezbollah-fighting-cease-fire.html)
+**Diplomatic Frameworks**
+• President Trump and the United States have established an interim agreement with Iran, serving as the central, albeit fragile, mechanism for managing regional stability. → Sources: [nytimes.com](https://www.nytimes.com/2026/06/20/world/middleeast/israel-hezbollah-fighting-cease-fire.html), [nytimes.com](https://www.nytimes.com/2026/06/20/world/europe/world-iran-reaction.html)
+• The U.S. and Iran signed an initial war-ending agreement covering Lebanon, which remains the primary site for monitoring the deal's viability (5 sources). → Sources: [bbc.com](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss), [nytimes.com](https://www.nytimes.com/2026/06/20/world/middleeast/israel-hezbollah-fighting-cease-fire.html)
 
-**Escalation and Diplomatic Disruption**
-• Despite the ceasefire, the Israeli military has conducted over 150 strikes in Lebanon, while Prime Minister Netanyahu has directed the IDF to expand Israeli-controlled territory in Gaza to 70%, contradicting existing peace frameworks. → Sources: [Google News](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830), [BBC World](https://www.bbc.com/news/articles/c4gy26p6pwzo?at_medium=RSS&at_campaign=rss)
+**Ceasefire and Military Engagement**
+• Israel and Hezbollah entered a mediated ceasefire on June 19, though both parties subsequently breached the agreement with Israeli air strikes and Hezbollah drone launches (4 sources). → Sources: [bbc.com](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss), [usatoday.com](https://www.usatoday.com/story/news/world/2026/06/19/iran-war-trump-peace-us-updates--live/90615139007/), [axios.com](https://www.axios.com/2026/06/19/israel-hezbollah-ceasefire-iran-talks), [politico.com](https://www.politico.com/news/2026/06/19/israel-and-hezbollah-agree-to-renew-their-ceasefire-officials-say-00968751)
+• The IDF conducted over 150 strikes on Saturday, hitting 80 Hezbollah targets and killing dozens of militants, while Hezbollah remains engaged in active hostilities (4 sources). → Sources: [bbc.com](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss), [nbcnews.com](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830)
+• Israel has published maps indicating an expanded military control zone in southern Lebanon, which conflicts with territorial sovereignty terms defined in the U.S.-Iran memorandum. → Sources: [nbcnews.com](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830)
 
-**Strait of Hormuz Transit**
-• The Persian Gulf Strait Authority has waived transit fees for the next 60 days to facilitate shipping, a move corroborated by U.S. Central Command reports of 55 merchant vessels transiting the waterway on June 20. → Sources: [Google News](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830), [BBC News](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss)
+**Diplomatic Stagnation**
+• High-level talks in Switzerland, previously involving Vice President JD Vance and Iranian delegates, were postponed due to the ongoing violence in Lebanon (5 sources). → Sources: [politico.com](https://www.politico.com/news/2026/06/19/israel-and-hezbollah-agree-to-renew-their-ceasefire-officials-say-00968751), [nytimes.com](https://www.nytimes.com/live/2026/06/21/world/iran-us-trump-lebanon), [usatoday.com](https://www.usatoday.com/story/news/world/2026/06/19/iran-war-trump-peace-us-updates--live/90615139007/), [axios.com](https://www.axios.com/2026/06/19/israel-hezbollah-ceasefire-iran-talks), [nbcnews.com](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830)
+• Iranian officials maintain that all military operations in Lebanon must cease as a prerequisite for resuming diplomatic negotiations. → Sources: [politico.com](https://www.politico.com/news/2026/06/19/israel-and-hezbollah-agree-to-renew-their-ceasefire-officials-say-00968751)
+• Tehran formally accused Israel of violating the U.S.-Iran Memorandum of Understanding via ongoing strikes. → Sources: [axios.com](https://www.axios.com/2026/06/19/israel-hezbollah-ceasefire-iran-talks)
+• The Strait of Hormuz Authority will waive transit fees for ships for the next 60 days as part of the implementation of the broader U.S.-Iran deal. → Sources: [nbcnews.com](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830)
 
-**Peace Talks Postponed**
-• Planned high-level negotiations between the U.S. and Iran in Switzerland were postponed by the Swiss foreign ministry following the surge in violence between Israel and Hezbollah (3 sources). → Sources: [independent.co.uk](https://www.independent.co.uk/news/world/middle-east/iran-us-war-live-trump-strait-of-hormuz-deal-ceasefire-b2999541.html), [Google News](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830), [NYT World](https://www.nytimes.com/2026/06/20/world/middleeast/iran-peace-talks-switzerland.html)
-
-**Regional Casualty Tally**
-• The conflict has resulted in 4,057 deaths between Israel and Hezbollah since March 2, 2026, with an additional 1,007 fatalities in Gaza recorded since the October 2025 ceasefire agreement (3 sources). → Sources: [BBC News](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss), [BBC World](https://www.bbc.com/news/articles/c4gy26p6pwzo?at_medium=RSS&at_campaign=rss)
-
-**Humanitarian Progress**
-• UN reporting indicates that food insecurity among households in conflict-affected areas has dropped from 92% to 36% since the implementation of the Israel-Hamas ceasefire. → Sources: [BBC World](https://www.bbc.com/news/articles/c4gy26p6pwzo?at_medium=RSS&at_campaign=rss)
-
-**Ongoing Military Fatalities**
-• Current operational reports confirm the death of four Israeli soldiers, including a senior commander, during recent operations in Lebanon. → Sources: [Google News](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830)
-
-**Diplomatic Personnel Movements**
-• U.S. Vice-President JD Vance has departed for Switzerland to attempt to salvage the stalled diplomatic process regarding regional de-escalation and nuclear issues (3 sources). → Sources: [BBC News](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss)
-
-**Next Negotiating Phase**
-• Despite recent setbacks, the next cycle of diplomatic talks aimed at resolving the war in Iran is scheduled to proceed on Sunday, June 21, 2026 (3 sources). → Sources: [NYT World](https://www.nytimes.com/2026/06/20/world/middleeast/iran-peace-talks-switzerland.html)
+**Humanitarian and Casualty Data**
+• The conflict in Lebanon has resulted in at least 47 deaths since Friday and the injury of civilians such as Mona Khalil, while at least 4,057 people have died since the broader conflict resumed in March. → Sources: [bbc.com](https://www.bbc.com/news/articles/cwyekkwm1mmo?at_medium=RSS&at_campaign=rss), [nbcnews.com](https://www.nbcnews.com/world/iran/us-iran-talks-postponed-vance-cancels-trip-israel-strikes-lebanon-rcna350830)
+• Despite the humanitarian benefits seen in Gaza—where food insecurity among households dropped from 92% to 36% since the October 2025 ceasefire—Israel continues to consolidate control over 70% of the territory. → Sources: [bbc.com](https://www.bbc.com/news/articles/c4gy26p6pwzo?at_medium=RSS&at_campaign=rss)
 ```
 
 ## Reference Output (Gemini Search)
 
 ```
-**Iran Closes Strait of Hormuz Again Amid Violations of Ceasefire Deal**
+As of June 21, 2026, the most significant current development is the commencement of US-Iran talks in Switzerland aimed at implementing their interim agreement to halt the war.
 
-Iran announced on Saturday, June 20, 2026, that it has once again closed the Strait of Hormuz to vessel traffic. This action was taken due to alleged violations of the recently signed Memorandum of Understanding (MOU) by the United States and Israel, specifically citing Israel's failure to withdraw troops from southern Lebanon. This marks a significant escalation and a "first step" in response to perceived breaches of trust, with threats of further measures if aggression continues.
+Here are other significant developments:
 
-**Key Developments:**
-
-*   **Resumption of U.S.-Iran Talks in Switzerland:** Despite the tensions, Iranian negotiators arrived in Switzerland late Saturday for crucial talks with U.S. representatives at the Bürgenstock Resort. U.S. Vice President JD Vance has also departed for Switzerland to participate in these discussions, which are aimed at finalizing the preliminary deal to halt the Middle East war.
-*   **Israel-Hezbollah Ceasefire Strains:** Hours after an agreement for a ceasefire between Israel and Hezbollah was announced on Friday, June 19, 2026, there were renewed Israeli strikes in Lebanon, resulting in the deaths of over a dozen people. Both sides have accused each other of violating the truce, with Iran considering Israel's continued presence in Lebanon as a violation of the MOU.
-*   **U.S. Disputing Hormuz Closure:** U.S. Central Command stated that U.S. forces remain "present and vigilant" in the Strait of Hormuz and that traffic has continued to flow. A spokesperson indicated that 55 commercial vessels transited the strait on Saturday, with safe passage remaining intact.
-*   **Focus on Iran's Nuclear Program and Lebanon Ceasefire:** Vice President Vance stated that the upcoming talks will address Iran's nuclear program and the ceasefire in Lebanon, labeling these as "big things." An emergency session on the Israel-Hezbollah conflict has been added to the schedule of the peace talks in Switzerland.
-*   **Mediation Efforts Continue:** Pakistan, which mediated the initial U.S.-Iran ceasefire, is actively involved, with its Interior Minister having arrived in Iran on Saturday. Qatari mediators are also participating in the talks in Switzerland.
-*   **U.S. Threatens Tolls on Strait of Hormuz:** U.S. President Donald Trump has threatened to impose American tolls on the Strait of Hormuz if a final deal with Iran is not reached within 60 days, stating the revenue would be for "services rendered." This comes as the interim agreement had called for toll-free travel for 60 days.
+*   **Strait of Hormuz Closure and Disputes:** Iran announced on Saturday, June 20, 2026, that it had closed the Strait of Hormuz again, citing alleged violations of the memorandum of understanding by Israel and its failure to withdraw troops from southern Lebanon. The US, however, disputes Iran's claim, with US Central Command stating that traffic continues to flow and that US forces are monitoring the situation.
+*   **Lebanon Ceasefire and Tensions:** A ceasefire agreement between Israel and Hezbollah, brokered by the US and regional countries, was reached on Friday, June 19, 2026. However, tensions remain, with Israel carrying out strikes in southern Lebanon on Saturday, June 20, and Hezbollah stating its right to respond. An emergency session on the Israel-Hezbollah conflict has been added to the Switzerland peace talks.
+*   **US-Iran Negotiations Focus:** US Vice President JD Vance, part of the US delegation in Switzerland, stated that the talks would focus on Iran's nuclear program and the Lebanon ceasefire, calling these two issues "big things".
+*   **Pakistan's Role:** Pakistan is playing a mediating role in the implementation of the US-Iran agreement, with Prime Minister Shehbaz Sharif and Army Chief Asim Munir attending the technical-level talks in Switzerland.
+*   **Previous Ceasefire Agreement:** An interim deal to end the war was signed on June 17, 2026, by US President Donald Trump and Iran's President Masoud Pezeshkian. This deal included the cessation of hostilities on all fronts, an end to Iranian restrictions on the Strait of Hormuz, and a reduction of US military assets from the region, with a 60-day timeline for an agreement on Iran's nuclear program.
+*   **Background to the Conflict:** The war began on February 28, 2026, with US-Israeli airstrikes targeting Iranian military and government sites, which resulted in the assassination of Supreme Leader Ali Khamenei. Iran retaliated with missile and drone strikes across the region, effectively blocking the Strait of Hormuz.
 ```
 
 ## Reference Sources
 
-- [thehindu.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF_an0q_oZXXFcoOl4E6t8A7p-narAihlz6_PeGpMpw_zbUcRVndqNgJT6CEdHlFXyQB39OVTsaF1EiUjmslNJn4zIGTprt7V6_TALg2CMevJXfSXETkO0Kx1_W9CdyAGyvVsfjh-qDNTZXlgI_J71gO6Mk4tDqh6CMbLrqi3vxYLrqSKm8-alp1EEttQ7TwWlpfeBCupcRnezD1K-KBcQqaEHEGzAaDcozCssJH4X2SykqnO1u)
-- [ndtv.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG8g9URs97MGBUSl2E_JArFJ5mgIdd8xOaEa8ulb3p7SSOGdBqPhbEbu95miEYCLEfgzfEzMr2WTKVkw9uN232YZYHbawOvU1h9V0oC3A8UGBbo-VopzylLlhObDaMGCSfxMi_QJmANV8UB9xak3as_LZICbzc9MqcD9FpAA7wzYwWqQtFoCuYod6bfdndMEL5H2ZNeQml4xjZvLkrMnTkX__q5V8PLun_mAUtR0qZlcCYuHyk9njBao7IL2nSBQMa1db3GcOPPrneNT-4y)
-- [cbsnews.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEQxrZrG2rEyV5H3qFS3skr4QJzMCOW_uwz6jWydmg9AHpagLw_FY7yQI2qVVyQRZSOjUsVJXFcMbOhquf4TqEAW83uSt-Nodtmz7bV_iBaiFpTr6-XSPmABx4fLulCjcfYk5pe9TM6hs3gqadQZVgBKWxL_4-qBbX8TCeg1dlVtSg2BDbtP02NzqwxdH4R92nV3r9NUEUIMYdN1Dr9c6j8aqJmQx9wow==)
-- [inquirer.net](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHK4omn_qg9Yx6nBizuL3s1opTvpUM56bwd9Eld67oAVmWLEGRdh8L66e7EoH0sOgObOQtX4tl2DKMWcUGiUd9apjsHa9s0ESq43parw1_isPViZemcOMG3UCDqFyEt8lruCNGfJxPxgEBRJaEfXjguQ-Jslk8UXpcYhbZgLhNhMZ0oVaYNvj-3mK-U4mExQkEBru6G758dgwlildwft8U=)
-- [pbs.org](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH6_6kV55BeQ3kNx7i0cdIwdj8OGAaChzvQPYf0lA2yTmMlUrfFNTiyuSGPQFPc1smln0bv-9n4cBbEyRLPtcUB6WJ2hTtdHNsEPXvD6PgIcmGMPUcdcnt90reHFfq4q4KIjpC3NCVCk3GtVLwaF5lW84kXyIwj3Uop8qE39doho4aA2aje2iMsjoopFBiaevMvfxBoVIV_J-s8-2AQ7H3U7wWDRvWlNBIMQ-5tQLt5rZeElf9bI9I=)
-- [thehindu.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHRxqUc-2IPMV8_72BddVp_RrDcvudflqR4aIMwzlHijAy6RqQqlizZkiiu0dGWCMo2QwhR8aLX6AJ5AG-WE31G0jSv9Y2QVdcbi0eFzB9_30oxfSVqLUW-0VWnxMW4NGb0i0xXWv2EoekG0upxgs9AqToF7Xwj3sf12JwCg6FlO0Up7D9IeuaD1kC_-YQV76uhSs610HHp4c4V9GTkVKUyhQKT44581ICsInyhwKvzD3S4bqE7gLFsxwPrYIlMIuVjOEvLP3efkzy5AJQu34UqykVI4KrBpdxyo667ARJlEhLKKHgcszy9ZrEomEyj0BSyiTBa93K1lQ==)
+- [cbsnews.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGOKoCp0eW0mDWG-ROT_v9fGIeXulkVnGSRx2Se7mWoDtMfwkcwZssQLboSJyVjeKMbNXmDrNYQ1WZID6LCA8RmhFif87s17PYFz8qEy9QjVznOhacmdO9NWAgSRtDdY43T4pFo_pmuDAg4J664oeoS6ge5HclFtfw3Or34JoUDTl7SMRYHrTJ3mXrmZPioMmsgzeHjy1jBbj8mXkiRhtH-RN0vboZmtIg=)
+- [timesofisrael.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtW-DR4J7IyeTFdrrzD_MH9g4qJpiqH4_GfwBLeMV5YJ4uKyVVqn0GuW3e4tyuKMwoOpmzT9XYp28WMczphsBdtY_MdwVKJxc5EhJmixMg20DzKizcZ_HdQqM8ATKmbKvgSMeSy7G0ZUNCGptnq8R-A0TzQ5fFrJ8WGPFQx4PMNWLza-O6pCFT7V9Gbh_zgUDdu5L2WDGbKokIB_3PQg6YZh9troXi1kVMhjbN98jluekT5hx3)
+- [ndtv.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEJ9Lf-4L5ennc4qGw2W-kWGbWqTZBYOheNqjA8T6fVsvDWEDcj_7y6Ea04vmCQQ7h0ni7uBvGV-48b6DxYvw8FLacFVl8xDlIeLwEb2CSSnBzSZ8syku489hWcu_vMB2UhkKg5hanzIzlEthXsiQlTmdilIAdWNpCsSiVfbBfD9f35qW7cerpgfu_IyPIZhkHGGX1G6Od5z-fPFgo8TEA9JEnslMD7FBJBmeVkLSUnGhmrINPfFgT1ElTdscbZcrAjrg35JsxP-M4-pbedpA==)
+- [thehindu.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG_on0upEGizk63_vxCOfIj7KgyeU1-w1oOP-NJ5mw2wmJ7A1UWRyNpsMzVuCLsIN9VocpeRTNo5zefR0_cVB1yVgSLTFQ7Wz2fxIuZXcvJV_VYF0uHOrAuE7lFa5HD7G2bfremG8yq2xy_oNnrTlUVO5eLSnyN7ks3jyrXGJB8nTR0ZUMPZp7qMLlfynZp7p8SQpsMPfsKrNQ8646vu_cl9fP8Yqzr7gyYU22yXOR8IzhQZZh_Jl4crLzHVCWxjFfgtNGE9KH6ZEPqM8m9hQfKR86AdH2JTdtzJoGgLpAoikI3xV1ffikkasq6FGmzVaovi_6JxOsBbQge5qkOV4rQszOOAPWqHPlc)
+- [aljazeera.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEiRQqDjfZ8R-rF3nCFKgvh4aBG0G7uuzeQEtAxVOT5iWTznwLuO3SIDtyX0R4bxXs_enWQ74btmhllwvI_AXs-2nzpErHxNeSqvC4Dp0AdqRWVjmzyi-b9xMkehYOg8Ys=)
+- [timesleaderonline.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF14fZYwZwUTX_-E3uRVMkjW0PX-1mVjllyfDwXfWFvYgBUCtZCN2SNndMnDIb2n2JrVIOBAP-PgA4KZ7GUzm5vWgJG53tV6DN9WufcdYB9CVwPiqw5dP0ZidxTJTtexb7hQGI1kaXn3ENUfKac6tEbT1003Sqwa0eqSHwUjatlFFkYkBpmJqeVbeInEoq1Ii5sgunzey3eGgusmZGD4Caunbo_kEcaS_k26JP9iS8cCb3sqfucnc6q1hTC5CUZM68su-eBLnNXc2oESXeVlalV)
+- [thehindu.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG5ZUsqgzXBh4KYykeW5y2CxO_PthzDt8t63Vsf42IPw360YmhAm0gWuOd9WKM5VKdQIrQXaneZVW2O_tp0p9yOCJduU2SWXZPMyviZmJw1sKbZ-5fXrYuDJB4mcrqUbkb-pJXcv39pihKiIyIpXjqCf4E2HjfdzCtF5cjgkHBo7eFR-vMEqX4a63W3ihPf3lwgcEt4rYIt9Wjvnf5Oe0C7DpRc9TxwFa4=)
+- [britannica.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOizJcEVFZFjUjRxoLwaXj3W32TkoK_1Su76IZRtfftiaVUb0PGecZ6BcEKRLNRlrfEF-xa_TViEJz2ugEd5qHBFF0seM9Xo9azrQhvyiMhbGfX-n2i15y_Z9vtPLPdWyDh7piuKQxmXw=)
+- [wikipedia.org](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHAGh8ntYAzM61lEuWgwX0iv3XVeWGp5se0uu34q98ZDDeX-mD2z-Odg4nAys4EJvhVvFhuZtmlBcVkYlWfdQ7Sd25vbFvyP6IBbBp6par5F0d_kb4XSwQKOEgw3XwjSu27p1wVsTY=)
+- [aa.com.tr](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHVG1h1SwlOmvgzva0HvLxz5IO5cGSgiZUn0q2Zw9peSPeLD9aRUyt_PN69lAT4jiV7cSmC9RcLO5bViqIpzQ6pSSLAuuTSwk_dlBrUBea8BGNu-QfAD-9XsSi5GYcoMECt6Na8x5ZEpYSS4Cs4HP-oMMvmstaQLaEZg-Dq6kg9M45P7oWA67x5_nNDR5fSFqBWYQmt72MI6dkBeZWCIa9mOXU1xsV-_GxJUc2ucfQ=)
