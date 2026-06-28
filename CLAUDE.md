@@ -1,7 +1,7 @@
 # TrueBrief — Agent Context
 
 ## What This Is
-A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 14 (App Router) + Clerk auth + Stripe billing. DB: Supabase (Postgres + pgvector). Deployed on Railway.
+A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 16 (App Router) + Clerk auth + Paddle billing. DB: Supabase (Postgres + pgvector). Deployed on Railway.
 
 ## Current Status
 - **Done:** Phases 0–2 complete. Phase 3 mostly complete (3.12 Onboarding is the only gap — page deleted during redesign, needs rebuild). Phase 3.5 A.1 and A.4 done. B.0 and B.1 done.
@@ -11,10 +11,19 @@ A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 14 (
 ---
 
 ## How to Find Things
-- **Project file map:** `.ai/maps/PROJECT_MAP.md`
-- **Module responsibilities:** `.ai/maps/MODULE_INDEX.md`
-- **Current task spec:** `docs/steps/phase_{N}/STEP_{X}.md`
-- **Coding conventions:** `.ai/refs/PATTERNS.md`
+- **The plan:** `docs/core/architecture_v3.md` — use the **`architecture-v3-map`** skill to jump to a section; never read it in full. **Task list:** `docs/roadmap.md`.
+- **Skills** (`.claude/skills/`, auto-load by topic): `truebrief-pipeline`, `truebrief-backend`, `truebrief-frontend`, `truebrief-database`, `accuracy-eval`, `run-truebrief-locally`, `architecture-v3-map`.
+- **Subagents** (`.claude/agents/`): `truebrief-backend`, `truebrief-frontend`, `truebrief-db`, `accuracy-evaluator`, `pipeline-debugger`.
+- **Commands** (`.claude/commands/`): `/build-step`, `/accuracy-check`, `/eval-pipeline`, `/db-health`, `/finish-step`.
+- **Coding conventions:** the matching `truebrief-*` skill (backend / frontend / database).
+
+---
+
+## How We Work (agentic — not one big chat)
+- **`/build-step <step>`** is the orchestrator loop: orient (roadmap + `architecture-v3-map`) → plan (approve before coding) → **delegate to the right subagent** (backend / frontend / db) → validate (`pytest` / `tsc` + `build`) → **`/accuracy-check`** if the pipeline changed → `code-reviewer` → report.
+- **Accuracy is gated, per stage.** The `accuracy-evaluator` agent + `accuracy-eval` skill run the Gemini-vs-TrueBrief benchmark (`scripts/quality_benchmark.py`) and the per-stage pytest map. A failing golden test or a dropped judge axis **blocks "done"**.
+- **`/finish-step`** runs the completion ritual: validate → commit `p{N}-s{X}` → flip roadmap `[ ]`→`[x]` → session summary.
+- **Hooks** (`.claude/hooks/`): `git push` is blocked; edited backend Python is syntax-checked. Activate the hooks + the validation permission allowlist per **`.claude/hooks/README.md`** (you apply `settings.json` — the agent is not allowed to grant its own permissions).
 
 ---
 
@@ -24,8 +33,8 @@ A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 14 (
 - Framework: FastAPI, Celery, Redis
 - DB: Supabase via `supabase-py`. All DB calls go through `src/truebrief/ledger/`
 - Auth: Clerk JWT verified in `src/truebrief/auth/dependencies.py`
-- Billing: Stripe in `src/truebrief/billing/`
-- Config: `src/truebrief/config/settings.py` (env via python-dotenv from `.env`)
+- Billing: Paddle (Stripe is legacy) in `src/truebrief/billing/`
+- Config: `config/settings.py` (env via python-dotenv from `.env`)
 - LLM: All calls go through `src/truebrief/llm/` — never hardcode model names
 - Tests: pytest. Run with `pytest tests/` from project root
 - Naming: `snake_case` files/vars, `PascalCase` classes, `UPPER_SNAKE_CASE` constants
@@ -63,12 +72,12 @@ p{N}-s{X}: short description of what was built
 - **OPUS (C 19–20)**: Architecture, Massive Refactors, Deep Reasoning
 
 **Task Execution Rule:**
-1. Read the `docs/steps/phase_{N}/STEP_{X}.md` spec.
-2. Build, Test, and Verify.
-3. **MANDATORY**: Upon completion, you MUST:
-   - Run a git commit with the `p{N}-s{X}` prefix.
-   - Update `docs/roadmap.md` by changing `[ ]` to `[x]` for the task.
-   - Output the Session Summary block.
+1. Start with **`/build-step <step>`** — it reads `docs/roadmap.md` + the relevant `architecture_v3.md` section (via the `architecture-v3-map` skill) and delegates to the right subagent.
+2. Build, Test, and Verify — run **`/accuracy-check`** if the pipeline changed.
+3. **MANDATORY on completion** — run **`/finish-step`**, which:
+   - commits with the `p{N}-s{X}` prefix (never pushes),
+   - updates `docs/roadmap.md` (`[ ]` → `[x]`),
+   - outputs the Session Summary block.
 
 ---
 
