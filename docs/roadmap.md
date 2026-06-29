@@ -25,9 +25,11 @@ briefs (🆕 NEW / 📈 UPDATES envelope), source chips, live scan progress, set
 **Built but gated/blocked:** V3 quality flags (ON locally, **OFF in Railway**); batch judge
 (`V3_BATCH_JUDGE`, off, pending A/B); email digest (built, blocked on a verified domain).
 
-**Designed & agreed but NOT built** (see §4 — they all sit on the delta engine):
-the per-user **delta engine**, the **smart history page**, the **calm v3-briefing surface**, and the
-**in-app daily digest**.
+**Phase 2 (UI) is BUILT** (see §4 for detail):
+the per-user **delta engine** (`delta_engine.py`, migration 019, API routes), the **smart history page**
+(`history_doc.py`, `HistoryView`), the **calm V3 home** (`dashboard/page.tsx`), and the
+**in-app digest envelope** are all implemented behind feature flags. Missing until 2026-06-29:
+migration 021 DB columns (`date_basis`, `published_at`, `importance`) — now applied ✅.
 
 **The plan in one line (revised 2026-06-19 — see §1 Launch Decision):** the current brief lost a
 head-to-head vs GPT, so we **build full V3 — new pipeline (IC1–IC8 + 1a.5) + new UI (delta engine →
@@ -158,12 +160,16 @@ loop, domain pipelines, linked-graph, timing learning, multi-language (§5 Phase
 - [x] UCB1 query rotator — 1 lifetime LLM call/topic, cached in `topics.search_strategy`
 - [x] 1b.1 Batch grey-zone judge (`V3_BATCH_JUDGE`) — `judge.call_batch()` + `arbiter.judge_alphas()`,
       off by default; enable after M2 A/B confirms quality
-- [ ] **1a.5 Two-clock dev-lag gate** (`published_at` on the fact + `date_basis` + lag classifier) —
-      §8B. Decides "breaking" vs "framed" vs "history backfill". **Prereq for the smart history page.** (C: 10 | SONNET)
+- [x] **1a.5 Two-clock dev-lag gate** (`published_at` + `date_basis` + `importance` + lag classifier) —
+      §8B. Harvester extracts all three fields; `V3_LAG_GATE` drops stale one-time events; migration 021
+      adds DB columns (applied 2026-06-29). Delta engine backfill gate (`_is_backfill`) routes
+      large-lag facts to history, not the live feed. (commit 57ddbe3)
 - [x] **1b.2 URL/article dedup** — exact-URL skip (14d window in `VectorStore.get_seen_urls()`) +
       near-dup/syndication collapse (`V3_NEARDUP_COLLAPSE`): SimHash-64 / Hamming≤3 drops wire-story
       copies before extraction. 6 unit tests; wired in `runner.py` step 2c.
-- [ ] 1b.3 Gate scans on new content (quiet-scan = $0) (C: 6 | FLASH)
+- [x] **1b.3 Gate scans on new content (quiet-scan = $0)** — runner returns early after URL dedup
+      when all candidate articles were already processed (runner.py L315-318); zero LLM calls on a
+      no-new-content scan.
 - [ ] 1b.4 Drop the live-path briefer — assemble from `fact`+`context` (folds into §4-C below) (C: 8 | SONNET)
 
 ### M2 — Measure + validate (the gate before building more)
@@ -306,39 +312,40 @@ to activate persistence** (code degrades to no-op until then).
 > checkpoint proves content parity). Build *minimum-viable* versions in the dependency order below.
 > 4-E stays **post-launch** (heavy/uncertain infra). Maps to architecture build-sequence #8–11.
 
-### 4-A. Delta engine + `user_topic_state` — THE UNLOCK (build-seq #10) [START HERE post-launch]
-- [ ] `user_topic_state` table with two markers: `last_seen_at` (live) + `last_digest_at` (digest).
-- [ ] Per-user **delta query** — Home = "what's new for *this* user since their anchor", **$0 LLM**,
-      pure Postgres; advance `last_seen_at` on view. "All quiet" is a first-class hero state.
-- [ ] **Gate the feed on development recency, not `first_seen_at`** (needs 1a.5) — a fact dated a year
-      ago but first-seen today belongs in history, not at the top of today.
-      (C: 16 | SONNET) — *history, briefs, and digest all sit on this.*
+### 4-A. Delta engine + `user_topic_state` — ✅ BUILT (2026-06-29 audit)
+- [x] `user_topic_state` table with two markers: `last_seen_at` (live) + `last_digest_at` (digest).
+      Migration 019 applied. 3 rows in table.
+- [x] Per-user **delta query** — `delta_engine.py`: `get_delta_feed(user_id, anchor)` is $0 LLM,
+      pure Postgres. `advance_seen()` / `advance_digest()` advance anchors on view. "All quiet"
+      is a first-class state. API routes: `GET /feed`, `POST /feed/seen`, `GET /feed/digest`.
+- [x] **Gate on development recency** — `_is_backfill()` in delta engine routes facts whose
+      development pre-dates first_seen_at by >45 days to history, never the live feed. Backed by
+      `V3_LAG_GATE` in the harvester (1a.5, migration 021 applied 2026-06-29).
 
-### 4-B. Smart history page (build-seq #9 + §8B backfill)
-- [ ] **No-LLM-first timeline** — render the topic's "story so far" by ordering the already-clean
-      fact-sentences chronologically, **zero LLM**. Evaluate readability; add *one* glue/summary pass
-      only if choppy.
-- [ ] **Backfill-of-misses (§8B):** a large-lag fact that *connects* to the existing timeline
-      (entity overlap / known thread / corroborated) is written to history silently and surfaced in
-      the feed only as "filling a gap — Mar 2025", never as breaking. Orphans → muted-items log.
-- [ ] UI: "tap a story → story-so-far expands in place" (not a separate route); full timeline is the
-      power/B2B view. (C: 15 | SONNET) — *depends on 4-A + 1a.5.*
+### 4-B. Smart history page — ✅ BUILT (2026-06-29 audit)
+- [x] **No-LLM-first timeline** — `history_doc.py`: `build_history_doc()` orders clean fact-sentences
+      chronologically, zero LLM. `store_history_doc()` upserts to `history_docs` (migration 018,
+      4 rows). Runner calls it when `V3_HISTORY_DOC=True` and new facts land.
+- [x] **Backfill routing**: large-lag facts drop from the live feed (delta engine) and appear in the
+      History timeline only.
+- [x] UI: `HistoryView` component in `topics/[id]/page.tsx` — day-grouped vertical timeline with
+      milestone chips, powered by `GET /topics/{id}/history`.
 
-### 4-C. Calm v3-briefing surface + kill the live briefer (build-seq #4, roadmap B.REF→B.2)
-- [ ] **B.REF Design reference** — founder generates/validates the mockup (Google AI Studio / Claude.ai),
-      brings the approved reference here. *(Founder task — gates the code below.)*
-- [ ] Implement the radically-subtracted home: `● 3 new today`, plain sentences, inline `context` on
-      tap, "All caught up." hero state. Kill: Stories tab, stat bars, chat-bubble feed.
-- [ ] **Assemble briefs from `fact`+`context`** instead of regenerating (drops the live-path briefer →
-      cheaper). (C: 18 | SONNET) — *depends on 4-A; reads best with 4-B.*
+### 4-C. Calm v3-briefing surface — ✅ BUILT (2026-06-29 audit)
+- [x] `dashboard/page.tsx` implements the radically-subtracted home: `● N new across X topics`,
+      plain sentences, "All caught up." hero with green checkmark, live/digest envelope toggle,
+      `FeedFactRow` with event_class chips + favicon + verified_count.
+- [x] `V3_NO_LLM_BRIEF` flag + `briefer/assembler.py` assembles briefs from `fact`+`context`
+      without an LLM call.
+- [x] Stories tab hidden behind `NEXT_PUBLIC_V3_PAUSE_STORY_GRAPH=true`.
+- [ ] **1b.4 Drop the live-path briefer in prod** — flag `V3_NO_LLM_BRIEF` still OFF in Railway;
+      flip it as part of S1. (C: 1 | FLASH — just set the env var)
 
-### 4-D. Daily digest envelope (build-seq #11)
-- [ ] **One feed, two envelopes** — the "daily summary" is NOT a second screen: same delta feed,
-      digest header ceremony (`Your brief · Tue Jun 16`, grouped by topic, "That's everything"),
-      auto-picked by time-since-last-look using `last_digest_at`.
-- [ ] In-app dated digest card + a *digest hour* preference + a *breaking toggle* (push on
-      high-importance). Email digest already exists — wire it to the same engine. (C: 12 | SONNET)
-      — *depends on 4-A; email delivery still needs the domain (§6).*
+### 4-D. Daily digest envelope — ✅ BUILT (2026-06-29 audit)
+- [x] **One feed, two envelopes** — `GET /feed/digest` uses `last_digest_at` anchor. Digest feed
+      groups by topic with `date_label`. "That's everything. See you tomorrow." footer.
+- [x] Live/Digest toggle in `dashboard/page.tsx`. `advance_digest()` called on digest view.
+- [ ] Email digest wiring to the new digest engine (email delivery still needs the domain — §6).
 
 ### 4-E. Adaptive scanning & cost control (build-seq #8, 13) — ⛔ STAYS POST-LAUNCH (OUT of the pre-launch gate)
 - [ ] Spike-responsive AYR (snap up on surprise, decay gently) + per-(topic×tool) AYR + coalescing
