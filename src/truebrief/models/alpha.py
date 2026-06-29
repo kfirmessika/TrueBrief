@@ -59,6 +59,11 @@ class Alpha:
     verified_count: int = 0                       # number of independent sources that confirmed this fact
     verifier_flags: list[str] = field(default_factory=list)  # e.g. ["retrospective", "ungrounded"]
 
+    # §4 per-fact significance score, emitted by the harvester (0.0–1.0).
+    # 1.0 = decisive topic-level event; 0.1 = tangential detail.
+    # NULL for facts stored before migration 021.
+    importance: Optional[float] = None
+
     # IC4 contradiction flag (set by the Arbiter when this fact contradicts a stored one).
     contradicts_id: Optional[str] = None          # known_facts.id of the contradicted fact
     contradiction_note: Optional[str] = None      # short reason, e.g. "status conflict: 'closed' vs 'open'"

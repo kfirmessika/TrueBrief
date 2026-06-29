@@ -61,6 +61,15 @@ class VectorStore:
         if story_node_id:
             data["story_node_id"] = story_node_id
 
+        # Migration 021: two-clock fields and importance.
+        # Only include when present — pre-021 databases accept the insert without them.
+        if getattr(alpha, "date_basis", None):
+            data["date_basis"] = alpha.date_basis
+        if getattr(alpha, "published_at", None):
+            data["published_at"] = alpha.published_at.isoformat()
+        if getattr(alpha, "importance", None) is not None:
+            data["importance"] = alpha.importance
+
         # IC4: only include the contradiction columns when this fact is actually
         # flagged, so pre-migration topics never carry the keys for nothing.
         if alpha.contradicts_id:
@@ -71,9 +80,35 @@ class VectorStore:
             # We explicitly don't pass an ID so Supabase generates a valid UUID
             response = self.db.table("known_facts").insert(data).execute()
         except Exception as e:
-            # Pre-migration fallback: if the IC4 columns (migration 015) aren't applied
-            # yet, retry once without them so fact storage never breaks.
-            if "contradicts_id" in data:
+            # Pre-migration fallback: if migration 021 columns aren't applied yet,
+            # retry without them. Same pattern as the IC4 fallback below.
+            if any(k in data for k in ("date_basis", "published_at", "importance")):
+                logger.warning(
+                    f"Insert with migration-021 columns failed ({e}); retrying without them "
+                    "(apply migration 021 to persist two-clock fields)."
+                )
+                data.pop("date_basis", None)
+                data.pop("published_at", None)
+                data.pop("importance", None)
+                try:
+                    response = self.db.table("known_facts").insert(data).execute()
+                except Exception as e2:
+                    # Pre-migration fallback: if the IC4 columns (migration 015) aren't applied
+                    # yet, retry once without them so fact storage never breaks.
+                    if "contradicts_id" in data:
+                        logger.warning(
+                            f"Insert with IC4 columns failed ({e2}); retrying without them "
+                            "(apply migration 015 to persist contradiction flags)."
+                        )
+                        data.pop("contradicts_id", None)
+                        data.pop("contradiction_note", None)
+                        response = self.db.table("known_facts").insert(data).execute()
+                    else:
+                        logger.error(f"Failed to insert fact into Supabase: {e2}")
+                        raise
+            elif "contradicts_id" in data:
+                # Pre-migration fallback: if the IC4 columns (migration 015) aren't applied
+                # yet, retry once without them so fact storage never breaks.
                 logger.warning(
                     f"Insert with IC4 columns failed ({e}); retrying without them "
                     "(apply migration 015 to persist contradiction flags)."

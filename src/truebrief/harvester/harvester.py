@@ -188,6 +188,14 @@ class Harvester:
                         )
                         continue
 
+                _raw_importance = item.get("importance")
+                importance = None
+                if _raw_importance is not None:
+                    try:
+                        importance = max(0.0, min(1.0, float(_raw_importance)))
+                    except (TypeError, ValueError):
+                        pass
+
                 alpha = Alpha(
                     alpha_text=item.get("alpha_text", "").strip(),
                     entities=item.get("entities", []),
@@ -201,6 +209,7 @@ class Harvester:
                     published_at=anchor,
                     date_basis=date_basis,
                     is_background=is_background,
+                    importance=importance,
                 )
 
                 if alpha.alpha_text:
@@ -310,7 +319,12 @@ For each fact extract:
    conditions as today's news.
 6. "context": 20-40 words - why does this fact matter? What story does it belong to?
 7. "confidence": How verifiable is this? (0.0-1.0)
-8. "event_class": The development type. Choose EXACTLY ONE:
+8. "importance": How significant is this fact to the topic? (0.0-1.0)
+   1.0 = decisive, topic-defining event (a state_change or escalation that directly changes the topic's status)
+   0.7 = clearly relevant new development worth tracking
+   0.4 = minor or supporting detail
+   0.1 = tangential or routine; barely touches the topic
+9. "event_class": The development type. Choose EXACTLY ONE:
    - "state_change"  — a discrete, durable, TOPIC-LEVEL status flip: ceasefire signed, treaty agreed,
                        court ruling issued, law passed, strait opened/closed, company acquired,
                        or a HEAD-OF-STATE / leadership change (a head of state or org leader dies/resigns).
@@ -348,6 +362,7 @@ EXPECTED OUTPUT FORMAT:
     "is_background": false,
     "context": "Context string.",
     "confidence": 0.95,
+    "importance": 0.9,
     "event_class": "state_change"
   }}
 ]
