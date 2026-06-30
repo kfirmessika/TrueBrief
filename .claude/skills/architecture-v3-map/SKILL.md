@@ -5,7 +5,7 @@ description: Index to docs/core/architecture_v3.md, the definitive plan. ALWAYS 
 
 # architecture_v3.md — Section Index
 
-**Hard rule:** never read `docs/core/architecture_v3.md` in full. Find your topic below, then read only that
+**Hard rule:** unless explicitly asked never read `docs/core/architecture_v3.md` in full. Find your topic below, then read only that
 section (grep the heading line, then `Read` with `offset`/`limit`). This is the single source of truth for the plan;
 `docs/roadmap.md` is the ordered task list.
 
