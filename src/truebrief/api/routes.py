@@ -247,7 +247,7 @@ def get_known_facts(topic_id: str, user: User = Depends(get_current_user)):
     # IC4 columns (contradicts_id, contradiction_note) come from migration 015.
     # Fall back to the base columns if that migration hasn't been applied yet, so
     # the source-chip tooltips never break on a pre-015 database.
-    base_cols = "source_domain, source_url, alpha_text, first_seen_at"
+    base_cols = "source_domain, source_url, alpha_text, first_seen_at, context, event_class, event_date, verified_count"
     try:
         res = (
             db.table("known_facts")
