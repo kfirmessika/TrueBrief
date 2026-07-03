@@ -70,14 +70,14 @@ class Settings(BaseSettings):
     V3_NEARDUP_COLLAPSE: bool = False
     # IC2 — development-type weighting: harvester emits event_class; runner sorts decisions
     # by event_class_weight before briefer so state_change/escalation lead the brief.
-    V3_DEV_CLASS_RANK: bool = False
+    V3_DEV_CLASS_RANK: bool = True
     # IC1 — running-total / tally collapse: incoming tally fact with entity-overlap to an
     # existing tally → force UPDATE (never NEW), preventing N duplicate casualty-count rows.
     V3_TALLY_COLLAPSE: bool = False
     # IC7 — state-of-play: topic-header status block (situation line + agreed/contested/
     # postponed/escalating checklist) generated from stored facts only, regenerated when a
     # state_change fact lands. Needs migration 014 (topics.state_of_play). Degrades to no-op.
-    V3_STATE_OF_PLAY: bool = False
+    V3_STATE_OF_PLAY: bool = True
     # IC4 — contradiction flag: when a NEW fact contradicts an existing fact (same actors +
     # overlapping time, incompatible value: Hormuz open/closed, toll 3,912 vs 3,468), flag the
     # pair instead of storing deadpan. Needs migration 015 (known_facts.contradicts_id). No-op fallback.
@@ -166,7 +166,7 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     "arbiter":        {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
 
     # Briefer: Writes the final markdown report. High reasoning needed.
-    "briefer":        {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "briefer":        {"provider": "gemini", "model": "gemini-2.0-flash"},
 
     # Garbage Filter: Trivial classification, low tokens.
     "garbage_filter": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
@@ -179,7 +179,8 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
 
     # State of Play (IC7): synthesizes the topic-level status block from stored facts.
     # High reasoning (must rank threads + assign statuses), strict JSON output.
-    "state_of_play":  {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    # Uses Flash 2.0 (not Lite) because this is the user-facing narrative output.
+    "state_of_play":  {"provider": "gemini", "model": "gemini-2.0-flash"},
 }
 
 

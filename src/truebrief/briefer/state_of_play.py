@@ -106,17 +106,21 @@ FACTS (most significant / recent first):
 
 Produce JSON with this EXACT shape:
 {{
-  "situation": "ONE or TWO sentences naming the current overall state — the single most
-                important reality right now, grounded in the facts.",
+  "situation": "ONE sentence — the single most important reality right now. Write it the way
+                a senior analyst would brief a colleague: direct, concrete, no jargon.
+                Lead with the most significant state_change or escalation in the facts.
+                Example style: 'A 90-day ceasefire was signed on Jun 17; both sides have
+                pulled back, but artillery exchanges continue in the eastern corridor.'",
   "threads": [
-    {{"label": "<short name of an open thread>",
+    {{"label": "<short name of an open thread, 2–4 words>",
       "status": "<one of: agreed | contested | postponed | escalating>",
-      "note": "<≤8 words anchoring it to the facts, e.g. 'signed Jun 17'>"}}
+      "note": "<≤8 words anchoring it to a fact, e.g. 'signed Jun 17' or 'talks stalled'>"}}
   ]
 }}
 
 RULES:
 - Use ONLY the facts provided. Do NOT add outside knowledge. Do NOT predict or speculate.
+- "situation" must be ONE sentence, ≤40 words, grounded in the highest-significance fact.
 - "status" MUST be exactly one of: agreed, contested, postponed, escalating.
     agreed     = settled / signed / in force.
     contested  = disputed, conflicting claims, or violated.
