@@ -15,6 +15,7 @@ interface FeedFact {
   source_domain: string | null;
   source_url: string | null;
   verified_count: number;
+  relevance: number | null;
 }
 interface FeedTopic {
   topic_id: string;
@@ -31,10 +32,15 @@ interface Feed {
 }
 type Envelope = 'live' | 'digest';
 
-const CLASS_DOT: Record<string, string> = {
-  state_change: '#1A7A52',
-  escalation: '#B42318',
-};
+function relevanceColor(relevance: number | null, min: number, max: number): string {
+  if (relevance === null || relevance === undefined) return 'var(--color-border-secondary)';
+  const range = max - min;
+  if (range < 0.01) return 'var(--color-text-tertiary)';
+  const norm = (relevance - min) / range;
+  if (norm >= 0.70) return 'var(--tb-green)';
+  if (norm >= 0.35) return 'var(--color-text-tertiary)';
+  return 'var(--color-border-tertiary)';
+}
 
 function timeAgo(iso: string | null): string {
   if (!iso) return '';
@@ -46,9 +52,9 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-function FactRow({ fact, onNavigate }: { fact: FeedFact; onNavigate: () => void }) {
+function FactRow({ fact, min, max, onNavigate }: { fact: FeedFact; min: number; max: number; onNavigate: () => void }) {
   const [expanded, setExpanded] = useState(false);
-  const dotColor = fact.event_class ? CLASS_DOT[fact.event_class] : undefined;
+  const dotColor = relevanceColor(fact.relevance, min, max);
   const ago = timeAgo(fact.first_seen_at);
   const domain = fact.source_domain;
   const href = fact.source_url ?? (domain ? `https://${domain}` : undefined);
@@ -62,7 +68,7 @@ function FactRow({ fact, onNavigate }: { fact: FeedFact; onNavigate: () => void 
       >
         <span style={{
           marginTop: 7, width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-          background: dotColor ?? 'var(--color-border-secondary)',
+          background: dotColor,
         }} />
         <p style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--color-text-primary)', margin: 0, flex: 1 }}>
           {fact.text}
@@ -232,7 +238,11 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!isLoading && !allQuiet && topics.map((topic, ti) => (
+        {!isLoading && !allQuiet && topics.map((topic, ti) => {
+          const scores = topic.facts.map(f => f.relevance).filter((r): r is number => r !== null && r !== undefined);
+          const rMin = scores.length > 0 ? Math.min(...scores) : 0;
+          const rMax = scores.length > 0 ? Math.max(...scores) : 1;
+          return (
           <div key={topic.topic_id} style={{ marginBottom: ti < topics.length - 1 ? 28 : 0 }}>
             <div
               onClick={() => openTopic(topic.topic_id)}
@@ -246,10 +256,11 @@ export default function DashboardPage() {
               </span>
             </div>
             {topic.facts.map((fact, fi) => (
-              <FactRow key={fi} fact={fact} onNavigate={() => openTopic(topic.topic_id)} />
+              <FactRow key={fi} fact={fact} min={rMin} max={rMax} onNavigate={() => openTopic(topic.topic_id)} />
             ))}
           </div>
-        ))}
+          );
+        })}
 
         {!isLoading && !allQuiet && quietCount > 0 && (
           <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '24px 0 0', paddingTop: 14, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
