@@ -53,7 +53,7 @@ _CLASS_WEIGHT = {
 
 _FACT_COLS = (
     "alpha_text, context, event_class, event_date, first_seen_at, "
-    "source_domain, source_url, verified_count"
+    "source_domain, source_url, verified_count, relevance"
 )
 
 
@@ -97,6 +97,7 @@ def _shape(row: dict) -> dict:
         "source_domain":   row.get("source_domain"),
         "source_url":      row.get("source_url"),
         "verified_count":  row.get("verified_count") or 0,
+        "relevance":       row.get("relevance"),
     }
 
 

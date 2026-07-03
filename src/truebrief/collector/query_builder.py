@@ -55,6 +55,9 @@ class SearchQuery:
     domains: list[TopicDomain] = field(default_factory=list)
     status: str = "APPROVED"  # "APPROVED" or "REJECTED"
     reason: Optional[str] = None
+    # Spelling-corrected version of the user's raw input (no semantic change).
+    # "isreal" -> "israel", "nvida" -> "nvidia". Empty = no correction needed.
+    corrected_query: str = ""
 
 
 class QueryBuilder:
@@ -117,6 +120,7 @@ class QueryBuilder:
 
             return SearchQuery(
                 topic_name=data.get("short_name", topic_input),
+                corrected_query=data.get("corrected_query", topic_input),
                 primary_query=primary_query,
                 alt_queries=alt_queries,
                 rss_categories=data.get("rss_categories", ["general"]),
@@ -197,6 +201,7 @@ IF VALID, return ONLY this JSON (no markdown, no extra keys):
 {{
   "status": "APPROVED",
   "short_name": "Clean Topic Name",
+  "corrected_query": "spelling-fixed version of the user input, or identical if no errors",
   "rss_categories": ["category1", "category2"],
   "domains": [
     {{
@@ -206,6 +211,10 @@ IF VALID, return ONLY this JSON (no markdown, no extra keys):
     }}
   ]
 }}
+
+corrected_query rules: fix ONLY spelling errors. Do NOT expand, rename, or add words.
+"isreal" -> "israel", "nvida" -> "nvidia", "iran war" -> "iran war", "us" -> "us".
+Short abbreviations and proper nouns in any case are fine as-is.
 """
 
 

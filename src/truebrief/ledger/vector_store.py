@@ -6,8 +6,11 @@ Manages storing and querying Alphas with embeddings in Supabase using pgvector.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import List, Optional, Tuple
+
+import numpy as np
 
 from supabase import Client
 from truebrief.ledger.database import get_supabase
@@ -16,6 +19,14 @@ from truebrief.models.alpha import Alpha
 from truebrief.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
+
+
+def _cosine(a: list, b: list) -> float:
+    """Cosine similarity between two equal-length float vectors."""
+    av, bv = np.array(a, dtype=float), np.array(b, dtype=float)
+    denom = np.linalg.norm(av) * np.linalg.norm(bv)
+    return float(np.dot(av, bv) / denom) if denom > 0 else 0.0
+
 
 class VectorStore:
     """
@@ -69,6 +80,25 @@ class VectorStore:
             data["published_at"] = alpha.published_at.isoformat()
         if getattr(alpha, "importance", None) is not None:
             data["importance"] = alpha.importance
+
+        # Migration 022: compute cosine similarity between the fact embedding and the
+        # topic embedding so downstream features can rank facts by relevance.
+        if alpha.topic_id and alpha.embedding:
+            try:
+                t_row = (
+                    self.db.table("topics")
+                    .select("topic_embedding")
+                    .eq("id", alpha.topic_id)
+                    .single()
+                    .execute()
+                )
+                topic_emb = t_row.data.get("topic_embedding") if t_row.data else None
+                if topic_emb:
+                    if isinstance(topic_emb, str):
+                        topic_emb = json.loads(topic_emb)
+                    data["relevance"] = _cosine(alpha.embedding, topic_emb)
+            except Exception as _rel_err:
+                logger.warning("Relevance computation failed (non-fatal): %s", _rel_err)
 
         # IC4: only include the contradiction columns when this fact is actually
         # flagged, so pre-migration topics never carry the keys for nothing.

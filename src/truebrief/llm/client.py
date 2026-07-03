@@ -114,11 +114,13 @@ class LLMClient:
                     raise LLMError(f"Failed after {self.MAX_RETRIES} attempts: {exc}") from exc
         return ""
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
         """Generate a vector embedding for a single text string.
 
+        task_type: "RETRIEVAL_DOCUMENT" for facts/documents (default),
+                   "RETRIEVAL_QUERY" for search queries and topic labels.
         Delegates to the provider set by EMBED_PROVIDER:
-          "local"  → sentence-transformers (one batched CPU call, no quota)
+          "local"  → sentence-transformers (one batched CPU call, no quota; task_type ignored)
           "gemini" → gemini-embedding-2 (768 dim, 100 req/min free tier)
         """
         if not text or not text.strip():
@@ -128,12 +130,13 @@ class LLMClient:
         provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
         if provider == "local":
             return self._get_local_embedder().embed(text)
-        return self._embed_gemini(text)
+        return self._embed_gemini(text, task_type=task_type)
 
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    def embed_batch(self, texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT") -> List[List[float]]:
         """Generate vector embeddings for a list of strings.
 
-        "local"  → ONE batched forward pass, <500ms for 100 titles, no quota.
+        task_type: "RETRIEVAL_DOCUMENT" for facts (default), "RETRIEVAL_QUERY" for queries.
+        "local"  → ONE batched forward pass, <500ms for 100 titles, no quota; task_type ignored.
         "gemini" → N parallel API calls via ThreadPoolExecutor (8 workers).
                    Free tier: 100 req/min — bursts >100 titles will hit quota.
         """
@@ -143,19 +146,19 @@ class LLMClient:
         provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
         if provider == "local":
             return self._get_local_embedder().embed_batch(texts)
-        return self._embed_batch_gemini(texts)
+        return self._embed_batch_gemini(texts, task_type=task_type)
 
     # ------------------------------------------------------------------
     # Gemini embedding internals (kept intact — switch back via settings)
     # ------------------------------------------------------------------
 
-    def _embed_gemini(self, text: str) -> List[float]:
+    def _embed_gemini(self, text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
         client = self._get_gemini_client()
         from google.genai import types
         try:
             embed_config = types.EmbedContentConfig(
                 output_dimensionality=768,
-                task_type="RETRIEVAL_DOCUMENT"
+                task_type=task_type,
             )
             res = self._call_with_timeout(
                 lambda: client.models.embed_content(
@@ -172,7 +175,7 @@ class LLMClient:
             logger.error(f"Embedding failed: {e}")
             raise LLMError(f"Embedding failed: {e}") from e
 
-    def _embed_batch_gemini(self, texts: List[str]) -> List[List[float]]:
+    def _embed_batch_gemini(self, texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT") -> List[List[float]]:
         """Gemini batch embed via ThreadPoolExecutor (N separate API calls)."""
         valid_texts = [t if (t and t.strip()) else "[empty]" for t in texts]
         _client = self._get_gemini_client()
@@ -180,7 +183,7 @@ class LLMClient:
 
         embed_config = types.EmbedContentConfig(
             output_dimensionality=768,
-            task_type="RETRIEVAL_DOCUMENT",
+            task_type=task_type,
         )
 
         def _one(text: str) -> List[float]:

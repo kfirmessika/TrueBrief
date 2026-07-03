@@ -26,6 +26,7 @@ from truebrief.ledger.database import get_supabase
 from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit
 from truebrief.auth.dependencies import User, get_current_user
 from truebrief.api.rate_limit import limiter
+from truebrief.llm.client import LLMClient
 from config.settings import settings
 
 
@@ -173,6 +174,14 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
                 raise HTTPException(status_code=500, detail="Database failed to return the created topic.")
             topic_record = res.data[0]
 
+            # Embed the raw_query so relevance scores can be computed for its facts.
+            try:
+                _llm = LLMClient()
+                _embedding = _llm.embed(normalized_query)
+                db.table("topics").update({"topic_embedding": _embedding}).eq("id", topic_record["id"]).execute()
+            except Exception as _emb_err:
+                logger.warning("Topic embedding failed (non-fatal): %s", _emb_err)
+
             # Fire the first scan immediately
             _first_task_id = None
             try:
@@ -247,7 +256,7 @@ def get_known_facts(topic_id: str, user: User = Depends(get_current_user)):
     # IC4 columns (contradicts_id, contradiction_note) come from migration 015.
     # Fall back to the base columns if that migration hasn't been applied yet, so
     # the source-chip tooltips never break on a pre-015 database.
-    base_cols = "source_domain, source_url, alpha_text, first_seen_at, context, event_class, event_date, verified_count"
+    base_cols = "source_domain, source_url, alpha_text, first_seen_at, context, event_class, event_date, verified_count, relevance"
     try:
         res = (
             db.table("known_facts")

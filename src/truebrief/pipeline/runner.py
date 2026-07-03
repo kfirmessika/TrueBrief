@@ -220,6 +220,16 @@ class PipelineRunner:
 
                 if topic_id:
                     self._store_strategy(topic_id, query)
+                    embed_text = query.corrected_query or topic_input
+                    self._update_topic_embedding(topic_id, embed_text)
+                    if embed_text != topic_input:
+                        try:
+                            self.vector_store.db.table("topics").update(
+                                {"raw_query": embed_text}
+                            ).eq("id", topic_id).execute()
+                            logger.info(f"    [CORRECT] raw_query fixed: {topic_input!r} -> {embed_text!r}")
+                        except Exception as _cerr:
+                            logger.warning("Failed to write corrected raw_query (non-fatal): %s", _cerr)
                     try:
                         _variant_id, best_query = self.query_rotator.select_variant(
                             topic_id=topic_id,
@@ -744,16 +754,30 @@ class PipelineRunner:
     def _maybe_refresh_state_of_play(
         self, decisions: List, topic_id: str, topic_name: str
     ) -> None:
-        """Regenerate the topic status block iff a state_change fact landed. Never raises."""
+        """Regenerate the topic status block if a state_change landed OR if none exists yet.
+
+        Two triggers:
+          1. A state_change NEW/UPDATE fact landed this scan (normal refresh path).
+          2. state_of_play is currently null for the topic (first-time generation from
+             existing facts — ensures a topic with a rich fact history gets a block on its
+             first IC7-enabled scan even without a fresh state_change).
+        Never raises.
+        """
         try:
             landed_state_change = any(
                 d.decision in (DecisionType.NEW, DecisionType.UPDATE)
                 and (d.alpha.event_class == "state_change")
                 for d in decisions
             )
+
+            # Skip if no state_change AND one already exists (avoid LLM call every scan).
             if not landed_state_change:
-                logger.info("[6b] No state_change this run — state-of-play unchanged.")
-                return
+                from truebrief.ledger.state_of_play_store import load_state_of_play
+                existing = load_state_of_play(topic_id)
+                if existing:
+                    logger.info("[6b] No state_change this run — state-of-play unchanged.")
+                    return
+                logger.info("[6b] No state_change but state-of-play is null — generating first block.")
 
             # Pull the topic's recent stored facts (most significant/recent first).
             res = (
@@ -1171,6 +1195,25 @@ class PipelineRunner:
             )
         except Exception as exc:
             logger.warning(f"    [STRATEGY] Failed to cache (non-fatal): {exc}")
+
+    def _update_topic_embedding(self, topic_id: str, raw_query: str) -> None:
+        """Embed the user's raw_query and store it as topic_embedding.
+
+        Uses the exact string the user typed — NOT the pipeline-expanded topic_name.
+        Expanding to e.g. "Israel Geopolitical Situation" dilutes the embedding toward
+        generic political space, producing a flat cosine distribution across all facts.
+        Called once per topic lifetime after the first-scan LLM strategy is built.
+        """
+        try:
+            if not raw_query:
+                return
+            embedding = self.vector_store.llm.embed(raw_query)
+            self.vector_store.db.table("topics").update(
+                {"topic_embedding": embedding}
+            ).eq("id", topic_id).execute()
+            logger.info(f"    [EMBED] topic_embedding updated (raw_query: {raw_query!r}) for {topic_id}")
+        except Exception as exc:
+            logger.warning("Failed to update topic_embedding after strategy (non-fatal): %s", exc)
 
     def _batch_embed_titles(self, titles: List[str]) -> List[List[float]]:
         """

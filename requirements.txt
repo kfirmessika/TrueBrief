@@ -9,6 +9,9 @@ pyyaml>=6.0.0
 # LLM — Gemini (primary for prototype)
 google-genai>=1.0.0
 
+# Local embeddings (no quota, no cost; replaces Gemini embed when EMBED_PROVIDER=local)
+sentence-transformers>=3.0.0
+
 # Collector
 trafilatura>=2.0.0
 feedparser>=6.0.0
