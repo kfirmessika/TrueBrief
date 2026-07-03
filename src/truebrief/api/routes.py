@@ -331,6 +331,9 @@ def delete_topic(request: Request, topic_id: str, user: User = Depends(get_curre
 class TopicFrequencyUpdate(BaseModel):
     poll_interval_seconds: Optional[int] = None  # None = switch back to Auto
 
+class SummaryRequest(BaseModel):
+    facts: list[str]  # up to 20 fact texts to summarise
+
 
 @router.patch("/topics/{topic_id}/frequency")
 @limiter.limit("30/hour")
@@ -1060,6 +1063,56 @@ def get_feed_digest(user: User = Depends(get_current_user)):
     feed = get_delta_feed(user.id, anchor="digest")
     feed["date_label"] = _dt.now(_tz.utc).strftime("%a %b %d")
     return feed
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summary (V4-5)
+# ---------------------------------------------------------------------------
+
+@router.post("/topics/{topic_id}/summary")
+def get_topic_summary(
+    topic_id: str,
+    body: SummaryRequest,
+    user: User = Depends(get_current_user),
+):
+    """Generate a 2-3 sentence executive summary of the supplied facts.
+
+    Designed for the V4 dashboard flip-card. Fast and cheap (gemini-2.0-flash-lite).
+    Returns {"summary": null} on empty input or LLM failure — non-fatal by design.
+    """
+    _require_uuid(topic_id, "topic_id")
+
+    if not body.facts:
+        return {"summary": None}
+
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+
+    topic_res = db.table("topics").select("raw_query").eq("id", topic_id).execute()
+    if not topic_res.data:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    raw_query = topic_res.data[0]["raw_query"]
+
+    bullet_list = "\n".join(f"- {f}" for f in body.facts[:20])
+    prompt = (
+        f"Topic: {raw_query}\n\n"
+        f"What just happened:\n{bullet_list}\n\n"
+        "Write 2-3 crisp sentences summarising the key developments. "
+        "Lead with the single most important one. "
+        "Be direct and specific — no fluff, no \"based on the above\", no \"in summary\"."
+    )
+
+    try:
+        llm = LLMClient()
+        summary = llm.call(
+            step_name="dashboard_summary",
+            prompt=prompt,
+            system_prompt="You are a news analyst. Write a tight executive summary.",
+        )
+        return {"summary": summary.strip()}
+    except Exception as exc:
+        logger.warning("dashboard_summary LLM call failed (non-fatal): %s", exc)
+        return {"summary": None}
 
 
 # ---------------------------------------------------------------------------

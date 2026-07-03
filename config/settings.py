@@ -77,7 +77,8 @@ class Settings(BaseSettings):
     # IC7 — state-of-play: topic-header status block (situation line + agreed/contested/
     # postponed/escalating checklist) generated from stored facts only, regenerated when a
     # state_change fact lands. Needs migration 014 (topics.state_of_play). Degrades to no-op.
-    V3_STATE_OF_PLAY: bool = True
+    # V4-1: disabled — frontend StateOfPlayBlock removed; generator kept but flag off.
+    V3_STATE_OF_PLAY: bool = False
     # IC4 — contradiction flag: when a NEW fact contradicts an existing fact (same actors +
     # overlapping time, incompatible value: Hormuz open/closed, toll 3,912 vs 3,468), flag the
     # pair instead of storing deadpan. Needs migration 015 (known_facts.contradicts_id). No-op fallback.
@@ -181,6 +182,10 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     # High reasoning (must rank threads + assign statuses), strict JSON output.
     # Uses Flash 2.0 (not Lite) because this is the user-facing narrative output.
     "state_of_play":  {"provider": "gemini", "model": "gemini-2.0-flash"},
+
+    # Dashboard summary (V4-5): 2-3 sentence executive summary of the most recent facts.
+    # Fast and cheap — gemini-2.0-flash-lite is sufficient for short prose.
+    "dashboard_summary": {"provider": "gemini", "model": "gemini-2.0-flash-lite"},
 }
 
 
