@@ -5,6 +5,7 @@ import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
+import type { AxiosInstance } from 'axios';
 
 interface FeedFact {
   text: string;
@@ -103,6 +104,114 @@ function FactRow({ fact, min, max, onNavigate }: { fact: FeedFact; min: number; 
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function TopicCard({ topic, envelope, rMin, rMax, onNavigate, api }: {
+  topic: FeedTopic;
+  envelope: Envelope;
+  rMin: number;
+  rMax: number;
+  onNavigate: () => void;
+  api: AxiosInstance;
+}) {
+  const [flipped, setFlipped] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const autoFlippedRef = useRef(false);
+
+  useEffect(() => {
+    const texts = topic.facts.map(f => f.text).slice(0, 20);
+    if (texts.length === 0) return;
+    api.post(`/topics/${topic.topic_id}/summary`, { facts: texts })
+      .then(res => {
+        const s = (res.data?.summary as string | null) ?? null;
+        setSummary(s);
+        if (s && !autoFlippedRef.current) {
+          autoFlippedRef.current = true;
+          setFlipped(true);
+        }
+      })
+      .catch(() => {});
+  }, [topic.topic_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const canFlip = summary !== null;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div
+        onClick={() => { if (canFlip) setFlipped(f => !f); }}
+        style={{
+          background: 'var(--color-background-primary)',
+          border: '1px solid var(--color-border-tertiary)',
+          borderRadius: 12,
+          padding: '14px 16px',
+          cursor: canFlip ? 'pointer' : 'default',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 8, borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            {topic.topic_name}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {!summary && topic.facts.length > 0 && (
+              <Loader2 size={11} color="var(--color-text-tertiary)" style={{ animation: 'spin 1s linear infinite' }} />
+            )}
+            {canFlip && (
+              <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                {flipped ? 'raw ↑' : 'summary ↑'}
+              </span>
+            )}
+            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+              {topic.new_count} new
+            </span>
+          </div>
+        </div>
+
+        {/* Front face — facts list */}
+        <div style={{
+          height: flipped ? 0 : 'auto',
+          overflow: 'hidden',
+          opacity: flipped ? 0 : 1,
+          transform: flipped ? 'translateY(-3px)' : 'none',
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+          pointerEvents: flipped ? 'none' : 'auto',
+        }}>
+          {topic.facts.map((fact, fi) => (
+            <FactRow key={fi} fact={fact} min={rMin} max={rMax} onNavigate={onNavigate} />
+          ))}
+        </div>
+
+        {/* Back face — summary */}
+        <div style={{
+          height: flipped ? 'auto' : 0,
+          overflow: 'hidden',
+          opacity: flipped ? 1 : 0,
+          transform: flipped ? 'none' : 'translateY(3px)',
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+          pointerEvents: flipped ? 'auto' : 'none',
+        }}>
+          {summary && (
+            <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--color-text-primary)', margin: 0, padding: '4px 0' }}>
+              {summary}
+            </p>
+          )}
+        </div>
+
+        {/* Navigate */}
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onNavigate(); }}
+            style={{
+              fontSize: 12, color: 'var(--tb-green)',
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            }}
+          >
+            Open topic →
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -238,27 +347,20 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!isLoading && !allQuiet && topics.map((topic, ti) => {
+        {!isLoading && !allQuiet && topics.map((topic) => {
           const scores = topic.facts.map(f => f.relevance).filter((r): r is number => r !== null && r !== undefined);
           const rMin = scores.length > 0 ? Math.min(...scores) : 0;
           const rMax = scores.length > 0 ? Math.max(...scores) : 1;
           return (
-          <div key={topic.topic_id} style={{ marginBottom: ti < topics.length - 1 ? 28 : 0 }}>
-            <div
-              onClick={() => openTopic(topic.topic_id)}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 0, cursor: 'pointer', paddingBottom: 4 }}
-            >
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                {topic.topic_name}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                {topic.new_count} new →
-              </span>
-            </div>
-            {topic.facts.map((fact, fi) => (
-              <FactRow key={fi} fact={fact} min={rMin} max={rMax} onNavigate={() => openTopic(topic.topic_id)} />
-            ))}
-          </div>
+            <TopicCard
+              key={topic.topic_id}
+              topic={topic}
+              envelope={envelope}
+              rMin={rMin}
+              rMax={rMax}
+              onNavigate={() => openTopic(topic.topic_id)}
+              api={api}
+            />
           );
         })}
 

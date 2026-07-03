@@ -264,6 +264,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const qc = useQueryClient();
 
   const [scanError, setScanError] = useState<string | null>(null);
+  const [topicView, setTopicView] = useState<'raw' | 'story'>('raw');
 
   const { mutate: triggerScan, isPending: isScanPending } = useTriggerScan();
 
@@ -397,7 +398,36 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
 
       {/* Content — full fact timeline */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        <HistoryView topicId={id} />
+        {/* Raw | Story toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '12px 22px 0', flexShrink: 0 }}>
+          {(['raw', 'story'] as const).map(v => (
+            <button
+              key={v}
+              onClick={() => setTopicView(v)}
+              style={{
+                fontSize: 11, fontWeight: topicView === v ? 600 : 400,
+                color: topicView === v ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                background: topicView === v ? 'var(--color-background-tertiary)' : 'transparent',
+                border: 'none', borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
+              }}
+            >
+              {v === 'raw' ? 'Raw' : 'Story'}
+            </button>
+          ))}
+        </div>
+
+        {topicView === 'raw' ? (
+          <HistoryView topicId={id} />
+        ) : (
+          <div style={{ textAlign: 'center', paddingTop: 60 }}>
+            <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
+              Story view is on its way.
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '4px 0 0' }}>
+              Raw alphas are your ground truth for now.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
