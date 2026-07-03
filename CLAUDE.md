@@ -4,8 +4,9 @@
 A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 16 (App Router) + Clerk auth + Paddle billing. DB: Supabase (Postgres + pgvector). Deployed on Railway.
 
 ## Current Status
-- **Done:** Phases 0–2 complete. Phase 3 mostly complete (3.12 Onboarding is the only gap — page deleted during redesign, needs rebuild). Phase 3.5 A.1 and A.4 done. B.0 and B.1 done.
-- **Next candidates:** (1) Rebuild 3.12 Onboarding, (2) A.6 Admin Metrics Dashboard, (3) Fix stale tests (history.test.tsx + onboarding.test.tsx reference deleted routes), (4) B.REF then B.2 once design mockup is ready
+- **Done:** Phases 0–2 complete. All V3 ICs (IC1–IC14) complete. Semantic relevance scoring (migration 022, local BAAI embeddings, cosine per-fact). Topic page: unified HistoryView, State of Play removed. Dashboard: per-topic relevance color dots.
+- **V4 vision decided (2026-07-03):** flip-card dashboard + story view on topic page + cheap LLM (Groq/DeepSeek) for summaries + incremental stitching. Details + task list in `docs/roadmap.md §4-V4`.
+- **Next candidates:** (1) Deploy migration 022 to Supabase prod, (2) Deploy `EMBED_PROVIDER=local` to Railway, (3) V4-1 disable StateOfPlayGenerator in pipeline, (4) V4-3 Groq/DeepSeek integration
 - **Full task list & status:** `docs/roadmap.md`
 
 ---

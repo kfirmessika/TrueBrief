@@ -355,6 +355,53 @@ to activate persistence** (code degrades to no-op until then).
 
 ---
 
+## 4-V4. V4 Product Vision — Flip Cards + Story View (2026-07-03)
+
+> **Decision:** remove the brief entirely from both the dashboard and the topic page. The pipeline already stops at
+> alphas (known_facts). V4 surfaces those facts directly with two thin LLM layers on top for readability.
+> This is NOT blocking the soft launch — it is the **post-soft-launch product direction**.
+
+### Dashboard — Flip Cards
+- Front of card: **unseen alphas + sources** (same delta feed as today, rendered as a short list). Available instantly — no LLM wait.
+- Back of card: **cheap LLM summary** (2–3 sentences) of the unseen alphas for this topic. Generated with Groq Llama 8B or DeepSeek V3 (extremely cheap — $0.05–0.14/M tokens). Auto-flips when summary is ready; manual flip on click.
+- "Go to topic" button on the front face.
+- Summary scope: **unseen alphas only** (per-user `last_seen_at` anchor, same as current delta engine).
+- Backend: `POST /topics/{id}/summary` — takes `fact_ids[]`, returns 2–3 sentence summary via cheap LLM.
+
+### Topic Page — Raw ↔ Story Toggle
+- **No tabs.** Single toggle: `Raw alphas | Story`.
+- **Raw view** (default): current HistoryView — alphas ordered by event_date, grouped by day.
+- **Story view**: same alphas as skeleton, but short LLM-generated "connective tissue" passages
+  inserted between adjacent facts on the same date. Alphas sit directly under the passage they belong to.
+  Result: alphas ARE the story; LLM just adds one connecting sentence between each pair.
+- State of Play: **REMOVED** (absorbed by dashboard summary).
+- Briefer: **REMOVED** from the pipeline.
+
+### Story Building — Incremental (append-only)
+- When a new alpha is stored (`VectorStore.add_fact`), find its date position in the stored fact list.
+- Take the immediate predecessor and successor facts (by event_date).
+- Call cheap LLM: "Write one sentence connecting [fact A] to [fact B] in context of [topic]."
+- Store the passage in a new `fact_stitches` table: `(topic_id, before_fact_id, after_fact_id, passage, created_at)`.
+- Story view assembles: predecessor alpha → passage → this alpha → passage → successor alpha.
+- **First-time story**: generate only for facts from the last 7 days (not a full historical backfill).
+
+### Cheap LLM Strategy
+- Groq (`llama-3.1-8b-instant`): ~$0.05/M input tokens, <500ms P50 latency.
+- DeepSeek V3: ~$0.14/M input tokens, fast.
+- Never use Gemini Flash for these — cost adds up at per-alpha scale.
+- Wired through `LLMClient` as new step names: `dashboard_summary`, `story_stitch`.
+
+### Implementation Order
+- [ ] **V4-1. Remove StateOfPlayGenerator from pipeline** — disable `V3_STATE_OF_PLAY` flag; StateOfPlayBlock already removed from frontend. (C: 2 | FLASH)
+- [ ] **V4-2. `fact_stitches` table** — migration: `(topic_id, before_fact_id, after_fact_id, passage, created_at)`. (C: 3 | FLASH)
+- [ ] **V4-3. Cheap LLM integration** — add Groq or DeepSeek provider to `LLMClient`; new step names `dashboard_summary` + `story_stitch` in `LLM_CONFIG`. (C: 5 | SONNET)
+- [ ] **V4-4. Stitch generation on alpha store** — `VectorStore.add_fact()` triggers async stitch call when `V4_STORY_STITCHING` flag ON. (C: 8 | SONNET)
+- [ ] **V4-5. `POST /topics/{id}/summary` endpoint** — takes `fact_ids[]`, calls cheap LLM, returns summary string. (C: 5 | SONNET)
+- [ ] **V4-6. Topic page story toggle** — `Raw | Story` toggle in `topics/[id]/page.tsx`; story view stitches facts from `/topics/{id}/history` with passages from `/topics/{id}/stitches`. (C: 8 | SONNET)
+- [ ] **V4-7. Dashboard flip cards** — redesign `dashboard/page.tsx`: card front = unseen alphas list; card back = summary (fetched on load, auto-flip on ready, manual flip on click); CSS flip animation. (C: 10 | SONNET)
+
+---
+
 ## 5. Later / at scale (do NOT block go-live)
 
 - **Phase B.3–B.5:** polish (optimistic mutations, transitions, OG images), copy/brand, a11y + mobile.
