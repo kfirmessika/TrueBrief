@@ -327,7 +327,7 @@ class LLMClient:
             if tel is None:
                 return
             run_id = pipeline_run_id_var.get()
-            cost = compute_cost_usd(model, input_tokens, output_tokens)
+            cost = compute_cost_usd(model, input_tokens, output_tokens, stage=stage)
 
             trace_on = getattr(self._settings, "TRACE_PIPELINE", False)
             cap = getattr(self._settings, "TRACE_MAX_CHARS", 20000)

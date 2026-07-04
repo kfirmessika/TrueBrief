@@ -24,9 +24,17 @@ GEMINI_PRO_OUTPUT_PER_TOKEN = 0.000_005_000   # $5.00 per 1M tokens
 # text-embedding-004 / gemini-embedding-2 — free tier at this scale
 GEMINI_EMBEDDING_PER_TOKEN = 0.0
 
+# Groq — Llama 3.1 8B Instant. The intended V4 provider for the cheap summary/story
+# steps. We run these on Gemini flash-lite for now (free tier), but bill them at Groq
+# rates so the cost projection reflects the real target provider (see _COST_AS_GROQ_STEPS).
+# Source: Groq pricing (llama-3.1-8b-instant), as of 2026-07.
+GROQ_LLAMA8B_INPUT_PER_TOKEN = 0.000_000_050   # $0.05 per 1M tokens
+GROQ_LLAMA8B_OUTPUT_PER_TOKEN = 0.000_000_080  # $0.08 per 1M tokens
+
 
 _INPUT_RATES: dict[str, float] = {
     "gemini-3.1-flash-lite-preview": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
+    "gemini-3.1-flash-lite": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
     "gemini-2.0-flash-lite": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
     "gemini-2.0-flash-lite-001": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
     "gemini-2.0-flash": GEMINI_FLASH_INPUT_PER_TOKEN,
@@ -38,18 +46,35 @@ _INPUT_RATES: dict[str, float] = {
 
 _OUTPUT_RATES: dict[str, float] = {
     "gemini-3.1-flash-lite-preview": GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN,
+    "gemini-3.1-flash-lite": GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash-lite": GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash-lite-001": GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash": GEMINI_FLASH_OUTPUT_PER_TOKEN,
     "gemini-2.0-flash-001": GEMINI_FLASH_OUTPUT_PER_TOKEN,
-    "gemini-1.5-pro": GEMINI_PRO_INPUT_PER_TOKEN,
+    "gemini-1.5-pro": GEMINI_PRO_OUTPUT_PER_TOKEN,
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
 }
 
+# V4 steps that we bill at Groq rates regardless of the model actually serving them.
+# When we move these to real Groq, drop the override — the model name will price itself.
+_COST_AS_GROQ_STEPS: set[str] = {"dashboard_summary", "story_stitch"}
 
-def compute_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Return estimated USD cost for one LLM call. Returns 0.0 for unknown models."""
+
+def compute_cost_usd(
+    model: str, input_tokens: int, output_tokens: int, stage: str | None = None
+) -> float:
+    """Return estimated USD cost for one LLM call. Returns 0.0 for unknown models.
+
+    If `stage` is one of the V4 cheap-LLM steps, cost is computed at Groq Llama-3.1-8B
+    rates instead of the serving model's — so the projection reflects the target
+    provider even while we prototype on Gemini's free tier.
+    """
+    if stage in _COST_AS_GROQ_STEPS:
+        return (
+            input_tokens * GROQ_LLAMA8B_INPUT_PER_TOKEN
+            + output_tokens * GROQ_LLAMA8B_OUTPUT_PER_TOKEN
+        )
     in_rate = _INPUT_RATES.get(model, 0.0)
     out_rate = _OUTPUT_RATES.get(model, 0.0)
     return input_tokens * in_rate + output_tokens * out_rate
