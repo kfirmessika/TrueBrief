@@ -7,6 +7,7 @@ Topic CRUD and pipeline triggers.
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, model_validator
 from typing import List, Optional
+import json
 import logging
 import re
 from datetime import datetime
@@ -333,6 +334,10 @@ class TopicFrequencyUpdate(BaseModel):
 
 class SummaryRequest(BaseModel):
     facts: list[str]  # up to 20 fact texts to summarise
+
+
+class StoryRequest(BaseModel):
+    facts: list[str]  # ordered fact texts (chronological); connectors bridge adjacent pairs
 
 
 @router.patch("/topics/{topic_id}/frequency")
@@ -1113,6 +1118,65 @@ def get_topic_summary(
     except Exception as exc:
         logger.warning("dashboard_summary LLM call failed (non-fatal): %s", exc)
         return {"summary": None}
+
+
+@router.post("/topics/{topic_id}/story")
+def get_topic_story(
+    topic_id: str,
+    body: StoryRequest,
+    user: User = Depends(get_current_user),
+):
+    """Story view (V4): connective tissue between adjacent alphas.
+
+    Given N facts in chronological order, returns N-1 short bridge sentences —
+    connectors[i] links facts[i] → facts[i+1]. The alphas stay the skeleton; the
+    story is what these bridges build on top. Returns {"connectors": []} on empty
+    input, a single fact, or LLM failure — non-fatal by design (UI shows raw alphas).
+    """
+    _require_uuid(topic_id, "topic_id")
+
+    facts = [f for f in (body.facts or []) if f and f.strip()]
+    if len(facts) < 2:
+        return {"connectors": []}
+
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+
+    topic_res = db.table("topics").select("raw_query").eq("id", topic_id).execute()
+    if not topic_res.data:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    raw_query = topic_res.data[0]["raw_query"]
+
+    facts = facts[:25]  # cap for cost/latency
+    n_pairs = len(facts) - 1
+    numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(facts))
+    prompt = (
+        f"Topic: {raw_query}\n\n"
+        f"These {len(facts)} events are listed in chronological order:\n{numbered}\n\n"
+        f"For each ADJACENT pair (1→2, 2→3, …), write ONE short bridge sentence "
+        f"(max 18 words) that connects the earlier event to the later one — show how "
+        f"the story moved from one to the next. Ground every bridge in the events; do "
+        f"NOT invent facts. Return ONLY a JSON array of exactly {n_pairs} strings, in order."
+    )
+
+    try:
+        llm = LLMClient()
+        raw = llm.call(
+            step_name="story_stitch",
+            prompt=prompt,
+            json_mode=True,
+            system_prompt="You are a news analyst writing terse connective narration.",
+        )
+        connectors = json.loads(raw)
+        if not isinstance(connectors, list):
+            return {"connectors": []}
+        connectors = [str(c).strip() for c in connectors][:n_pairs]
+        # Pad to exactly n_pairs so the client can index safely.
+        connectors += [""] * (n_pairs - len(connectors))
+        return {"connectors": connectors}
+    except Exception as exc:
+        logger.warning("story_stitch LLM call failed (non-fatal): %s", exc)
+        return {"connectors": []}
 
 
 # ---------------------------------------------------------------------------
