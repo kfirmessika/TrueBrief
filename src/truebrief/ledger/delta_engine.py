@@ -39,6 +39,10 @@ BACKFILL_LAG_DAYS = 45
 # Per-topic cap so one noisy topic can't swamp the cross-topic feed.
 PER_TOPIC_CAP = 15
 
+# Facts with a stored relevance score below this floor are off-topic noise; skip them.
+# NULL relevance (pre-migration-022 facts) always pass — we can't penalise what we haven't scored.
+RELEVANCE_FLOOR = 0.50
+
 # Significance ordering — mirrors the runner's IC2 class weights so the feed ranks
 # facts the same way the brief and the history timeline do.
 _CLASS_WEIGHT = {
@@ -77,14 +81,26 @@ def _is_backfill(row: dict) -> bool:
     return (seen - ev) > timedelta(days=BACKFILL_LAG_DAYS)
 
 
+def _is_relevant(row: dict) -> bool:
+    """False only when the fact has a scored relevance below the floor (off-topic noise)."""
+    rel = row.get("relevance")
+    if rel is None:
+        return True   # unscored (pre-migration-022) — don't penalise the unknown
+    return float(rel) >= RELEVANCE_FLOOR
+
+
 def _salience(row: dict) -> float:
-    """Significance × light recency, for ordering within and across topics."""
+    """Significance × light recency × relevance, for ordering within and across topics."""
     base = _CLASS_WEIGHT.get(row.get("event_class") or "", 0.5)
     seen = _parse_ts(row.get("first_seen_at")) or datetime.now(timezone.utc)
     age_h = max((datetime.now(timezone.utc) - seen).total_seconds() / 3600.0, 0.0)
     recency = 0.5 ** (age_h / 36.0)          # ~half-weight per 36h
     verified = min(float(row.get("verified_count") or 0), 5) / 50.0
-    return base * (0.6 + 0.4 * recency) + verified
+    rel = row.get("relevance")
+    # Small boost/penalty centred on 0.55: ±0.025 per 0.10 relevance point.
+    # Keeps event_class dominant while topically strong facts rise above weak ones.
+    rel_adj = 0.25 * (float(rel) - 0.55) if rel is not None else 0.0
+    return base * (0.6 + 0.4 * recency) + verified + rel_adj
 
 
 def _shape(row: dict) -> dict:
@@ -168,7 +184,7 @@ def get_delta_feed(user_id: str, anchor: str = "seen", db=None) -> dict:
         except Exception as exc:
             logger.debug("[DELTA] fact query failed for topic %s: %s", tid, exc)
             continue
-        rows = [r for r in (res.data or []) if not _is_backfill(r)]
+        rows = [r for r in (res.data or []) if not _is_backfill(r) and _is_relevant(r)]
         if not rows:
             continue
         rows.sort(key=_salience, reverse=True)
