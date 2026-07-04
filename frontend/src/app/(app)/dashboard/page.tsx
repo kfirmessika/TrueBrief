@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useRef, useLayoutEffect, type CSSProperties } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Check, Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import type { AxiosInstance } from 'axios';
 import { SourceChip } from '@/components/SourceChip';
@@ -59,9 +59,11 @@ function AlphaRow({ fact }: { fact: FeedFact }) {
 }
 
 // The flip card. Front = unseen alphas + sources (instant). Back = cheap-LLM summary
-// (fetched in the background; auto-flips when ready; click flips either way). The
-// summary fetch has a hard timeout so a slow/quota-limited LLM never hangs the card —
-// it just stays on the alphas.
+// (fetched in the background; auto-flips when ready; click flips either way).
+//
+// Uses scaleX squeeze animation instead of 3D rotateY because the ancestor layout
+// container has overflow:auto, which the CSS spec requires to flatten preserve-3d.
+// The squeeze (scaleX 1→0→1) is visually equivalent and works through any overflow.
 function TopicFlipCard({
   topic,
   onNavigate,
@@ -71,58 +73,67 @@ function TopicFlipCard({
   onNavigate: () => void;
   api: AxiosInstance;
 }) {
-  const [flipped, setFlipped] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'failed'>('idle');
-  const autoFlipped = useRef(false);
-
-  const frontRef = useRef<HTMLDivElement>(null);
-  const backRef = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | undefined>(undefined);
+  const [showBack, setShowBack] = useState(false);
+  // 'out': squeezing to invisible; 'in': expanding back; 'idle': at rest
+  const [phase, setPhase] = useState<'idle' | 'out' | 'in'>('idle');
+  const nextFace = useRef(false);       // which face to show after the squeeze
+  const autoFlipped = useRef(false);    // guard: fire auto-flip only once
+  const shouldAutoFlip = useRef(false); // only true for 2+ fact cards (not single-fact shortcut)
 
   // Fetch the summary once per topic.
   useEffect(() => {
     const texts = topic.facts.map((f) => f.text).filter(Boolean);
     if (texts.length === 0) { setState('failed'); return; }
     if (texts.length === 1) {
-      // One alpha — the summary IS the alpha; no LLM call, no auto-flip.
+      // One alpha — summary IS the alpha; no LLM call, no auto-flip.
       setSummary(texts[0]);
       setState('done');
       return;
     }
     setState('loading');
+    shouldAutoFlip.current = true;
     let cancelled = false;
     api
       .post(`/topics/${topic.topic_id}/summary`, { facts: texts.slice(0, 20) }, { timeout: 15_000 })
       .then((res) => {
         if (cancelled) return;
         const s = (res.data?.summary as string | null) ?? null;
-        if (s) {
-          setSummary(s);
-          setState('done');
-          if (!autoFlipped.current) { autoFlipped.current = true; setFlipped(true); }
-        } else {
-          setState('failed'); // backend returned null — stay on alphas
-        }
+        if (s) { setSummary(s); setState('done'); }
+        else setState('failed');
       })
       .catch(() => { if (!cancelled) setState('failed'); });
     return () => { cancelled = true; };
   }, [topic.topic_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canFlip = state === 'done' && !!summary;
+  // Auto-flip to the summary once it arrives (2+ fact cards only).
+  useEffect(() => {
+    if (state === 'done' && summary && shouldAutoFlip.current && !autoFlipped.current) {
+      autoFlipped.current = true;
+      nextFace.current = true;
+      setPhase('out');
+    }
+  }, [state, summary]);
 
-  // Size the 3D card to whichever face is showing (variable content → no clipping).
-  useLayoutEffect(() => {
-    const measure = () => {
-      const f = frontRef.current?.offsetHeight ?? 0;
-      const b = backRef.current?.offsetHeight ?? 0;
-      const next = flipped ? (b || f) : (f || b);
-      if (next) setHeight(next);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [flipped, summary, state, topic.facts]);
+  // Orchestrate the squeeze: out → swap content at invisible midpoint → in.
+  const handleTransitionEnd = (e: React.TransitionEvent<HTMLDivElement>) => {
+    if (e.propertyName !== 'transform') return;
+    if (phase === 'out') {
+      setShowBack(nextFace.current); // content swaps while invisible
+      setPhase('in');
+    } else if (phase === 'in') {
+      setPhase('idle');
+    }
+  };
+
+  const flip = () => {
+    if (state !== 'done' || !summary || phase !== 'idle') return;
+    nextFace.current = !showBack;
+    setPhase('out');
+  };
+
+  const isFlipReady = state === 'done' && !!summary;
 
   const OpenTopicBtn = (
     <button
@@ -137,86 +148,62 @@ function TopicFlipCard({
     </button>
   );
 
-  const Header = (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      paddingBottom: 8, marginBottom: 2, borderBottom: '0.5px solid var(--color-border-tertiary)',
-    }}>
-      <span style={{
-        fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)',
-        textTransform: 'uppercase', letterSpacing: '0.08em',
-      }}>
-        {topic.topic_name}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {state === 'loading' && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
-            <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> summarizing…
-          </span>
-        )}
-        {canFlip && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
-            <RefreshCw size={10} /> {flipped ? 'alphas' : 'summary'}
-          </span>
-        )}
-        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{topic.new_count} new</span>
-      </div>
-    </div>
-  );
-
-  const faceStyle: CSSProperties = {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden',
-    padding: '14px 16px',
-  };
-
   return (
-    <div style={{ marginBottom: 16, perspective: 1400 }}>
+    <div style={{ marginBottom: 16 }}>
       <div
-        onClick={() => { if (canFlip) setFlipped((f) => !f); }}
+        onClick={flip}
+        onTransitionEnd={handleTransitionEnd}
         style={{
-          position: 'relative',
-          height,
-          transformStyle: 'preserve-3d',
-          transition: 'transform 0.55s cubic-bezier(.2,.7,.2,1), height 0.3s ease',
-          transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-          cursor: canFlip ? 'pointer' : 'default',
+          background: 'var(--color-background-primary)',
+          border: `1px solid ${showBack ? 'var(--tb-green, #1A7A52)' : 'var(--color-border-tertiary)'}`,
+          borderRadius: 12,
+          padding: '14px 16px',
+          cursor: isFlipReady && phase === 'idle' ? 'pointer' : 'default',
+          transform: phase === 'out' ? 'scaleX(0)' : 'scaleX(1)',
+          transformOrigin: 'center',
+          transition: phase === 'idle' ? 'none' : 'transform 0.15s ease-in-out',
         }}
       >
-        {/* FRONT — alphas + sources */}
-        <div
-          ref={frontRef}
-          style={{
-            ...faceStyle,
-            background: 'var(--color-background-primary)',
-            border: '1px solid var(--color-border-tertiary)',
-            borderRadius: 12,
-          }}
-        >
-          {Header}
-          <div>
-            {topic.facts.map((fact, i) => <AlphaRow key={i} fact={fact} />)}
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          paddingBottom: 8, marginBottom: 2, borderBottom: '0.5px solid var(--color-border-tertiary)',
+        }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)',
+            textTransform: 'uppercase', letterSpacing: '0.08em',
+          }}>
+            {topic.topic_name}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {state === 'loading' && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
+                <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> summarising…
+              </span>
+            )}
+            {isFlipReady && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
+                <RefreshCw size={10} /> {showBack ? 'alphas' : 'summary'}
+              </span>
+            )}
+            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{topic.new_count} new</span>
           </div>
-          <div style={{ marginTop: 10 }}>{OpenTopicBtn}</div>
         </div>
 
-        {/* BACK — summary */}
-        <div
-          ref={backRef}
-          style={{
-            ...faceStyle,
-            transform: 'rotateY(180deg)',
-            background: 'var(--color-background-primary)',
-            border: '1px solid var(--color-border-tertiary)',
-            borderRadius: 12,
-          }}
-        >
-          {Header}
-          <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--color-text-primary)', margin: '8px 0 0' }}>
-            {summary}
-          </p>
-          <div style={{ marginTop: 12 }}>{OpenTopicBtn}</div>
-        </div>
+        {/* Content — swapped at the invisible midpoint of the squeeze animation */}
+        {!showBack ? (
+          <div>
+            {topic.facts.map((fact, i) => <AlphaRow key={i} fact={fact} />)}
+            <div style={{ marginTop: 10 }}>{OpenTopicBtn}</div>
+          </div>
+        ) : (
+          <div>
+            <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--color-text-primary)', margin: '8px 0 0' }}>
+              {summary}
+            </p>
+            <div style={{ marginTop: 12 }}>{OpenTopicBtn}</div>
+          </div>
+        )}
       </div>
     </div>
   );
