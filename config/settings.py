@@ -25,6 +25,9 @@ class Settings(BaseSettings):
 
     # --- LLM ---
     GOOGLE_API_KEY: str = ""
+    # Backup Gemini key (different Google account → independent 500 req/day quota).
+    # When the primary key hits 429, the LLM client automatically retries with this key.
+    GOOGLE_API_KEY_BACKUP: str = ""
 
     # --- Collector ---
     TAVILY_API_KEY: str = ""
@@ -184,13 +187,12 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     "state_of_play":  {"provider": "gemini", "model": "gemini-2.0-flash"},
 
     # Dashboard summary (V4-5): 2-3 sentence executive summary of the most recent facts.
-    # Uses gemini-3.1-flash-lite (the proven-quota default) NOT gemini-2.0-* — the 2.0
-    # keys have hit daily limit:0 in the past, and a 429 here stalls the dashboard card
-    # through the 3× retry/backoff (~70s). Flash-lite is cheap and has real quota.
+    # Uses gemini-3.1-flash-lite. Still billed at Groq rates (_COST_AS_GROQ_STEPS).
+    # Switch to real Groq once GROQ_API_KEY is set up (V4-3).
     "dashboard_summary": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
 
     # Story stitch (V4): one short connective sentence between each adjacent pair of
-    # alphas on the topic story view. Same cheap/proven model as dashboard_summary.
+    # alphas on the topic story view. Same model as dashboard_summary.
     "story_stitch": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
 }
 

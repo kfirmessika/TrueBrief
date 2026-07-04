@@ -52,6 +52,7 @@ class LLMClient:
         self._config = LLM_CONFIG
         self._settings = settings
         self._gemini_client: Optional[Any] = None
+        self._gemini_client_backup: Optional[Any] = None
         self._openai_client: Optional[Any] = None
         self._local_embedder: Optional[Any] = None  # lazy-loaded LocalEmbedder
 
@@ -106,6 +107,41 @@ class LLMClient:
                 return result
 
             except Exception as exc:
+                # Quota exhausted on primary key — switch to backup immediately (no wait).
+                if provider == "gemini" and self._is_quota_exhausted(exc):
+                    backup = self._get_gemini_client_backup()
+                    if backup:
+                        logger.warning(
+                            "[LLM] Primary GOOGLE_API_KEY quota exhausted (step=%s). "
+                            "Switching to GOOGLE_API_KEY_BACKUP. Reason: %s",
+                            step_name, str(exc)[:200],
+                        )
+                        try:
+                            result, in_tok, out_tok = self._call_gemini_instrumented(
+                                model, prompt, json_mode, system_prompt, client=backup
+                            )
+                            duration_ms = int((time.monotonic() - t0) * 1000)
+                            self._log_call(step_name, model, in_tok, out_tok, duration_ms,
+                                           prompt, system_prompt, result)
+                            return result
+                        except Exception as bexc:
+                            if self._is_quota_exhausted(bexc):
+                                logger.error(
+                                    "[LLM] BOTH Gemini keys are quota-exhausted (step=%s). "
+                                    "Primary: %s | Backup: %s. "
+                                    "Wait for daily reset or wire Groq (V4-3).",
+                                    step_name, str(exc)[:100], str(bexc)[:100],
+                                )
+                                raise LLMError(
+                                    f"Both Gemini API keys are quota-exhausted for step "
+                                    f"'{step_name}'. Wait for daily reset or wire Groq (V4-3)."
+                                ) from bexc
+                            logger.warning(
+                                "[LLM] Backup key failed with non-quota error (step=%s): %s",
+                                step_name, bexc,
+                            )
+                            exc = bexc  # fall through to normal retry with backup's error
+
                 if attempt < self.MAX_RETRIES:
                     wait = self._retry_wait(exc, attempt)
                     logger.warning(f"Attempt {attempt} failed: {exc}. Retrying in {wait}s...")
@@ -218,9 +254,11 @@ class LLMClient:
         prompt: str,
         json_mode: bool,
         system_prompt: Optional[str],
+        client: Optional[Any] = None,
     ) -> tuple[str, int, int]:
         """Call Gemini and return (text, input_tokens, output_tokens)."""
-        client = self._get_gemini_client()
+        if client is None:
+            client = self._get_gemini_client()
         from google.genai import types
 
         config = types.GenerateContentConfig(
@@ -369,6 +407,21 @@ class LLMClient:
                     f"Gemini API call timed out after {timeout_seconds}s. "
                     "The API may be slow or rate-limited."
                 )
+
+    @staticmethod
+    def _is_quota_exhausted(exc: Exception) -> bool:
+        msg = str(exc)
+        return "429" in msg or "RESOURCE_EXHAUSTED" in msg
+
+    def _get_gemini_client_backup(self) -> Optional[Any]:
+        """Return a Gemini client using GOOGLE_API_KEY_BACKUP, or None if not configured."""
+        backup_key = getattr(self._settings, "GOOGLE_API_KEY_BACKUP", "")
+        if not backup_key:
+            return None
+        if self._gemini_client_backup is None:
+            from google import genai
+            self._gemini_client_backup = genai.Client(api_key=backup_key)
+        return self._gemini_client_backup
 
     def _get_gemini_client(self) -> Any:
         if self._gemini_client is None:
