@@ -2,9 +2,10 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
-import { useCallback, useEffect, useRef, use, useState } from 'react';
-import { Clock, ScanSearch } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, use, useState } from 'react';
+import { Clock, ScanSearch, BookOpen, List } from 'lucide-react';
 import { useScanStatus, useTriggerScan } from '@/hooks/useTopics';
+import { SourceChip } from '@/components/SourceChip';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -61,8 +62,6 @@ const CLASS_CHIP: Record<string, { label: string; color: string; bg: string }> =
 
 function HistoryFactRow({ fact }: { fact: HistoryFact }) {
   const chip = fact.event_class ? CLASS_CHIP[fact.event_class] : undefined;
-  const domain = fact.source_domain ?? undefined;
-  const favicon = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=32` : null;
   return (
     <div style={{ position: 'relative', paddingLeft: 22, paddingBottom: 16 }}>
       {/* timeline marker */}
@@ -88,24 +87,15 @@ function HistoryFactRow({ fact }: { fact: HistoryFact }) {
             {chip.label}
           </span>
         )}
-        {domain && (
-          <a href={fact.source_url ?? `https://${domain}`} target="_blank" rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11,
-              color: 'var(--color-text-secondary)', textDecoration: 'none',
-              border: '1px solid var(--color-border-secondary)', borderRadius: 5, padding: '1px 6px 1px 4px',
-            }}>
-            {favicon && <img src={favicon} alt={domain} width={11} height={11} style={{ borderRadius: 2 }}
-              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />}
-            {domain}
-          </a>
+        {(fact.source_domain || fact.source_url) && (
+          <SourceChip domain={fact.source_domain} url={fact.source_url} />
         )}
         {fact.verified_count > 1 && (
           <span title={`${fact.verified_count} independent sources`} style={{
             fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-tertiary)',
             background: 'var(--color-background-tertiary)', borderRadius: 5, padding: '1px 6px',
           }}>
-            {fact.verified_count} sources
+            +{fact.verified_count - 1} more
           </span>
         )}
         {fact.contradiction_note && (
@@ -121,7 +111,23 @@ function HistoryFactRow({ fact }: { fact: HistoryFact }) {
   );
 }
 
-function HistoryView({ topicId }: { topicId: string }) {
+// A connective-tissue bridge between two adjacent alphas (story mode).
+function StoryConnector({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <div style={{ paddingLeft: 22, paddingBottom: 14, marginTop: -8 }}>
+      <p style={{
+        fontSize: 12.5, fontStyle: 'italic', lineHeight: 1.5,
+        color: 'var(--color-text-tertiary)', margin: 0,
+        borderLeft: '2px solid var(--color-border-secondary)', paddingLeft: 10,
+      }}>
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boolean }) {
   const api = useApi();
   const { data, isLoading } = useQuery<HistoryDoc>({
     queryKey: ['topic-history', topicId],
@@ -130,10 +136,36 @@ function HistoryView({ topicId }: { topicId: string }) {
     refetchOnWindowFocus: false,
   });
 
+  const timeline = data?.timeline ?? [];
+
+  // Flatten in display order (newest first) so alphas keep identical positions in
+  // both modes — story just inserts a bridge between adjacent rows.
+  const flat = useMemo(() => timeline.flatMap((g) => g.facts), [timeline]);
+  const N = flat.length;
+
+  // Story connectors: the backend links chronological pairs (oldest→newest). We send
+  // chronological order and map each connector back into the newest-first display.
+  const chronoTexts = useMemo(() => flat.map((f) => f.text).reverse(), [flat]);
+  const { data: storyData, isFetching: storyFetching } = useQuery<{ connectors: string[] }>({
+    queryKey: ['topic-story', topicId, N],
+    queryFn: async () =>
+      (await api.post(`/topics/${topicId}/story`, { facts: chronoTexts }, { timeout: 20_000 })).data,
+    enabled: storyMode && N >= 2,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const connectors = storyData?.connectors ?? [];
+
+  // The bridge shown BELOW display row i (between i and the older i+1). See mapping note.
+  const connectorBelow = (displayIdx: number): string => {
+    if (!storyMode || displayIdx >= N - 1) return '';
+    return connectors[N - 2 - displayIdx] ?? '';
+  };
+
   if (isLoading) {
     return (
       <div style={{ padding: '24px 22px' }}>
-        {[1, 2, 3].map(i => (
+        {[1, 2, 3].map((i) => (
           <div key={i} style={{ marginBottom: 14, paddingLeft: 22 }}>
             <div style={{ height: 12, width: '85%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 6 }} />
             <div style={{ height: 11, width: '60%', background: 'var(--color-background-tertiary)', borderRadius: 4 }} />
@@ -143,7 +175,6 @@ function HistoryView({ topicId }: { topicId: string }) {
     );
   }
 
-  const timeline = data?.timeline ?? [];
   if (timeline.length === 0) {
     return (
       <div style={{ textAlign: 'center', paddingTop: 80 }}>
@@ -154,14 +185,14 @@ function HistoryView({ topicId }: { topicId: string }) {
     );
   }
 
+  let gi = -1; // running global display index across all groups
   return (
     <div style={{ padding: '8px 22px 48px' }}>
-      <div style={{
-        fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 14px',
-      }}>
-        {data?.fact_count ?? 0} facts · the story so far, newest first
+      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 14px' }}>
+        {data?.fact_count ?? 0} facts · {storyMode ? 'the story so far' : 'newest first'}
+        {storyMode && storyFetching && ' · weaving…'}
       </div>
-      {timeline.map(group => (
+      {timeline.map((group) => (
         <div key={group.date} style={{ marginBottom: 8 }}>
           <div style={{
             fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -175,7 +206,16 @@ function HistoryView({ topicId }: { topicId: string }) {
               position: 'absolute', left: 4, top: 4, bottom: 8, width: 1,
               background: 'var(--color-border-tertiary)',
             }} />
-            {group.facts.map((f, i) => <HistoryFactRow key={i} fact={f} />)}
+            {group.facts.map((f, i) => {
+              gi += 1;
+              const bridge = connectorBelow(gi);
+              return (
+                <div key={i}>
+                  <HistoryFactRow fact={f} />
+                  {bridge && <StoryConnector text={bridge} />}
+                </div>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -196,48 +236,59 @@ const SCAN_STEPS = [
   'Almost done…',
 ];
 
+// Progress is derived from a persisted start timestamp (localStorage), NOT from local
+// component state — so leaving and returning to the topic page continues the bar
+// smoothly instead of resetting it to 0 on every remount.
 function ScanProgressBar({ topicId, taskId, active, onDone }: { topicId: string; taskId: string | null; active: boolean; onDone: () => void }) {
   const { data: status } = useScanStatus(taskId, topicId);
-  const [stepIdx, setStepIdx] = useState(0);
-  const [progress, setProgress] = useState(0);
+  const [start, setStart] = useState<number | null>(null);
+  const [now, setNow] = useState<number>(0);
   const calledDone = useRef(false);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+
+  const startKey = `scan_start_${topicId}`;
 
   const taskState = status?.state;
   const taskDone = taskState === 'SUCCESS' || taskState === 'FAILURE';
   const isDone = taskId ? taskDone : active === false;
 
+  // Establish (or reuse) the persisted start timestamp on mount.
   useEffect(() => {
-    if (isDone) {
-      setProgress(100);
-      if (!calledDone.current) {
-        calledDone.current = true;
-        const t = setTimeout(() => {
-          localStorage.removeItem(`scan_task_${topicId}`);
-          onDoneRef.current();
-        }, 800);
-        return () => clearTimeout(t);
-      }
-      return;
-    }
+    if (typeof window === 'undefined') return;
+    let s = localStorage.getItem(startKey);
+    if (!s) { s = String(Date.now()); localStorage.setItem(startKey, s); }
+    setStart(Number(s));
+    setNow(Date.now());
+  }, [startKey]);
 
-    const stepTimer = setInterval(() => {
-      setStepIdx(i => Math.min(i + 1, SCAN_STEPS.length - 2));
-    }, 4000);
+  // Tick while running.
+  useEffect(() => {
+    if (isDone) return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [isDone]);
 
-    const progressTimer = setInterval(() => {
-      setProgress(p => {
-        if (p >= 90) return p + 0.3;
-        return p + (90 - p) * 0.04;
-      });
-    }, 200);
+  // Completion → clean up both keys, then notify parent.
+  useEffect(() => {
+    if (!isDone || calledDone.current) return;
+    calledDone.current = true;
+    const t = setTimeout(() => {
+      localStorage.removeItem(`scan_task_${topicId}`);
+      localStorage.removeItem(startKey);
+      onDoneRef.current();
+    }, 800);
+    return () => clearTimeout(t);
+  }, [isDone, topicId, startKey]);
 
-    return () => { clearInterval(stepTimer); clearInterval(progressTimer); };
-  }, [isDone, topicId]);
-
+  const elapsed = start ? Math.max(now - start, 0) / 1000 : 0; // seconds
+  // Asymptotic to 90% (half-life ~20s); jumps to 100% on done.
+  const timed = 90 * (1 - Math.pow(0.5, elapsed / 20));
+  const progress = isDone ? 100 : Math.min(timed, 90);
+  const stepIdx = isDone
+    ? SCAN_STEPS.length - 1
+    : Math.min(Math.floor(elapsed / 5), SCAN_STEPS.length - 2);
   const displayStep = isDone ? 'Done!' : SCAN_STEPS[stepIdx];
-  const cappedProgress = Math.min(progress, isDone ? 100 : 90);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -248,8 +299,8 @@ function ScanProgressBar({ topicId, taskId, active, onDone }: { topicId: string;
         <div style={{
           height: '100%', borderRadius: 2,
           background: 'var(--tb-green)',
-          width: `${cappedProgress}%`,
-          transition: isDone ? 'width 0.4s ease' : 'width 0.2s linear',
+          width: `${progress}%`,
+          transition: isDone ? 'width 0.4s ease' : 'width 0.25s linear',
         }} />
       </div>
     </div>
@@ -264,7 +315,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const qc = useQueryClient();
 
   const [scanError, setScanError] = useState<string | null>(null);
-  const [topicView, setTopicView] = useState<'raw' | 'story'>('raw');
+  const [storyMode, setStoryMode] = useState(false);
 
   const { mutate: triggerScan, isPending: isScanPending } = useTriggerScan();
 
@@ -275,6 +326,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
       onSuccess: (data) => {
         if (data?.task_id) {
           localStorage.setItem(`scan_task_${id}`, data.task_id);
+          localStorage.setItem(`scan_start_${id}`, String(Date.now()));
           setScanTaskId(data.task_id);
         }
       },
@@ -305,6 +357,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     setScanTaskId(null);
     qc.invalidateQueries({ queryKey: ['topic', id] });
     qc.invalidateQueries({ queryKey: ['topic-history', id] });
+    qc.invalidateQueries({ queryKey: ['topic-story', id] });
     qc.invalidateQueries({ queryKey: ['feed'] });
     qc.invalidateQueries({ queryKey: ['topics'] });
   }, [qc, id]);
@@ -312,7 +365,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   // §8 — viewing a topic advances its delta anchor
   useEffect(() => {
     api.post('/feed/seen', { topic_ids: [id] })
-      .then(() => qc.invalidateQueries({ queryKey: ['feed', 'live'] }))
+      .then(() => qc.invalidateQueries({ queryKey: ['feed'] }))
       .catch(() => {});
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -393,41 +446,28 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
             </span>
           )}
         </div>
-
       </div>
 
-      {/* Content — full fact timeline */}
+      {/* Content — raw alpha timeline (skeleton); Story button weaves connectors between them */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {/* Raw | Story toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '12px 22px 0', flexShrink: 0 }}>
-          {(['raw', 'story'] as const).map(v => (
-            <button
-              key={v}
-              onClick={() => setTopicView(v)}
-              style={{
-                fontSize: 11, fontWeight: topicView === v ? 600 : 400,
-                color: topicView === v ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                background: topicView === v ? 'var(--color-background-tertiary)' : 'transparent',
-                border: 'none', borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
-              }}
-            >
-              {v === 'raw' ? 'Raw' : 'Story'}
-            </button>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '12px 22px 0' }}>
+          <button
+            onClick={() => setStoryMode((s) => !s)}
+            title={storyMode ? 'Show raw alphas' : 'Weave the alphas into a story'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 11, fontWeight: 600,
+              color: storyMode ? 'var(--tb-green)' : 'var(--color-text-secondary)',
+              background: storyMode ? 'var(--color-background-tertiary)' : 'transparent',
+              border: '1px solid var(--color-border-secondary)', borderRadius: 8,
+              padding: '4px 10px', cursor: 'pointer',
+            }}
+          >
+            {storyMode ? <List size={12} /> : <BookOpen size={12} />}
+            {storyMode ? 'Raw alphas' : 'Story'}
+          </button>
         </div>
-
-        {topicView === 'raw' ? (
-          <HistoryView topicId={id} />
-        ) : (
-          <div style={{ textAlign: 'center', paddingTop: 60 }}>
-            <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
-              Story view is on its way.
-            </p>
-            <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '4px 0 0' }}>
-              Raw alphas are your ground truth for now.
-            </p>
-          </div>
-        )}
+        <HistoryView topicId={id} storyMode={storyMode} />
       </div>
     </div>
   );
