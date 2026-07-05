@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useCallback, useEffect, useMemo, useRef, use, useState } from 'react';
 import { Clock, ScanSearch, BookOpen, List } from 'lucide-react';
@@ -13,8 +13,27 @@ interface Topic {
   id: string;
   raw_query: string;
   frequency: string;
+  poll_interval_seconds?: number | null;
   last_scan_at: string | null;
   is_scanning?: boolean;
+}
+
+// ── Frequency picker ───────────────────────────────────────────────────────
+
+const FREQ_OPTS: { label: string; seconds: number | null; desc: string }[] = [
+  { label: 'Auto',       seconds: null,  desc: 'TrueBrief adjusts speed based on activity' },
+  { label: 'Slow',       seconds: 86400, desc: 'Once a day — quiet topics, low quota use' },
+  { label: 'Medium',     seconds: 21600, desc: 'Every 6 hours' },
+  { label: 'Fast',       seconds: 3600,  desc: 'Every hour' },
+  { label: 'Ultra Fast', seconds: 900,   desc: 'Every 15 min — breaks news, high quota use' },
+];
+
+function intervalToLabel(s: number | null | undefined): string {
+  if (!s) return 'Auto';
+  if (s >= 86400) return 'Slow';
+  if (s >= 21600) return 'Medium';
+  if (s >= 3600)  return 'Fast';
+  return 'Ultra Fast';
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -321,6 +340,30 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
 
   const [scanError, setScanError] = useState<string | null>(null);
   const [storyMode, setStoryMode] = useState(false);
+  const [showFreqPicker, setShowFreqPicker] = useState(false);
+  const freqRef = useRef<HTMLDivElement>(null);
+
+  // Close frequency picker on outside click
+  useEffect(() => {
+    if (!showFreqPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (freqRef.current && !freqRef.current.contains(e.target as Node)) {
+        setShowFreqPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showFreqPicker]);
+
+  const { mutate: updateFreq, isPending: isUpdatingFreq } = useMutation({
+    mutationFn: (seconds: number | null) =>
+      api.patch(`/topics/${id}/frequency`, { poll_interval_seconds: seconds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['topic', id] });
+      qc.invalidateQueries({ queryKey: ['topics'] });
+      setShowFreqPicker(false);
+    },
+  });
 
   const { mutate: triggerScan, isPending: isScanPending } = useTriggerScan();
 
@@ -442,13 +485,59 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
           {scanError && (
             <span style={{ fontSize: 11, color: '#B45309' }}>{scanError}</span>
           )}
-          {topic?.frequency && (
-            <span style={{
-              fontSize: 10, borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-secondary)',
-              color: 'var(--color-text-secondary)', padding: '1px 6px', borderRadius: 10,
-            }}>
-              {topic.frequency}
-            </span>
+          {topic && (
+            <div ref={freqRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowFreqPicker(v => !v)}
+                disabled={isUpdatingFreq}
+                title="Change scan frequency"
+                style={{
+                  fontSize: 10, borderWidth: '0.5px', borderStyle: 'solid',
+                  borderColor: showFreqPicker ? 'var(--color-border-primary)' : 'var(--color-border-secondary)',
+                  color: 'var(--color-text-secondary)', padding: '1px 6px', borderRadius: 10,
+                  background: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3,
+                  opacity: isUpdatingFreq ? 0.5 : 1,
+                }}
+              >
+                {intervalToLabel(topic.poll_interval_seconds)}
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ marginLeft: 1 }}>
+                  <path d="M1 2.5L4 5.5L7 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
+              </button>
+              {showFreqPicker && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50,
+                  background: 'var(--color-background-primary)',
+                  border: '0.5px solid var(--color-border-secondary)',
+                  borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  minWidth: 220, overflow: 'hidden',
+                }}>
+                  {FREQ_OPTS.map(opt => {
+                    const current = intervalToLabel(topic.poll_interval_seconds);
+                    const isActive = opt.label === current;
+                    return (
+                      <button
+                        key={opt.label}
+                        onClick={() => updateFreq(opt.seconds)}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          padding: '8px 12px', border: 'none', cursor: 'pointer',
+                          background: isActive ? 'var(--color-background-secondary)' : 'transparent',
+                          borderBottom: '0.5px solid var(--color-border-tertiary)',
+                        }}
+                      >
+                        <span style={{ fontSize: 12, fontWeight: isActive ? 500 : 400, color: 'var(--color-text-primary)', display: 'block' }}>
+                          {opt.label}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                          {opt.desc}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

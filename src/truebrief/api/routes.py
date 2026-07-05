@@ -373,13 +373,17 @@ def update_topic_frequency(
         new_interval = _tier_floor_s
         user_interval = None  # Auto
 
+    _label_map = {900: "Ultra Fast", 3600: "Fast", 21600: "Medium", 86400: "Slow"}
+    frequency_label = _label_map.get(new_interval, "Auto") if user_interval else "Auto"
+
     db.table("topics").update({
         "poll_interval_seconds": new_interval,
         "user_interval_seconds": user_interval,
+        "frequency": frequency_label,
     }).eq("id", topic_id).execute()
 
-    logger.info(f"Topic {topic_id} frequency updated: {new_interval}s (user_floor={user_interval})")
-    return {"poll_interval_seconds": new_interval, "user_interval_seconds": user_interval}
+    logger.info(f"Topic {topic_id} frequency updated: {new_interval}s ({frequency_label})")
+    return {"poll_interval_seconds": new_interval, "user_interval_seconds": user_interval, "frequency": frequency_label}
 
 
 @router.post("/topics/{topic_id}/scan")
