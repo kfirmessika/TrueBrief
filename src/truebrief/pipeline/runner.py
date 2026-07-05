@@ -33,6 +33,7 @@ from truebrief.ledger.query_rotator import QueryRotator
 from truebrief.ledger.story_manager import StoryManager
 from truebrief.ledger.story_summarizer import StorySummarizer
 from truebrief.arbiter.arbiter import Arbiter
+from truebrief.pipeline.signal_scorer import SignalScorer
 from truebrief.briefer.briefer import Briefer
 from truebrief.briefer.state_of_play import StateOfPlayGenerator
 from truebrief.verifier.verifier import Verifier
@@ -132,6 +133,10 @@ class PipelineRunner:
         self.verifier = Verifier()
         self.vector_store = VectorStore()
         self.arbiter = Arbiter(vector_store=self.vector_store)
+        self.signal_scorer = SignalScorer(
+            llm=self.vector_store.llm,
+            db=self.vector_store.db,
+        )
         self.briefer = Briefer()
         self.state_of_play = StateOfPlayGenerator(llm_client=self.vector_store.llm)
         self.last_state_of_play = None  # latest generated block (IC7), exposed for callers
@@ -408,9 +413,31 @@ class PipelineRunner:
             except Exception as ver_err:
                 logger.warning(f"    Verifier failed (non-fatal, continuing): {ver_err}")
 
-            # 4c. V3 Relevance gate — drop off-topic facts before judging.
-            # Pre-embedding here means the arbiter reuses these embeddings; no extra calls.
-            if settings.V3_RELEVANCE_GATE and all_alphas:
+            # 4c. Signal quality gate — filter noise/reaction before dedup.
+            # V4_SIGNAL_SCORER (new): batch LLM scores each fact for signal strength;
+            # class + score gate (>= 6, not REACTION/NOISE). Updates learned prototype.
+            # V3_RELEVANCE_GATE (legacy): simple 0.50 cosine vs topic text. Kept as
+            # fallback when the signal scorer is off.
+            if settings.V4_SIGNAL_SCORER and all_alphas:
+                before_score = len(all_alphas)
+                try:
+                    all_alphas = self.signal_scorer.score(
+                        all_alphas,
+                        topic_name=query.topic_name or topic_input,
+                        topic_id=topic_id,
+                    )
+                    dropped_score = before_score - len(all_alphas)
+                    self._trace(
+                        "signal_score",
+                        f"SignalScorer: kept {len(all_alphas)}, dropped {dropped_score} "
+                        f"(REACTION/NOISE or score < 6).",
+                        kept=len(all_alphas),
+                        dropped=dropped_score,
+                    )
+                except Exception as sc_err:
+                    logger.warning(f"    SignalScorer failed (non-fatal): {sc_err}")
+
+            elif settings.V3_RELEVANCE_GATE and all_alphas:
                 try:
                     topic_text = query.topic_name or topic_input
                     topic_emb = self.vector_store.llm.embed(topic_text)

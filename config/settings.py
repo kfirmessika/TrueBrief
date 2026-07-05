@@ -130,6 +130,13 @@ class Settings(BaseSettings):
     # Requires migration 023 (fact_stitches table). Safe to leave False until that migration runs.
     V4_STORY_STITCHING: bool = False
 
+    # V4-5 Signal Scorer: when True, runs the SignalScorer batch quality gate between
+    # the Harvester and the Arbiter. Filters REACTION/NOISE facts before dedup/storage.
+    # Requires migration 024 (topics.signal_prototype). Safe to enable immediately —
+    # falls back gracefully when prototype is NULL (first few scans per topic).
+    # Replaces the broken 0.50 cosine relevance gate (V3_RELEVANCE_GATE).
+    V4_SIGNAL_SCORER: bool = False
+
     # --- Admin / founder accounts ---
     # Comma-separated emails that bypass tier limits (scan speed, topic cap) entirely.
     # These users are treated as unlimited regardless of their subscription tier.
@@ -208,6 +215,11 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     # Story stitch (V4): one short connective sentence between each adjacent pair of
     # alphas on the topic story view. Same provider/model as dashboard_summary.
     "story_stitch": {"provider": _cheap_provider, "model": _cheap_model},
+
+    # Signal scorer (V4-5): batch quality gate — classify + score each harvested fact.
+    # Routes to Groq when available (cheap, fast, adequate for classification).
+    # Falls back to Gemini flash-lite when no Groq key is set.
+    "signal_scorer": {"provider": _cheap_provider, "model": _cheap_model},
 }
 
 
