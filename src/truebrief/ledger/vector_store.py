@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -17,6 +18,7 @@ from truebrief.ledger.database import get_supabase
 from truebrief.ledger.source_logger import extract_domain
 from truebrief.models.alpha import Alpha
 from truebrief.llm.client import LLMClient
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +155,119 @@ class VectorStore:
         if response.data:
             # Update the alpha with the DB-assigned ID
             alpha.id = response.data[0]["id"]
+
+        # V4-4: fire-and-forget stitch generation for the new fact's adjacent pairs.
+        # Runs in a daemon thread so it never blocks the pipeline. All exceptions
+        # are caught internally — this path must never propagate an error.
+        if settings.V4_STORY_STITCHING and alpha.id and alpha.topic_id:
+            t = threading.Thread(
+                target=self._generate_adjacent_stitches,
+                args=(alpha,),
+                daemon=True,
+            )
+            t.start()
+
         return alpha
+
+    def _generate_adjacent_stitches(self, new_alpha: Alpha) -> None:
+        """V4-4: Generate and cache stitch sentences for the pairs that include new_alpha.
+
+        Fetches the immediately older and newer facts for the same topic (by event_date),
+        then calls the LLM for each pair and upserts into fact_stitches. Entirely
+        non-fatal — any exception is logged and swallowed.
+        """
+        try:
+            db = get_supabase()
+
+            # --- Fetch 1 older neighbor (latest fact strictly before this one) ---
+            older_rows = (
+                db.table("known_facts")
+                .select("id, alpha_text, event_date")
+                .eq("topic_id", new_alpha.topic_id)
+                .neq("id", new_alpha.id)
+                .lt("event_date", new_alpha.event_date.isoformat() if new_alpha.event_date else "9999-01-01")
+                .order("event_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+            # --- Fetch 1 newer neighbor (earliest fact strictly after this one) ---
+            newer_rows = (
+                db.table("known_facts")
+                .select("id, alpha_text, event_date")
+                .eq("topic_id", new_alpha.topic_id)
+                .neq("id", new_alpha.id)
+                .gt("event_date", new_alpha.event_date.isoformat() if new_alpha.event_date else "0001-01-01")
+                .order("event_date", desc=False)
+                .limit(1)
+                .execute()
+            )
+
+            # Fetch topic name for the prompt
+            topic_res = (
+                db.table("topics")
+                .select("raw_query")
+                .eq("id", new_alpha.topic_id)
+                .single()
+                .execute()
+            )
+            topic_name = topic_res.data.get("raw_query", "") if topic_res.data else ""
+
+            llm = self.llm
+
+            # Build pairs: (before_fact, after_fact) where new_alpha is one member each time
+            pairs: list[tuple[dict, dict]] = []
+
+            if older_rows.data:
+                older = older_rows.data[0]
+                # older is the BEFORE fact, new_alpha is the AFTER fact
+                pairs.append((older, {"id": new_alpha.id, "alpha_text": new_alpha.alpha_text}))
+
+            if newer_rows.data:
+                newer = newer_rows.data[0]
+                # new_alpha is the BEFORE fact, newer is the AFTER fact
+                pairs.append(({"id": new_alpha.id, "alpha_text": new_alpha.alpha_text}, newer))
+
+            for before, after in pairs:
+                try:
+                    prompt = (
+                        f"Topic: {topic_name}\n"
+                        f"Fact A: {before['alpha_text']}\n"
+                        f"Fact B: {after['alpha_text']}\n\n"
+                        f"Write ONE sentence (max 18 words) connecting A to B. "
+                        f'Return JSON: {{"passage": "..."}}.'
+                    )
+                    raw = llm.call(
+                        step_name="story_stitch",
+                        prompt=prompt,
+                        json_mode=True,
+                    )
+                    parsed = json.loads(raw)
+                    passage = str(parsed.get("passage", "")).strip()
+                    if not passage:
+                        continue
+
+                    stitch_data = {
+                        "topic_id": new_alpha.topic_id,
+                        "before_fact_id": str(before["id"]),
+                        "after_fact_id": str(after["id"]),
+                        "passage": passage,
+                    }
+                    # ON CONFLICT DO NOTHING: if this stitch already exists, skip silently.
+                    db.table("fact_stitches").upsert(
+                        stitch_data,
+                        on_conflict="topic_id,before_fact_id,after_fact_id",
+                        ignore_duplicates=True,
+                    ).execute()
+
+                except Exception as pair_err:
+                    logger.warning(
+                        "V4-4 stitch generation failed for pair (%s, %s): %s",
+                        before.get("id"), after.get("id"), pair_err,
+                    )
+
+        except Exception as exc:
+            logger.warning("V4-4 _generate_adjacent_stitches failed (non-fatal): %s", exc)
 
     def get_seen_urls(self, topic_id: Optional[str], days: int = 14) -> set:
         """

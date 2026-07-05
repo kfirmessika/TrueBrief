@@ -41,6 +41,7 @@ function formatDayLabel(ymd: string): string {
 // ── History view ─────────────────────────────────────────────────────────────
 
 interface HistoryFact {
+  id?: string | null;
   text: string;
   context: string | null;
   event_class: string | null;
@@ -146,10 +147,14 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
   // Story connectors: the backend links chronological pairs (oldest→newest). We send
   // chronological order and map each connector back into the newest-first display.
   const chronoTexts = useMemo(() => flat.map((f) => f.text).reverse(), [flat]);
+  const chronoIds = useMemo(() => {
+    const ids = flat.map((f) => f.id ?? null).reverse();
+    return ids.every(Boolean) ? (ids as string[]) : null;
+  }, [flat]);
   const { data: storyData, isFetching: storyFetching } = useQuery<{ connectors: string[] }>({
     queryKey: ['topic-story', topicId, N],
     queryFn: async () =>
-      (await api.post(`/topics/${topicId}/story`, { facts: chronoTexts }, { timeout: 20_000 })).data,
+      (await api.post(`/topics/${topicId}/story`, { facts: chronoTexts, ...(chronoIds && { fact_ids: chronoIds }) }, { timeout: 20_000 })).data,
     enabled: storyMode && N >= 2,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,

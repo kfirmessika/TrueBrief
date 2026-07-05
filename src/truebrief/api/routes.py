@@ -338,6 +338,9 @@ class SummaryRequest(BaseModel):
 
 class StoryRequest(BaseModel):
     facts: list[str]  # ordered fact texts (chronological); connectors bridge adjacent pairs
+    # V4-4: optional fact IDs (same order as facts). When provided and V4_STORY_STITCHING is
+    # enabled, the endpoint looks up cached stitches from fact_stitches before calling the LLM.
+    fact_ids: Optional[list[str]] = None
 
 
 @router.patch("/topics/{topic_id}/frequency")
@@ -1148,7 +1151,63 @@ def get_topic_story(
     raw_query = topic_res.data[0]["raw_query"]
 
     facts = facts[:25]  # cap for cost/latency
+    fact_ids = (body.fact_ids or [])[:25] if body.fact_ids else []
     n_pairs = len(facts) - 1
+
+    # V4-4: cache-first path — only active when the flag is on AND the caller provided IDs.
+    if settings.V4_STORY_STITCHING and len(fact_ids) == len(facts):
+        try:
+            stitch_rows = (
+                db.table("fact_stitches")
+                .select("before_fact_id, after_fact_id, passage")
+                .eq("topic_id", topic_id)
+                .execute()
+            )
+            stitch_cache: dict[tuple[str, str], str] = {
+                (r["before_fact_id"], r["after_fact_id"]): r["passage"]
+                for r in (stitch_rows.data or [])
+            }
+        except Exception as cache_err:
+            logger.warning("fact_stitches lookup failed (non-fatal): %s", cache_err)
+            stitch_cache = {}
+
+        connectors: list[str] = []
+        pairs_needing_llm: list[tuple[int, str, str]] = []  # (index, before_text, after_text)
+
+        for i in range(n_pairs):
+            key = (fact_ids[i], fact_ids[i + 1])
+            if key in stitch_cache:
+                connectors.append(stitch_cache[key])
+            else:
+                connectors.append("")  # placeholder; filled by LLM below
+                pairs_needing_llm.append((i, facts[i], facts[i + 1]))
+
+        # Fall back to individual LLM calls only for the cache-miss pairs.
+        if pairs_needing_llm:
+            llm = LLMClient()
+            for idx, before_text, after_text in pairs_needing_llm:
+                try:
+                    pair_prompt = (
+                        f"Topic: {raw_query}\n"
+                        f"Fact A: {before_text}\n"
+                        f"Fact B: {after_text}\n\n"
+                        f"Write ONE sentence (max 18 words) connecting A to B. "
+                        f'Return JSON: {{"passage": "..."}}.'
+                    )
+                    raw = llm.call(
+                        step_name="story_stitch",
+                        prompt=pair_prompt,
+                        json_mode=True,
+                        system_prompt="You are a news analyst writing terse connective narration.",
+                    )
+                    parsed = json.loads(raw)
+                    connectors[idx] = str(parsed.get("passage", "")).strip()
+                except Exception as pair_exc:
+                    logger.warning("story_stitch fallback LLM call failed (non-fatal): %s", pair_exc)
+
+        return {"connectors": connectors}
+
+    # Legacy path: one LLM call for all N-1 pairs (used when flag is off or no IDs provided).
     numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(facts))
     prompt = (
         f"Topic: {raw_query}\n\n"

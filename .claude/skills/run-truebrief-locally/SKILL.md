@@ -7,8 +7,15 @@ description: Run TrueBrief on this machine — start the local stack (Redis + Ce
 
 ## Prerequisites
 - **`REDIS_URL=redis://localhost:6379/0` must be in `.env`.** Without it Celery uses an in-memory broker — tasks don't persist and **beat won't run scheduled scans**. Redis binary: `C:\Program Files\Redis\redis-server.exe`.
-- Backend Python: use the venv → `.venv/Scripts/python.exe`. Frontend: Node + `npm` in `frontend/`.
+- **Backend Python: always use the venv → `.venv/Scripts/python.exe`.** The system Python311 does NOT have `google.genai` installed — if you start the backend with it, every LLM call crashes silently with an ImportError.
 - API keys in `.env`: Supabase, Clerk, Tavily/Brave/Exa, `GOOGLE_API_KEY`/`GEMINI_API_KEY`, VAPID, SMTP, Paddle.
+
+## Known quota limits (gemini-3.1-flash-lite free tier)
+`dashboard_summary` and `story_stitch` use `gemini-3.1-flash-lite` (500 req/day free tier).
+If the dashboard cards never flip and the backend logs show 429s, the daily quota is exhausted.
+**Do NOT switch models** — other Gemini free-tier models have smaller or zero limits.
+Wait until tomorrow (quota resets daily) or set up real Groq (V4-3): add `GROQ_API_KEY` to `.env`
+and switch the provider in `LLM_CONFIG` to `"groq"` for those two steps.
 
 ## Full stack (Redis + Celery worker + beat + FastAPI)
 ```powershell

@@ -392,13 +392,18 @@ to activate persistence** (code degrades to no-op until then).
 - Wired through `LLMClient` as new step names: `dashboard_summary`, `story_stitch`.
 
 ### Implementation Order
-- [ ] **V4-1. Remove StateOfPlayGenerator from pipeline** — disable `V3_STATE_OF_PLAY` flag; StateOfPlayBlock already removed from frontend. (C: 2 | FLASH)
-- [ ] **V4-2. `fact_stitches` table** — migration: `(topic_id, before_fact_id, after_fact_id, passage, created_at)`. (C: 3 | FLASH)
-- [ ] **V4-3. Cheap LLM integration** — add Groq or DeepSeek provider to `LLMClient`; new step names `dashboard_summary` + `story_stitch` in `LLM_CONFIG`. (C: 5 | SONNET)
-- [ ] **V4-4. Stitch generation on alpha store** — `VectorStore.add_fact()` triggers async stitch call when `V4_STORY_STITCHING` flag ON. (C: 8 | SONNET)
-- [ ] **V4-5. `POST /topics/{id}/summary` endpoint** — takes `fact_ids[]`, calls cheap LLM, returns summary string. (C: 5 | SONNET)
-- [ ] **V4-6. Topic page story toggle** — `Raw | Story` toggle in `topics/[id]/page.tsx`; story view stitches facts from `/topics/{id}/history` with passages from `/topics/{id}/stitches`. (C: 8 | SONNET)
-- [ ] **V4-7. Dashboard flip cards** — redesign `dashboard/page.tsx`: card front = unseen alphas list; card back = summary (fetched on load, auto-flip on ready, manual flip on click); CSS flip animation. (C: 10 | SONNET)
+- [x] **V4-1. Remove StateOfPlayGenerator from pipeline** — `V3_STATE_OF_PLAY = False` in settings; StateOfPlayBlock already removed from frontend.
+- [x] **V4-2. `fact_stitches` table** — migration 023 created (`scripts/migrations/023_fact_stitches.sql`). **Apply to Supabase before enabling V4_STORY_STITCHING.**
+- [x] **V4-3. Cheap LLM integration** — Groq provider wired into `LLMClient`; `dashboard_summary` + `story_stitch` auto-route to Groq when `GROQ_API_KEY` is set, else Gemini. Backup key (`GOOGLE_API_KEY_BACKUP`) retries on 429.
+- [x] **V4-4. Stitch generation on alpha store** — `VectorStore.add_fact()` triggers background stitch thread when `V4_STORY_STITCHING=True`. Cache-first path in story endpoint. **Requires migration 023 applied + `V4_STORY_STITCHING=True` in .env.**
+- [x] **V4-5. `POST /topics/{id}/summary` endpoint** — already built; calls cheap LLM (Groq/Gemini), returns summary string.
+- [x] **V4-6. Topic page story toggle** — already built; `Raw | Story` toggle in `topics/[id]/page.tsx`; now also sends `fact_ids` for cache-hit path.
+- [x] **V4-7. Dashboard flip cards** — already built; front = alphas list, back = LLM summary, auto-flip on load, scaleX squeeze animation.
+
+**V4 activation checklist:**
+1. `GROQ_API_KEY=<key>` in `.env` (Groq account: https://console.groq.com)
+2. Apply migration 023 in Supabase SQL editor
+3. `V4_STORY_STITCHING=True` in `.env` (after migration 023 is applied)
 
 ---
 

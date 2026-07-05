@@ -82,7 +82,7 @@ def build_history_doc(topic_id: str, db=None) -> dict:
 
     # Pull the IC4 columns too, but fall back if migration 015 isn't applied.
     base_cols = (
-        "alpha_text, context, event_class, event_date, first_seen_at, "
+        "id, alpha_text, context, event_class, event_date, first_seen_at, "
         "source_domain, source_url, verified_count"
     )
     try:
@@ -112,6 +112,7 @@ def build_history_doc(topic_id: str, db=None) -> dict:
         if not day:
             continue
         by_date.setdefault(day, []).append({
+            "id":                 row.get("id"),
             "text":               row.get("alpha_text", ""),
             "context":            row.get("context"),
             "event_class":        row.get("event_class"),
