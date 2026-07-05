@@ -1108,9 +1108,10 @@ def get_topic_summary(
     bullet_list = "\n".join(f"- {f}" for f in body.facts[:20])
     prompt = (
         f"Topic: {raw_query}\n\n"
-        f"What just happened:\n{bullet_list}\n\n"
-        "Write 2-3 crisp sentences summarising the key developments. "
+        f"New facts (these are the ONLY facts you may reference):\n{bullet_list}\n\n"
+        "Write 2-3 crisp sentences summarising these specific developments. "
         "Lead with the single most important one. "
+        "Reference ONLY facts listed above — do not add background, context, or information not in the list. "
         "Be direct and specific — no fluff, no \"based on the above\", no \"in summary\"."
     )
 

@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useCallback, useEffect, useMemo, useRef, use, useState } from 'react';
-import { Clock, ScanSearch, BookOpen, List } from 'lucide-react';
+import { Clock, ScanSearch, BookOpen, List, Loader2 } from 'lucide-react';
 import { useScanStatus, useTriggerScan } from '@/hooks/useTopics';
 import { SourceChip } from '@/components/SourceChip';
 
@@ -170,7 +170,7 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
     const ids = flat.map((f) => f.id ?? null).reverse();
     return ids.every(Boolean) ? (ids as string[]) : null;
   }, [flat]);
-  const { data: storyData, isFetching: storyFetching } = useQuery<{ connectors: string[] }>({
+  const { data: storyData, isFetching: storyFetching, isError: storyFailed } = useQuery<{ connectors: string[] }>({
     queryKey: ['topic-story', topicId, N],
     queryFn: async () =>
       (await api.post(`/topics/${topicId}/story`, { facts: chronoTexts, ...(chronoIds && { fact_ids: chronoIds }) }, { timeout: 20_000 })).data,
@@ -212,10 +212,29 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
   let gi = -1; // running global display index across all groups
   return (
     <div style={{ padding: '8px 22px 48px' }}>
-      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 14px' }}>
-        {data?.fact_count ?? 0} facts · {storyMode ? 'the story so far' : 'newest first'}
-        {storyMode && storyFetching && ' · weaving…'}
+      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 6px' }}>
+        {data?.fact_count ?? 0} facts · {storyMode ? 'story view' : 'newest first'}
       </div>
+      {storyMode && storyFetching && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, paddingLeft: 22 }}>
+          <Loader2 size={12} color="var(--color-text-tertiary)" style={{ animation: 'spin 1s linear infinite' }} />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Weaving the story between facts…</span>
+        </div>
+      )}
+      {storyMode && storyFailed && !storyFetching && (
+        <div style={{ marginBottom: 12, paddingLeft: 22 }}>
+          <span style={{ fontSize: 12, color: '#B45309' }}>
+            Story weave failed — LLM quota may be exhausted. Showing raw timeline.
+          </span>
+        </div>
+      )}
+      {storyMode && !storyFetching && !storyFailed && storyData && connectors.filter(Boolean).length === 0 && N >= 2 && (
+        <div style={{ marginBottom: 12, paddingLeft: 22 }}>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            No connectors generated — showing raw timeline.
+          </span>
+        </div>
+      )}
       {timeline.map((group) => (
         <div key={group.date} style={{ marginBottom: 8 }}>
           <div style={{
@@ -506,7 +525,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
               </button>
               {showFreqPicker && (
                 <div style={{
-                  position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50,
+                  position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 50,
                   background: 'var(--color-background-primary)',
                   border: '0.5px solid var(--color-border-secondary)',
                   borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',

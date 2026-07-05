@@ -68,10 +68,12 @@ function TopicFlipCard({
   topic,
   onNavigate,
   api,
+  delay = 0,
 }: {
   topic: FeedTopic;
   onNavigate: () => void;
   api: AxiosInstance;
+  delay?: number;
 }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'failed'>('idle');
@@ -82,7 +84,9 @@ function TopicFlipCard({
   const autoFlipped = useRef(false);    // guard: fire auto-flip only once
   const shouldAutoFlip = useRef(false); // only true for 2+ fact cards (not single-fact shortcut)
 
-  // Fetch the summary once per topic.
+  const fetchSummary = useRef<() => void>(() => {});
+
+  // Fetch the summary once per topic (or on retry).
   useEffect(() => {
     const texts = topic.facts.map((f) => f.text).filter(Boolean);
     if (texts.length === 0) { setState('failed'); return; }
@@ -92,19 +96,30 @@ function TopicFlipCard({
       setState('done');
       return;
     }
-    setState('loading');
-    shouldAutoFlip.current = true;
+
     let cancelled = false;
-    api
-      .post(`/topics/${topic.topic_id}/summary`, { facts: texts.slice(0, 20) }, { timeout: 15_000 })
-      .then((res) => {
-        if (cancelled) return;
-        const s = (res.data?.summary as string | null) ?? null;
-        if (s) { setSummary(s); setState('done'); }
-        else setState('failed');
-      })
-      .catch(() => { if (!cancelled) setState('failed'); });
-    return () => { cancelled = true; };
+
+    const doFetch = () => {
+      setState('loading');
+      shouldAutoFlip.current = true;
+      api
+        .post(`/topics/${topic.topic_id}/summary`, { facts: texts.slice(0, 20) }, { timeout: 20_000 })
+        .then((res) => {
+          if (cancelled) return;
+          const s = (res.data?.summary as string | null) ?? null;
+          if (s) { setSummary(s); setState('done'); }
+          else setState('failed');
+        })
+        .catch(() => { if (!cancelled) setState('failed'); });
+    };
+
+    // Expose retry without dismounting the effect.
+    fetchSummary.current = doFetch;
+
+    // Stagger concurrent card requests to avoid hitting Groq rate limits.
+    setState('loading');
+    const timer = setTimeout(doFetch, delay);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [topic.topic_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-flip to the summary once it arrives (2+ fact cards only).
@@ -180,6 +195,19 @@ function TopicFlipCard({
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
                 <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> summarising…
               </span>
+            )}
+            {state === 'failed' && topic.facts.length >= 2 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); fetchSummary.current(); }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3,
+                  fontSize: 10.5, color: 'var(--color-text-tertiary)',
+                  background: 'none', border: '0.5px solid var(--color-border-secondary)',
+                  borderRadius: 5, padding: '1px 6px', cursor: 'pointer',
+                }}
+              >
+                <RefreshCw size={10} /> retry
+              </button>
             )}
             {isFlipReady && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
@@ -322,12 +350,13 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!isLoading && !allQuiet && topics.map((topic) => (
+        {!isLoading && !allQuiet && topics.map((topic, i) => (
           <TopicFlipCard
             key={topic.topic_id}
             topic={topic}
             onNavigate={() => openTopic(topic.topic_id)}
             api={api}
+            delay={i * 1000}
           />
         ))}
 
