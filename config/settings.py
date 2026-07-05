@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Backup Gemini key (different Google account → independent 500 req/day quota).
     # When the primary key hits 429, the LLM client automatically retries with this key.
     GOOGLE_API_KEY_BACKUP: str = ""
+    # Groq API key — unlocks near-unlimited cheap inference for dashboard_summary/story_stitch.
+    # When set, those steps automatically route to Groq (llama-3.1-8b-instant) instead of Gemini.
+    GROQ_API_KEY: str = ""
 
     # --- Collector ---
     TAVILY_API_KEY: str = ""
@@ -120,6 +123,13 @@ class Settings(BaseSettings):
     # (kills editorial synthesis + saves a Gemini call/scan). The briefer becomes optional.
     V3_NO_LLM_BRIEF: bool = False
 
+    # --- V4 Feature Flags ---
+    # V4-4: when True, add_fact() spawns a background thread that generates and caches
+    # stitch sentences for each adjacent fact pair in fact_stitches. The story endpoint
+    # then serves cached stitches (cache hit) and falls back to on-demand LLM (cache miss).
+    # Requires migration 023 (fact_stitches table). Safe to leave False until that migration runs.
+    V4_STORY_STITCHING: bool = False
+
     # --- Admin / founder accounts ---
     # Comma-separated emails that bypass tier limits (scan speed, topic cap) entirely.
     # These users are treated as unlimited regardless of their subscription tier.
@@ -159,6 +169,11 @@ settings = Settings()
 # To change a single step's model, edit ONE line here.
 # To add a new provider, add a new `elif` in llm/client.py.
 
+# Auto-select provider/model for cheap steps: Groq when key is present, Gemini otherwise.
+# Only dashboard_summary and story_stitch auto-switch; all other steps stay on Gemini.
+_cheap_provider = "groq" if settings.GROQ_API_KEY else "gemini"
+_cheap_model = "llama-3.1-8b-instant" if settings.GROQ_API_KEY else "gemini-3.1-flash-lite"
+
 LLM_CONFIG: dict[str, dict[str, str]] = {
     # Query Builder: Low token usage, simple reasoning.
     "query_builder":  {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
@@ -186,14 +201,13 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     # Uses Flash 2.0 (not Lite) because this is the user-facing narrative output.
     "state_of_play":  {"provider": "gemini", "model": "gemini-2.0-flash"},
 
-    # Dashboard summary (V4-5): 2-3 sentence executive summary of the most recent facts.
-    # Uses gemini-3.1-flash-lite. Still billed at Groq rates (_COST_AS_GROQ_STEPS).
-    # Switch to real Groq once GROQ_API_KEY is set up (V4-3).
-    "dashboard_summary": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    # Dashboard summary (V4-3): 2-3 sentence executive summary of the most recent facts.
+    # Routes to Groq (llama-3.1-8b-instant) when GROQ_API_KEY is set; falls back to Gemini.
+    "dashboard_summary": {"provider": _cheap_provider, "model": _cheap_model},
 
     # Story stitch (V4): one short connective sentence between each adjacent pair of
-    # alphas on the topic story view. Same model as dashboard_summary.
-    "story_stitch": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    # alphas on the topic story view. Same provider/model as dashboard_summary.
+    "story_stitch": {"provider": _cheap_provider, "model": _cheap_model},
 }
 
 

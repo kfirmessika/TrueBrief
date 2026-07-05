@@ -41,7 +41,8 @@ class LLMClient:
 
     Supported providers:
       - "gemini"  → google-genai (modern SDK)
-      - "openai"  → openai
+      - "openai"  → openai SDK (OpenAI endpoints)
+      - "groq"    → openai SDK pointed at https://api.groq.com/openai/v1 (OpenAI-compatible)
     """
 
     MAX_RETRIES = 3
@@ -54,6 +55,7 @@ class LLMClient:
         self._gemini_client: Optional[Any] = None
         self._gemini_client_backup: Optional[Any] = None
         self._openai_client: Optional[Any] = None
+        self._groq_client: Optional[Any] = None
         self._local_embedder: Optional[Any] = None  # lazy-loaded LocalEmbedder
 
     def _get_local_embedder(self):
@@ -88,6 +90,10 @@ class LLMClient:
                     )
                 elif provider == "openai":
                     result, in_tok, out_tok = self._call_openai_instrumented(
+                        model, prompt, json_mode, system_prompt
+                    )
+                elif provider == "groq":
+                    result, in_tok, out_tok = self._call_groq_instrumented(
                         model, prompt, json_mode, system_prompt
                     )
                 else:
@@ -440,3 +446,39 @@ class LLMClient:
                 raise LLMError("OPENAI_API_KEY not set.")
             self._openai_client = OpenAI(api_key=api_key)
         return self._openai_client
+
+    def _get_groq_client(self) -> Any:
+        """Return (and lazily init) an OpenAI-compatible client pointed at Groq's API."""
+        if self._groq_client is None:
+            from openai import OpenAI
+            api_key = getattr(self._settings, "GROQ_API_KEY", "")
+            if not api_key:
+                raise LLMError("GROQ_API_KEY not set. Add it to .env to use Groq.")
+            self._groq_client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+        return self._groq_client
+
+    def _call_groq_instrumented(
+        self,
+        model: str,
+        prompt: str,
+        json_mode: bool,
+        system_prompt: Optional[str],
+    ) -> tuple[str, int, int]:
+        """Call Groq via its OpenAI-compatible API and return (text, input_tokens, output_tokens)."""
+        client = self._get_groq_client()
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        kwargs: dict = {"model": model, "messages": messages}
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        response = self._call_with_timeout(
+            lambda: client.chat.completions.create(**kwargs), 30.0
+        )
+        text = response.choices[0].message.content.strip()
+        in_tok = response.usage.prompt_tokens if response.usage else 0
+        out_tok = response.usage.completion_tokens if response.usage else 0
+        return text, in_tok, out_tok
