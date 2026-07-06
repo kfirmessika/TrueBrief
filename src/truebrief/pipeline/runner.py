@@ -421,18 +421,22 @@ class PipelineRunner:
             if settings.V4_SIGNAL_SCORER and all_alphas:
                 before_score = len(all_alphas)
                 try:
-                    all_alphas = self.signal_scorer.score(
+                    all_alphas, _score_log = self.signal_scorer.score(
                         all_alphas,
                         topic_name=query.topic_name or topic_input,
                         topic_id=topic_id,
                     )
                     dropped_score = before_score - len(all_alphas)
+                    # Trace includes per-fact scores/classes for every input fact
+                    # (kept AND dropped) so you can query pipeline_trace to see
+                    # exactly what was filtered and why.
                     self._trace(
                         "signal_score",
                         f"SignalScorer: kept {len(all_alphas)}, dropped {dropped_score} "
-                        f"(REACTION/NOISE or score < 6).",
+                        f"(REACTION/NOISE, score<6, batch-dup, or proto-filter).",
                         kept=len(all_alphas),
                         dropped=dropped_score,
+                        scored_facts=_score_log,
                     )
                 except Exception as sc_err:
                     logger.warning(f"    SignalScorer failed (non-fatal): {sc_err}")

@@ -102,6 +102,13 @@ class VectorStore:
             except Exception as _rel_err:
                 logger.warning("Relevance computation failed (non-fatal): %s", _rel_err)
 
+        # Migration 025: signal scorer columns. Only include when set so pre-025
+        # databases accept the insert without them.
+        if getattr(alpha, "signal_score", None) is not None:
+            data["signal_score"] = alpha.signal_score
+        if getattr(alpha, "signal_class", None) is not None:
+            data["signal_class"] = alpha.signal_class
+
         # IC4: only include the contradiction columns when this fact is actually
         # flagged, so pre-migration topics never carry the keys for nothing.
         if alpha.contradicts_id:

@@ -68,6 +68,12 @@ class Alpha:
     contradicts_id: Optional[str] = None          # known_facts.id of the contradicted fact
     contradiction_note: Optional[str] = None      # short reason, e.g. "status conflict: 'closed' vs 'open'"
 
+    # SignalScorer output (migration 025). Set by SignalScorer, persisted in known_facts.
+    # signal_class: STATE_CHANGE | ANNOUNCEMENT | REACTION | NOISE
+    # signal_score: 0-10 quality gate score (facts scoring < 6 or REACTION/NOISE are dropped)
+    signal_score: Optional[int] = None
+    signal_class: Optional[str] = None
+
 
 @dataclass
 class AlphaDecision:
