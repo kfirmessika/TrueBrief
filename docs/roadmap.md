@@ -400,10 +400,23 @@ to activate persistence** (code degrades to no-op until then).
 - [x] **V4-6. Topic page story toggle** — already built; `Raw | Story` toggle in `topics/[id]/page.tsx`; now also sends `fact_ids` for cache-hit path.
 - [x] **V4-7. Dashboard flip cards** — already built; front = alphas list, back = LLM summary, auto-flip on load, scaleX squeeze animation.
 
+- [x] **V4-8. SignalScorer quality gate** (2026-07-06) — batch LLM stage between harvester and
+  arbiter (`src/truebrief/pipeline/signal_scorer.py`): classifies each fact STATE_CHANGE /
+  ANNOUNCEMENT / REACTION / NOISE + scores 0-10 on Groq; gate = score≥6 AND class not
+  REACTION/NOISE; facts ≥7 update the per-topic `signal_prototype` embedding (EMA).
+  Migrations 024+025 **applied to prod**. Flag `V4_SIGNAL_SCORER` (default False).
+- [x] **V4-9. Always-on quality fixes from accumulated validation** (2026-07-06) — real test
+  vs Gemini (`scripts/validate_pipeline.py`) found 18-30% duplicate facts + garbage rows.
+  Shipped: always-on within-batch dedup (runner 4b2), harvester meta-sentence guard,
+  arbiter same-day near-identical fast-path (≥0.93 + same date + same numbers → DUPLICATE),
+  Groq last-resort fallback when both Gemini keys are quota-exhausted, 19 garbage facts
+  deleted from prod. Re-run the validation after a few scans to measure the improvement.
+
 **V4 activation checklist:**
 1. `GROQ_API_KEY=<key>` in `.env` (Groq account: https://console.groq.com)
 2. Apply migration 023 in Supabase SQL editor
 3. `V4_STORY_STITCHING=True` in `.env` (after migration 023 is applied)
+4. `V4_SIGNAL_SCORER=True` in `.env` + Railway (migrations 024/025 already applied 2026-07-06)
 
 ---
 
