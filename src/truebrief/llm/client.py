@@ -180,6 +180,30 @@ class LLMClient:
                     logger.warning(f"Attempt {attempt} failed: {exc}. Retrying in {wait}s...")
                     time.sleep(wait)
                 else:
+                    # Reverse fallback: Groq step exhausted its retries → try Gemini
+                    # once before giving up. Critical for signal_scorer: a fail-open
+                    # quality gate floods noise into the DB (seen 2026-07-07 when
+                    # Groq's free-tier daily token cap died mid-test).
+                    if provider == "groq" and self._settings.GOOGLE_API_KEY:
+                        gem_model = "gemini-3.1-flash-lite"
+                        logger.warning(
+                            "[LLM] Groq exhausted all retries (step=%s). "
+                            "Falling back to Gemini %s for this call.",
+                            step_name, gem_model,
+                        )
+                        try:
+                            result, in_tok, out_tok = self._call_gemini_instrumented(
+                                gem_model, prompt, json_mode, system_prompt
+                            )
+                            duration_ms = int((time.monotonic() - t0) * 1000)
+                            self._log_call(step_name, gem_model, in_tok, out_tok,
+                                           duration_ms, prompt, system_prompt, result)
+                            return result
+                        except Exception as gemexc:
+                            logger.error(
+                                "[LLM] Gemini reverse-fallback also failed (step=%s): %s",
+                                step_name, gemexc,
+                            )
                     raise LLMError(f"Failed after {self.MAX_RETRIES} attempts: {exc}") from exc
         return ""
 
