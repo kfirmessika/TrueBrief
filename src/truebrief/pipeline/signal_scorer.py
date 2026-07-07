@@ -59,38 +59,39 @@ Return ONLY a valid JSON array. Nothing else.
 """
 
 _SCORE_PROMPT_TEMPLATE = """\
-Topic: {topic}
+Topic being tracked: {topic}
 
-Classify each candidate fact below and score its signal strength 0-10.
+For EACH candidate fact below, answer three things:
 
-Signal classes (pick exactly one):
-  STATE_CHANGE  — a decision, action, or situation that was not true yesterday
-  ANNOUNCEMENT  — official statement with a real commitment or consequence
-  REACTION      — someone commenting on or responding to existing news; no new event
-  NOISE         — opinion, entertainment, social media, poll, tally, rehash, old news
+1. on_topic — is this fact directly about the topic "{topic}"?
+   Ask: would a person tracking ONLY this topic want this fact?
+   A major event in a DIFFERENT conflict/country/company is on_topic=false,
+   no matter how important it is on its own.
 
-Score guide:
-  8-10  Concrete, consequential, real event — something changed in the world
-  6-7   Genuine development, worth tracking
-  4-5   Borderline — minor update or soft signal
-  1-3   Reaction, characterization, tangential mention
-  0     Pure noise, off-topic, or identical to a fact already in this list
+2. class — pick exactly one:
+   STATE_CHANGE  — a decision, action, or situation that was not true yesterday
+   ANNOUNCEMENT  — official statement with a real commitment or consequence
+   REACTION      — someone commenting on or responding to existing news; no new event
+   NOISE         — opinion, entertainment, social media, poll, rehash, old news
+
+3. score 0-10 — signal strength:
+   8-10  Concrete, consequential, real event — something changed in the world
+   6-7   Genuine development, worth tracking
+   4-5   Borderline — minor update or soft signal
+   1-3   Reaction, characterization, tangential mention
+   0     Pure noise or identical to a fact already in this list
 
 Rules:
-  - TOPIC FIT IS A HARD GATE: a fact not directly about the topic above is
-    NOISE with score 0 — no matter how important the event is on its own.
-    (A major earthquake is score 0 on a topic about semiconductor exports.)
   - Be harsh. On a slow news day most facts score ≤ 4.
-  - REACTION can never score above 5.
-  - NOISE scores 0-2.
+  - REACTION can never score above 5. NOISE scores 0-2.
   - If two facts in this list report the same underlying event, give the best
-    one a real score and the rest 0-1 (not two separate NEW facts about one event).
+    one a real score and the rest 0-1 (not two separate facts about one event).
 
 Candidate facts:
 {numbered_list}
 
 Return a JSON array with exactly {n} objects, in order:
-[{{"id": 1, "class": "STATE_CHANGE", "score": 8}}, {{"id": 2, "class": "REACTION", "score": 2}}, ...]
+[{{"id": 1, "on_topic": true, "class": "STATE_CHANGE", "score": 8}}, {{"id": 2, "on_topic": false, "class": "NOISE", "score": 0}}, ...]
 """
 
 
@@ -210,19 +211,26 @@ class SignalScorer:
             return to_score, score_log
 
         # 6. Apply gate + annotate alphas + collect high-signal embeddings.
+        # Gate: on_topic AND score >= 6 AND class not REACTION/NOISE — all three
+        # must agree. on_topic is an explicit output field because prose-rule
+        # topic gating proved unreliable (Kyiv facts kept on an Iran topic).
         passed: List[Alpha] = []
         high_signal_embeddings: List[List[float]] = []
 
-        for alpha, cls, score in raw_scored:
-            keeps = score >= 6 and cls not in _NOISE_CLASSES
+        for alpha, on_topic, cls, score in raw_scored:
+            keeps = on_topic and score >= 6 and cls not in _NOISE_CLASSES
             alpha.signal_score = score
             alpha.signal_class = cls
+            drop_reason = None
+            if not keeps:
+                drop_reason = "off_topic" if not on_topic else f"{cls}/{score}"
             score_log.append({
                 "text": alpha.alpha_text[:200],
+                "on_topic": on_topic,
                 "class": cls,
                 "score": score,
                 "kept": keeps,
-                "drop_reason": None if keeps else f"{cls}/{score}",
+                "drop_reason": drop_reason,
                 "source_url": alpha.source_url,
             })
             if keeps:
@@ -231,8 +239,8 @@ class SignalScorer:
                     high_signal_embeddings.append(alpha.embedding)
             else:
                 logger.info(
-                    "  [SignalScorer] DROPPED [%s/%d]: %s",
-                    cls, score, alpha.alpha_text[:80],
+                    "  [SignalScorer] DROPPED [%s]: %s",
+                    drop_reason, alpha.alpha_text[:80],
                 )
 
         logger.info(
@@ -343,8 +351,11 @@ class SignalScorer:
 
     def _llm_score(
         self, alphas: List[Alpha], topic_name: str
-    ) -> Optional[List[Tuple[Alpha, str, int]]]:
-        """One LLM call scoring all alphas. Returns (alpha, class, score) or None on failure."""
+    ) -> Optional[List[Tuple[Alpha, bool, str, int]]]:
+        """One LLM call scoring all alphas.
+
+        Returns (alpha, on_topic, class, score) tuples, or None on failure.
+        """
         numbered = "\n".join(
             f"{i+1}. {a.alpha_text}" for i, a in enumerate(alphas)
         )
@@ -364,7 +375,10 @@ class SignalScorer:
                 )
                 parsed = self._parse_response(raw, len(alphas))
                 if parsed is not None:
-                    return [(alphas[i], cls, score) for i, (cls, score) in enumerate(parsed)]
+                    return [
+                        (alphas[i], on_topic, cls, score)
+                        for i, (on_topic, cls, score) in enumerate(parsed)
+                    ]
                 logger.warning("  [SignalScorer] Parse failed (attempt %d/2).", attempt)
             except LLMError as e:
                 logger.error("  [SignalScorer] LLM call failed (attempt %d/2): %s", attempt, e)
@@ -372,8 +386,8 @@ class SignalScorer:
         return None
 
     @staticmethod
-    def _parse_response(raw: str, expected: int) -> Optional[List[Tuple[str, int]]]:
-        """Parse JSON array into (class, score) list in id order, or None on failure."""
+    def _parse_response(raw: str, expected: int) -> Optional[List[Tuple[bool, str, int]]]:
+        """Parse JSON array into (on_topic, class, score) list in id order, or None."""
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
@@ -384,6 +398,11 @@ class SignalScorer:
                 if isinstance(data.get(key), list):
                     data = data[key]
                     break
+            else:
+                # llama returns a bare object (not a 1-element array) when the
+                # batch has a single fact.
+                if "score" in data or "class" in data:
+                    data = [data]
 
         if not isinstance(data, list) or len(data) != expected:
             return None
@@ -391,10 +410,11 @@ class SignalScorer:
         if all(isinstance(d, dict) and isinstance(d.get("id"), int) for d in data):
             data = sorted(data, key=lambda d: d["id"])
 
-        results: List[Tuple[str, int]] = []
+        results: List[Tuple[bool, str, int]] = []
         for item in data:
             if not isinstance(item, dict):
                 return None
+            on_topic = bool(item.get("on_topic", True))
             cls = str(item.get("class", "NOISE")).upper().strip()
             if cls not in {"STATE_CHANGE", "ANNOUNCEMENT", "REACTION", "NOISE"}:
                 cls = "NOISE"
@@ -402,7 +422,7 @@ class SignalScorer:
                 score = max(0, min(10, int(item.get("score", 0))))
             except (TypeError, ValueError):
                 score = 0
-            results.append((cls, score))
+            results.append((on_topic, cls, score))
 
         return results
 

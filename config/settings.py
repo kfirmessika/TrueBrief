@@ -220,9 +220,13 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     "story_stitch": {"provider": _cheap_provider, "model": _cheap_model},
 
     # Signal scorer (V4-5): batch quality gate — classify + score each harvested fact.
-    # Routes to Groq when available (cheap, fast, adequate for classification).
-    # Falls back to Gemini flash-lite when no Groq key is set.
-    "signal_scorer": {"provider": _cheap_provider, "model": _cheap_model},
+    # NEEDS the 70b tier: validated 2026-07-07 that llama-3.1-8b applies the topic-fit
+    # rule incoherently (kept Kyiv war facts at 8 on an Iran topic while dropping
+    # near-identical ones). One call per scan — the 70b cost is negligible.
+    "signal_scorer": {
+        "provider": "groq" if settings.GROQ_API_KEY else "gemini",
+        "model": "llama-3.3-70b-versatile" if settings.GROQ_API_KEY else "gemini-2.0-flash",
+    },
 }
 
 
