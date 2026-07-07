@@ -12,7 +12,9 @@ Endpoints:
 """
 
 import logging
+import os
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Header, HTTPException, Request, Depends
 from pydantic import BaseModel
@@ -25,6 +27,31 @@ from truebrief.auth.dependencies import User, get_current_user
 router = APIRouter()
 logger = logging.getLogger(__name__)
 _paddle = PaddleService()
+
+
+def _allowed_origins() -> set[str]:
+    raw = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    origins = set()
+    for o in raw.split(","):
+        o = o.strip()
+        if not o:
+            continue
+        p = urlparse(o)
+        if p.scheme and p.netloc:
+            origins.add(f"{p.scheme}://{p.netloc}")
+    return origins
+
+
+def _require_same_origin(url: str, field: str) -> None:
+    """Reject redirect URLs that don't point at our own frontend origin.
+
+    success_url/cancel_url/return_url are user-supplied and handed to Paddle;
+    without this an attacker could craft an open-redirect off the checkout flow.
+    """
+    p = urlparse(url or "")
+    origin = f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
+    if origin not in _allowed_origins():
+        raise HTTPException(status_code=400, detail=f"{field} must point to the app origin")
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +91,8 @@ def create_checkout_session(req: CheckoutRequest, user: User = Depends(get_curre
     """Create a Paddle checkout transaction. Returns a URL the client redirects to."""
     if req.tier not in ("pro", "power"):
         raise HTTPException(status_code=400, detail="tier must be 'pro' or 'power'")
+    _require_same_origin(req.success_url, "success_url")
+    _require_same_origin(req.cancel_url, "cancel_url")
 
     price_id = settings.PADDLE_PRICE_PRO if req.tier == "pro" else settings.PADDLE_PRICE_POWER
     if not price_id:
@@ -80,12 +109,13 @@ def create_checkout_session(req: CheckoutRequest, user: User = Depends(get_curre
         return {"checkout_url": result["checkout_url"], "transaction_id": result["transaction_id"]}
     except Exception as e:
         logger.error("Paddle checkout error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not start checkout.")
 
 
 @router.post("/portal")
 def create_portal_session(req: PortalRequest, user: User = Depends(get_current_user)):
     """Create a Paddle Customer Portal session for managing subscriptions."""
+    _require_same_origin(req.return_url, "return_url")
     try:
         url = _paddle.create_portal_session(
             user_id=user.id,
@@ -96,7 +126,7 @@ def create_portal_session(req: PortalRequest, user: User = Depends(get_current_u
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error("Paddle portal error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not open billing portal.")
 
 
 @router.post("/webhook")

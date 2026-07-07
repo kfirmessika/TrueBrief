@@ -5,7 +5,7 @@ Topic CRUD and pipeline triggers.
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 import json
 import logging
@@ -57,8 +57,15 @@ def _require_topic_owner(db, topic_id: str, user_id: str) -> None:
 
 
 def _require_founder(user: User) -> None:
-    """Raise 403 if the user is not the configured founder."""
-    if settings.FOUNDER_EMAIL and user.email != settings.FOUNDER_EMAIL:
+    """Raise 403 unless the user is the configured founder.
+
+    Fails CLOSED: if FOUNDER_EMAIL is unset, nobody is the founder. An unset
+    admin gate must never grant access to every authenticated user.
+    """
+    if not settings.FOUNDER_EMAIL:
+        logger.error("FOUNDER_EMAIL is not set — denying admin access (fail-closed).")
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if user.email != settings.FOUNDER_EMAIL:
         raise HTTPException(status_code=403, detail="Not authorized")
 
 router = APIRouter()
@@ -66,8 +73,22 @@ logger = logging.getLogger(__name__)
 
 # --- Pydantic Models for API ---
 class TopicCreate(BaseModel):
-    raw_query: str
+    # Bounded: raw_query flows into LLM prompts, search queries, and embeddings.
+    # A cap limits prompt-injection surface and oversized/costly inputs.
+    raw_query: str = Field(min_length=1, max_length=200)
     poll_interval_seconds: Optional[int] = None  # None = use tier default
+
+    @model_validator(mode="after")
+    def _strip_control_chars(self):
+        # Remove control chars (keep normal whitespace) that could smuggle prompt
+        # structure into the LLM steps.
+        cleaned = "".join(
+            ch for ch in self.raw_query if ch == " " or ch == "\t" or ord(ch) >= 0x20
+        ).strip()
+        if not cleaned:
+            raise ValueError("raw_query must contain visible characters")
+        self.raw_query = cleaned
+        return self
 
 def _scan_is_recent(started_at, max_minutes: int = 15) -> bool:
     """True if scan_started_at is set and within max_minutes (staleness guard: a
@@ -207,9 +228,8 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
             topic_record["scan_task_id"] = _first_task_id
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error creating topic: {error_msg}")
-            raise HTTPException(status_code=400, detail=f"Database error: {error_msg}")
+            logger.error(f"Error creating topic: {e}")
+            raise HTTPException(status_code=400, detail="Could not create topic.")
 
     # 3. Create subscription
     try:
@@ -711,7 +731,7 @@ def get_topic_ayr(topic_id: str, days: int = 30, user: User = Depends(get_curren
         stats = calculate_topic_ayr(topic_id, days=days)
     except Exception as exc:
         logger.error(f"AYR calculation failed for topic {topic_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"AYR calculation failed: {exc}")
+        raise HTTPException(status_code=500, detail="AYR calculation failed.")
 
     # Enrich with current topic info
     stats["raw_query"] = topic["raw_query"]
@@ -1296,9 +1316,23 @@ def get_topic_facts(topic_id: str, user: User = Depends(get_current_user)):
 
 @router.delete("/facts/{fact_id}/dismiss")
 def dismiss_fact(fact_id: str, user: User = Depends(get_current_user)):
-    """Remove a fact from the user's view (hard delete — dedup uses embeddings)."""
+    """Remove a fact from the user's view (hard delete — dedup uses embeddings).
+
+    Access control: the caller must be subscribed to the fact's topic. Without
+    this check any authenticated user could delete ANY fact in the shared
+    known_facts table by enumerating UUIDs (cross-tenant destruction).
+    """
     _require_uuid(fact_id, "fact_id")
     db = get_supabase()
+    fact = (
+        db.table("known_facts")
+        .select("topic_id")
+        .eq("id", fact_id)
+        .execute()
+    )
+    if not fact.data:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    _require_subscription(db, fact.data[0]["topic_id"], user.id)
     db.table("known_facts").delete().eq("id", fact_id).execute()
     return {"ok": True}
 
@@ -1308,11 +1342,28 @@ def dismiss_fact(fact_id: str, user: User = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 def _is_admin(user: User) -> bool:
+    """True only if the user is in ADMIN_USER_IDS. Fails CLOSED.
+
+    Also honors ADMIN_EMAILS (the founder allowlist already used elsewhere) so a
+    single source of truth works. An unset allowlist grants NOBODY admin — an
+    empty gate must never expose every user's scraped content + LLM logs.
+    """
     import os
-    raw = os.getenv("ADMIN_USER_IDS", "").strip()
-    if not raw:
-        return True  # dev mode: no restriction when env var is not set
-    return user.id in {x.strip() for x in raw.split(",") if x.strip()}
+    ids = {x.strip() for x in os.getenv("ADMIN_USER_IDS", "").split(",") if x.strip()}
+    if user.id in ids:
+        return True
+    admin_emails = {
+        e.strip().lower()
+        for e in getattr(settings, "ADMIN_EMAILS", "").split(",")
+        if e.strip()
+    }
+    if settings.FOUNDER_EMAIL:
+        admin_emails.add(settings.FOUNDER_EMAIL.strip().lower())
+    if user.email and user.email.strip().lower() in admin_emails:
+        return True
+    if not ids and not admin_emails:
+        logger.error("No ADMIN_USER_IDS/ADMIN_EMAILS/FOUNDER_EMAIL set — denying admin (fail-closed).")
+    return False
 
 
 @router.get("/admin/metrics")

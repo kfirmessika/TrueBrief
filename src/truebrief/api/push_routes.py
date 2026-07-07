@@ -99,7 +99,7 @@ def subscribe(
         raise
     except Exception as exc:
         logger.error("Error upserting push subscription for user %s: %s", user.id, exc)
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Could not save push subscription.") from exc
 
     return PushSubscribeResponse(status="subscribed")
 
@@ -118,7 +118,7 @@ def unsubscribe(
         ).eq("endpoint", body.endpoint).execute()
     except Exception as exc:
         logger.error("Error disabling push subscription for user %s: %s", user.id, exc)
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Could not update push subscription.") from exc
 
     return {"status": "unsubscribed"}
 

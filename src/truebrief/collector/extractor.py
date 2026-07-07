@@ -12,6 +12,7 @@ import logging
 
 import httpx
 import trafilatura
+from truebrief.collector.url_guard import is_public_url, safe_client
 from truebrief.models.article import RawArticle
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,15 @@ class ArticleExtractor:
             return article
 
         logger.info(f"Extracting text from: {article.url}")
-        
+
+        # SSRF guard: never fetch a non-public host (metadata endpoint, localhost,
+        # internal RFC-1918 service). Applies to the initial URL; redirects are
+        # re-validated by safe_client's event hook.
+        if not is_public_url(article.url):
+            logger.warning(f"SSRF guard: refusing to fetch non-public URL: {article.url}")
+            self._url_cache.add(url_hash)
+            return self._with_snippet_fallback(article)
+
         try:
             # We use httpx with browser-like headers to avoid basic blocks
             headers = {
@@ -68,7 +77,7 @@ class ArticleExtractor:
                 "Accept-Language": "en-US,en;q=0.5",
             }
 
-            with httpx.Client(timeout=15.0, headers=headers, follow_redirects=True) as client:
+            with safe_client(timeout=15.0, headers=headers, follow_redirects=True) as client:
                 response = client.get(article.url)
                 response.raise_for_status()
                 html = response.text
@@ -137,6 +146,10 @@ class ArticleExtractor:
         """Fetch via https://r.jina.ai/<url> — Jina renders the page server-side
         and returns clean plain text/markdown. Free, no API key, rate-limited gently
         at low volume. Returns None on failure or when the returned body is too thin."""
+        # Only proxy public target URLs through Jina (defense-in-depth: don't ask
+        # a third party to fetch an internal host on our behalf either).
+        if not is_public_url(url):
+            return None
         jina_url = f"https://r.jina.ai/{url}"
         try:
             headers = {
@@ -145,7 +158,7 @@ class ArticleExtractor:
                 # Ask Jina to skip nav/footer boilerplate
                 "X-No-Cache": "true",
             }
-            with httpx.Client(timeout=20.0, headers=headers, follow_redirects=True) as client:
+            with safe_client(timeout=20.0, headers=headers, follow_redirects=True) as client:
                 resp = client.get(jina_url)
                 resp.raise_for_status()
                 body = resp.text.strip()

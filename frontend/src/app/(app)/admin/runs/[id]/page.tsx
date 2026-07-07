@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
+import { safeHref } from '@/lib/utils';
 import { use, useState } from 'react';
 import Link from 'next/link';
 import { ChevronRight, ChevronDown, AlertCircle, ArrowLeft, Sparkles } from 'lucide-react';
@@ -165,7 +166,7 @@ function ObjectRow({ obj }: { obj: Record<string, unknown> }) {
     <div>
       {title && <div style={{ color: 'var(--color-text-primary)' }}>{title}</div>}
       {url && (
-        <a href={url} target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent, #3B82F6)', fontSize: 11, wordBreak: 'break-all' }}>
+        <a href={safeHref(url)} target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent, #3B82F6)', fontSize: 11, wordBreak: 'break-all' }}>
           {url}
         </a>
       )}

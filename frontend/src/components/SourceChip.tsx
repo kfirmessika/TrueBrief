@@ -5,6 +5,8 @@
 // so it matches the topic page and dashboard shells. Used in both places so the
 // look is identical everywhere ("like it was before").
 
+import { safeHref } from '@/lib/utils';
+
 export interface Source {
   domain: string | null;
   url: string | null;
@@ -36,7 +38,8 @@ export function SourceChip({ domain, url }: Source) {
   const d = (domain ?? hostOf(url)) || '';
   if (!d && !url) return null;
   const favicon = d ? `https://www.google.com/s2/favicons?domain=${d}&sz=32` : null;
-  const href = url ?? (d ? `https://${d}` : '#');
+  // Scraped URLs are untrusted — only allow http(s), else fall back to the domain root.
+  const href = safeHref(url, d ? `https://${d}` : '#');
   return (
     <a
       href={href}

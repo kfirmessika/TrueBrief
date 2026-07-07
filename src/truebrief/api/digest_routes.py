@@ -115,7 +115,7 @@ def update_digest_settings(
         raise
     except Exception as exc:
         logger.error("Error upserting digest_settings for user %s: %s", user.id, exc)
-        raise HTTPException(status_code=500, detail=f"Database error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Could not save digest settings.") from exc
 
     return DigestSettingsResponse(
         user_id=row["user_id"],
