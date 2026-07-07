@@ -246,10 +246,19 @@ class Harvester:
 
     # Patterns that indicate the LLM answered ABOUT the article instead of
     # extracting a fact FROM it. Case-insensitive, matched anywhere in the text.
+    # NOTE: deliberately NOT matching the bare "the article" — real extractions
+    # occasionally phrase a fact as "The article states that X happened" (found
+    # in prod: a genuine Trump/World Cup fact). Only meta-specific constructs.
     _META_PATTERNS = re.compile(
         r"("
-        r"\bno (?:new )?(?:facts?|information|developments?|updates?)\b"
-        r"|\b(?:provided|this|the) article\b"
+        r"\bno (?:new |verifiable )?(?:facts?|information|developments?|updates?|news content)\b"
+        r"|\bprovided article\b"
+        r"|\barticle (?:text|content)\b"
+        r"|\bthis article\b"
+        r"|\btopic filter\b"
+        r"|\bin the prompt\b"
+        r"|\bno mention of\b"
+        r"|\bnot (?:mentioned|addressed)\b"
         r"|\bnot (?:directly )?relevant\b"
         r"|\birrelevant to\b"
         r"|\bnews organizations? published\b"
