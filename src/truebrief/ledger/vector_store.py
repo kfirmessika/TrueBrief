@@ -115,49 +115,34 @@ class VectorStore:
             data["contradicts_id"] = alpha.contradicts_id
             data["contradiction_note"] = alpha.contradiction_note
 
-        try:
-            # We explicitly don't pass an ID so Supabase generates a valid UUID
-            response = self.db.table("known_facts").insert(data).execute()
-        except Exception as e:
-            # Pre-migration fallback: if migration 021 columns aren't applied yet,
-            # retry without them. Same pattern as the IC4 fallback below.
-            if any(k in data for k in ("date_basis", "published_at", "importance")):
-                logger.warning(
-                    f"Insert with migration-021 columns failed ({e}); retrying without them "
-                    "(apply migration 021 to persist two-clock fields)."
-                )
-                data.pop("date_basis", None)
-                data.pop("published_at", None)
-                data.pop("importance", None)
-                try:
-                    response = self.db.table("known_facts").insert(data).execute()
-                except Exception as e2:
-                    # Pre-migration fallback: if the IC4 columns (migration 015) aren't applied
-                    # yet, retry once without them so fact storage never breaks.
-                    if "contradicts_id" in data:
-                        logger.warning(
-                            f"Insert with IC4 columns failed ({e2}); retrying without them "
-                            "(apply migration 015 to persist contradiction flags)."
-                        )
-                        data.pop("contradicts_id", None)
-                        data.pop("contradiction_note", None)
-                        response = self.db.table("known_facts").insert(data).execute()
-                    else:
-                        logger.error(f"Failed to insert fact into Supabase: {e2}")
-                        raise
-            elif "contradicts_id" in data:
-                # Pre-migration fallback: if the IC4 columns (migration 015) aren't applied
-                # yet, retry once without them so fact storage never breaks.
-                logger.warning(
-                    f"Insert with IC4 columns failed ({e}); retrying without them "
-                    "(apply migration 015 to persist contradiction flags)."
-                )
-                data.pop("contradicts_id", None)
-                data.pop("contradiction_note", None)
+        # Pre-migration fallbacks: on insert failure, strip optional column groups
+        # (newest migration first) and retry, so fact storage never breaks on a DB
+        # that hasn't had the latest migrations applied yet.
+        _optional_groups = [
+            ("migration 025 (signal columns)", ("signal_score", "signal_class")),
+            ("migration 021 (two-clock fields)", ("date_basis", "published_at", "importance")),
+            ("migration 015 (IC4 contradiction flags)", ("contradicts_id", "contradiction_note")),
+        ]
+        while True:
+            try:
+                # We explicitly don't pass an ID so Supabase generates a valid UUID
                 response = self.db.table("known_facts").insert(data).execute()
-            else:
-                logger.error(f"Failed to insert fact into Supabase: {e}")
-                raise
+                break
+            except Exception as e:
+                stripped = False
+                for label, cols in _optional_groups:
+                    if any(k in data for k in cols):
+                        logger.warning(
+                            f"Insert failed ({e}); retrying without {label} columns — "
+                            f"apply {label} to persist them."
+                        )
+                        for k in cols:
+                            data.pop(k, None)
+                        stripped = True
+                        break
+                if not stripped:
+                    logger.error(f"Failed to insert fact into Supabase: {e}")
+                    raise
 
         if response.data:
             # Update the alpha with the DB-assigned ID

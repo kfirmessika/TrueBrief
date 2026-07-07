@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -80,6 +81,7 @@ class Harvester:
             dropped_no_date = 0
             dropped_bad_date = 0
             dropped_stale = 0
+            dropped_meta = 0
 
             for item in fact_list:
                 if not isinstance(item, dict):
@@ -212,14 +214,28 @@ class Harvester:
                     importance=importance,
                 )
 
-                if alpha.alpha_text:
-                    alphas.append(alpha)
+                if not alpha.alpha_text:
+                    continue
 
-            if dropped_no_date or dropped_bad_date or dropped_stale:
+                # Meta-sentence guard: the LLM sometimes answers ABOUT the article
+                # instead of extracting FROM it ("There are no facts in the provided
+                # article relevant to X"). These are not facts — never store them.
+                # (Found in production: stored with relevance 0.65, shown to users.)
+                if self._is_meta_sentence(alpha.alpha_text):
+                    dropped_meta += 1
+                    logger.info(
+                        "Meta-sentence guard: dropped non-fact: %s",
+                        alpha.alpha_text[:80],
+                    )
+                    continue
+
+                alphas.append(alpha)
+
+            if dropped_no_date or dropped_bad_date or dropped_stale or dropped_meta:
                 logger.info(
                     f"Harvester filter: kept {len(alphas)}, "
                     f"dropped {dropped_no_date} (no date), {dropped_bad_date} (bad date), "
-                    f"{dropped_stale} (stale/background)"
+                    f"{dropped_stale} (stale/background), {dropped_meta} (meta-sentence)"
                 )
 
             return alphas
@@ -227,6 +243,25 @@ class Harvester:
         except Exception as e:
             logger.error(f"Harvester failed for article {article.url}: {e}")
             return []
+
+    # Patterns that indicate the LLM answered ABOUT the article instead of
+    # extracting a fact FROM it. Case-insensitive, matched anywhere in the text.
+    _META_PATTERNS = re.compile(
+        r"("
+        r"\bno (?:new )?(?:facts?|information|developments?|updates?)\b"
+        r"|\b(?:provided|this|the) article\b"
+        r"|\bnot (?:directly )?relevant\b"
+        r"|\birrelevant to\b"
+        r"|\bnews organizations? published\b"
+        r"|\bcannot (?:be )?extract"
+        r")",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _is_meta_sentence(cls, text: str) -> bool:
+        """True when the text is LLM meta-commentary, not an extractable fact."""
+        return bool(cls._META_PATTERNS.search(text))
 
     def _get_prompt(self, article: RawArticle, topic_context: Optional[str] = None) -> str:
         """Construct the prompt for fact extraction."""

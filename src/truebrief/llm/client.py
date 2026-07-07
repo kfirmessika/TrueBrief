@@ -132,15 +132,42 @@ class LLMClient:
                             return result
                         except Exception as bexc:
                             if self._is_quota_exhausted(bexc):
+                                # Last resort: both Gemini keys dead → run this call on
+                                # Groq if a key exists. Keeps the pipeline alive through
+                                # daily quota resets instead of producing empty briefs.
+                                # (Validated need 2026-07-06: local e2e died with both
+                                # keys 429-exhausted mid-day.)
+                                if self._settings.GROQ_API_KEY:
+                                    groq_model = getattr(
+                                        self._settings, "GROQ_FALLBACK_MODEL",
+                                        "llama-3.3-70b-versatile",
+                                    )
+                                    logger.warning(
+                                        "[LLM] BOTH Gemini keys quota-exhausted (step=%s). "
+                                        "Falling back to Groq %s for this call.",
+                                        step_name, groq_model,
+                                    )
+                                    try:
+                                        result, in_tok, out_tok = self._call_groq_instrumented(
+                                            groq_model, prompt, json_mode, system_prompt
+                                        )
+                                        duration_ms = int((time.monotonic() - t0) * 1000)
+                                        self._log_call(step_name, groq_model, in_tok, out_tok,
+                                                       duration_ms, prompt, system_prompt, result)
+                                        return result
+                                    except Exception as gexc:
+                                        logger.error(
+                                            "[LLM] Groq fallback also failed (step=%s): %s",
+                                            step_name, gexc,
+                                        )
                                 logger.error(
                                     "[LLM] BOTH Gemini keys are quota-exhausted (step=%s). "
-                                    "Primary: %s | Backup: %s. "
-                                    "Wait for daily reset or wire Groq (V4-3).",
+                                    "Primary: %s | Backup: %s.",
                                     step_name, str(exc)[:100], str(bexc)[:100],
                                 )
                                 raise LLMError(
                                     f"Both Gemini API keys are quota-exhausted for step "
-                                    f"'{step_name}'. Wait for daily reset or wire Groq (V4-3)."
+                                    f"'{step_name}' (and no working Groq fallback)."
                                 ) from bexc
                             logger.warning(
                                 "[LLM] Backup key failed with non-quota error (step=%s): %s",

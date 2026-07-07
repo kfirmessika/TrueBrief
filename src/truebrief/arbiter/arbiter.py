@@ -20,6 +20,7 @@ different time periods can't be wrongly merged even at high vector similarity.
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional, Tuple
 
 from config.settings import (
@@ -50,6 +51,15 @@ LEDGER_FETCH_LIMIT: int = 3
 # Low-threshold fetch: cast a wider net so we don't miss the best match.
 # The actual thresholding is done in Python after retrieval.
 LEDGER_FETCH_THRESHOLD: float = 0.50
+
+# Same-day near-identical fast-path: raw cosine at/above this + same event_date +
+# identical numbers → auto-DUPLICATE without the Judge LLM (see Step 3c).
+SAME_DAY_DUP_THRESHOLD: float = 0.93
+
+
+def _digit_runs(text: str) -> list:
+    """All digit runs in the text, in order — a cheap numeric fingerprint."""
+    return re.findall(r"\d+", text)
 
 
 class Arbiter:
@@ -278,6 +288,36 @@ class Arbiter:
                         ),
                         adjusted or [(match, raw_score)],
                     )
+
+        # Step 3c — same-day near-identical fast-path (always on, no flag).
+        # Validated in prod (2026-07-06): cross-scan duplicates at cosine 0.93-0.96
+        # with the SAME event_date slip past the Judge LLM ("Khamenei's three sons
+        # attended a funeral" stored twice at 0.959). Same date + very high vector
+        # similarity is decisive — UNLESS the numbers differ: a same-day tally
+        # revision ("toll rises 20 → 25") must stay with the Judge as UPDATE.
+        for match, raw_score in raw_matches:
+            if (
+                raw_score >= SAME_DAY_DUP_THRESHOLD
+                and temporal_overlap(alpha.event_date, match.event_date) >= 0.97
+                and _digit_runs(alpha.alpha_text) == _digit_runs(match.alpha_text)
+            ):
+                logger.info(
+                    f"{log_prefix} → SAME-DAY-DUPLICATE "
+                    f"(sim={raw_score:.3f}, same event_date, same numbers)"
+                )
+                return (
+                    AlphaDecision(
+                        alpha=alpha,
+                        decision=DecisionType.DUPLICATE,
+                        similarity_score=raw_score,
+                        matched_alpha_id=match.id,
+                        reasoning=(
+                            f"Same-day near-identical: sim={raw_score:.3f}, same "
+                            "event_date, same numbers — same event reworded."
+                        ),
+                    ),
+                    adjusted or [(match, raw_score)],
+                )
 
         adjusted.sort(key=lambda x: x[1], reverse=True)
 

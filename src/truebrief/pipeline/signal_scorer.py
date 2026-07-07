@@ -148,7 +148,7 @@ class SignalScorer:
         score_log: List[Dict] = []
 
         # 1. Ensure embeddings.
-        self._ensure_embeddings(alphas)
+        self.ensure_embeddings(alphas)
 
         # 2. Load prototype.
         prototype = self._load_prototype(topic_id) if topic_id else None
@@ -173,7 +173,9 @@ class SignalScorer:
             return [], score_log
 
         # 4. Within-batch dedup — drop near-identical facts before LLM call.
-        to_score, batch_dupes = self._batch_dedup(to_score)
+        # (The runner also runs dedup_batch() unconditionally before this stage,
+        # so this is normally a no-op safety net when the scorer is used standalone.)
+        to_score, batch_dupes = self.dedup_batch(to_score)
         for a in batch_dupes:
             score_log.append({
                 "text": a.alpha_text[:200],
@@ -248,7 +250,7 @@ class SignalScorer:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _ensure_embeddings(self, alphas: List[Alpha]) -> None:
+    def ensure_embeddings(self, alphas: List[Alpha]) -> None:
         """Embed any alphas that don't already have embeddings."""
         missing = [a for a in alphas if not a.embedding]
         if not missing:
@@ -285,7 +287,7 @@ class SignalScorer:
                 skipped.append(alpha)
         return to_score, skipped
 
-    def _batch_dedup(
+    def dedup_batch(
         self, alphas: List[Alpha]
     ) -> Tuple[List[Alpha], List[Alpha]]:
         """

@@ -413,6 +413,32 @@ class PipelineRunner:
             except Exception as ver_err:
                 logger.warning(f"    Verifier failed (non-fatal, continuing): {ver_err}")
 
+            # 4b2. Within-batch dedup — ALWAYS ON, no flag. Three sources reporting
+            # the same event in one scan all pass the arbiter (none exist in the DB
+            # yet), so identical facts get stored N times. Confirmed in prod: the
+            # same pardons fact stored twice at cosine 1.0. Embeds once here; the
+            # signal scorer and arbiter both reuse these embeddings (no extra calls).
+            if len(all_alphas) > 1:
+                try:
+                    self.signal_scorer.ensure_embeddings(all_alphas)
+                    before_bd = len(all_alphas)
+                    all_alphas, _batch_dupes = self.signal_scorer.dedup_batch(all_alphas)
+                    if _batch_dupes:
+                        logger.info(
+                            f"    Within-batch dedup: {before_bd} → {len(all_alphas)} facts "
+                            f"({len(_batch_dupes)} same-event duplicates collapsed)."
+                        )
+                    self._trace(
+                        "batch_dedup",
+                        f"Within-batch dedup: {len(_batch_dupes)} same-event duplicates "
+                        f"collapsed, {len(all_alphas)} remain.",
+                        collapsed=len(_batch_dupes),
+                        remaining=len(all_alphas),
+                        collapsed_facts=[a.alpha_text[:200] for a in _batch_dupes],
+                    )
+                except Exception as bd_err:
+                    logger.warning(f"    Within-batch dedup failed (non-fatal): {bd_err}")
+
             # 4c. Signal quality gate — filter noise/reaction before dedup.
             # V4_SIGNAL_SCORER (new): batch LLM scores each fact for signal strength;
             # class + score gate (>= 6, not REACTION/NOISE). Updates learned prototype.

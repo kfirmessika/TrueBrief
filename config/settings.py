@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # Groq API key — unlocks near-unlimited cheap inference for dashboard_summary/story_stitch.
     # When set, those steps automatically route to Groq (llama-3.1-8b-instant) instead of Gemini.
     GROQ_API_KEY: str = ""
+    # Model used when BOTH Gemini keys are quota-exhausted and a call falls back to Groq.
+    # 70b class: strong enough for harvester/arbiter-grade work in emergencies.
+    GROQ_FALLBACK_MODEL: str = "llama-3.3-70b-versatile"
 
     # --- Collector ---
     TAVILY_API_KEY: str = ""
