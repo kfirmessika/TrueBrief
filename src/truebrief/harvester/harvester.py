@@ -72,6 +72,18 @@ class Harvester:
                     if key in data and isinstance(data[key], list):
                         fact_list = data[key]
                         break
+                else:
+                    # Groq/llama shapes (seen in prod 2026-07-06):
+                    # a single bare fact object, or {"error": "No facts relevant..."}
+                    # when the article has nothing on-topic (honest empty result).
+                    if "alpha_text" in data:
+                        fact_list = [data]
+                    else:
+                        logger.info(
+                            "Harvester LLM returned no-facts dict: %s",
+                            str(data)[:120],
+                        )
+                        return []
 
             if not isinstance(fact_list, list):
                 logger.error(f"Harvester LLM did not return a list. Type: {type(fact_list)}")

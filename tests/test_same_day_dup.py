@@ -149,3 +149,44 @@ class TestMetaSentenceGuard:
         ]
         for text in real:
             assert not Harvester._is_meta_sentence(text), f"should pass: {text}"
+
+
+# ── Harvester Groq/llama response shapes (prod 2026-07-06) ───────────────────
+
+class _FakeLLM:
+    def __init__(self, response):
+        self._response = response
+
+    def call(self, **kwargs):
+        return self._response
+
+
+class TestHarvesterDictShapes:
+    def _extract(self, response_json: str):
+        from truebrief.models.article import RawArticle, ArticleSource
+        h = Harvester(llm_client=_FakeLLM(response_json))
+        art = RawArticle(
+            url="https://a.com/x", title="t", source_name="Test",
+            source_type=ArticleSource.RSS, text="some article text",
+            published_at=datetime(2026, 7, 6),
+        )
+        return h.extract(art, topic_context="iran war")
+
+    def test_error_dict_means_no_facts(self):
+        out = self._extract('{"error": "No facts relevant to the topic were found."}')
+        assert out == []
+
+    def test_single_bare_fact_object_is_wrapped(self):
+        out = self._extract(
+            '{"alpha_text": "Iran warned oil tankers in the Strait of Hormuz.",'
+            ' "entities": ["Iran"], "event_date": "2026-07-06", "confidence": 0.9}'
+        )
+        assert len(out) == 1
+        assert "Hormuz" in out[0].alpha_text
+
+    def test_wrapped_facts_list_still_works(self):
+        out = self._extract(
+            '{"facts": [{"alpha_text": "Iran closed the Strait of Hormuz.",'
+            ' "entities": ["Iran"], "event_date": "2026-07-06", "confidence": 0.9}]}'
+        )
+        assert len(out) == 1

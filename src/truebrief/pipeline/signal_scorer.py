@@ -77,6 +77,9 @@ Score guide:
   0     Pure noise, off-topic, or identical to a fact already in this list
 
 Rules:
+  - TOPIC FIT IS A HARD GATE: a fact not directly about the topic above is
+    NOISE with score 0 — no matter how important the event is on its own.
+    (A major earthquake is score 0 on a topic about semiconductor exports.)
   - Be harsh. On a slow news day most facts score ≤ 4.
   - REACTION can never score above 5.
   - NOISE scores 0-2.
