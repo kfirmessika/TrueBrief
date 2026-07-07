@@ -133,12 +133,13 @@ class Settings(BaseSettings):
     # Requires migration 023 (fact_stitches table). Safe to leave False until that migration runs.
     V4_STORY_STITCHING: bool = False
 
-    # V4-5 Signal Scorer: when True, runs the SignalScorer batch quality gate between
-    # the Harvester and the Arbiter. Filters REACTION/NOISE facts before dedup/storage.
-    # Requires migration 024 (topics.signal_prototype). Safe to enable immediately —
-    # falls back gracefully when prototype is NULL (first few scans per topic).
+    # V4-5 Signal Scorer: runs the SignalScorer batch quality gate between the
+    # Harvester and the Arbiter. Filters off-topic/REACTION/NOISE facts before
+    # dedup/storage. Migrations 024+025 applied to prod 2026-07-06.
+    # Default True since 2026-07-07 (user directive) — validated live on 3 topics:
+    # isreal 16→5, us 44→12, iran war 36→6, zero junk stored.
     # Replaces the broken 0.50 cosine relevance gate (V3_RELEVANCE_GATE).
-    V4_SIGNAL_SCORER: bool = False
+    V4_SIGNAL_SCORER: bool = True
 
     # --- Admin / founder accounts ---
     # Comma-separated emails that bypass tier limits (scan speed, topic cap) entirely.

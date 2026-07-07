@@ -44,8 +44,12 @@ logger = logging.getLogger(__name__)
 
 # Minimum and maximum articles processed per scan (adaptive-K, P2).
 # Actual K = min(max(MIN_K, candidates // 3), MAX_K) — ~⅓ of candidates.
+# MAX_K raised 25→32 (2026-07-07): with domain-parallel queries live the candidate
+# pool runs 170-350 on hot days; at 25 we read as little as 8% of it and the judge
+# kept finding stories we collected but never read. SignalScorer gates the extra
+# facts, so more reading no longer means more noise.
 MIN_K = 5
-MAX_K = 25
+MAX_K = 32
 
 # MMR weights: relevance + recency together, minus diversity penalty.
 # Must sum such that a single best article scores ~1.0.

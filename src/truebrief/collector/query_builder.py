@@ -36,7 +36,7 @@ class TopicDomain:
 
     Example (Israel topic):
       name="military_operations", description="IDF, Hezbollah, air strikes",
-      queries=["IDF Gaza offensive 2025", "Hezbollah attack northern Israel"]
+      queries=["IDF Gaza offensive", "Hezbollah attack northern Israel"]
     """
     name: str           # slug: lowercase_underscore (e.g. "military_operations")
     description: str    # one-line summary of what this facet covers
@@ -152,7 +152,11 @@ class QueryBuilder:
         return domains
 
     def _get_prompt(self, topic: str) -> str:
+        from datetime import datetime
+        _today = datetime.now().strftime("%B %Y")  # e.g. "July 2026"
         return f"""
+Today's date: {_today}. When a query benefits from a year, use the CURRENT year — never a past one.
+
 The user wants to track breaking news for: '{topic}'
 
 TASK:
@@ -178,17 +182,17 @@ EXAMPLES:
 
 Topic "Israel":
   domain 0 "military_operations":
-    queries: ["IDF Gaza offensive operations 2025", "Hezbollah rocket attack Lebanon Israel"]
+    queries: ["IDF Gaza offensive operations {_today.split()[-1]}", "Hezbollah rocket attack Lebanon Israel"]
   domain 1 "diplomacy_ceasefire":
-    queries: ["Gaza ceasefire negotiations mediators 2025", "US Iran nuclear talks Middle East"]
+    queries: ["Gaza ceasefire negotiations mediators", "US Iran nuclear talks Middle East"]
   domain 2 "humanitarian_crisis":
-    queries: ["Gaza civilian casualties aid delivery 2025", "West Bank Palestinian refugees UN"]
+    queries: ["Gaza civilian casualties aid delivery", "West Bank Palestinian refugees UN"]
   domain 3 "domestic_political":
-    queries: ["Netanyahu government coalition protest 2025", "Israel defense industry economy war"]
+    queries: ["Netanyahu government coalition protest", "Israel defense industry economy war"]
 
 Topic "Shark attack Australia":
   domain 0 "incident_victim":
-    queries: ["shark attack Queensland beach 2025", "surfer bitten Australia coast fatality"]
+    queries: ["shark attack Queensland beach", "surfer bitten Australia coast fatality"]
   domain 1 "safety_response":
     queries: ["beach closure shark drumlines Queensland", "lifeguard aerial drone shark patrol"]
   domain 2 "ecology_science":
