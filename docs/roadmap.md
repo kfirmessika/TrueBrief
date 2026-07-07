@@ -412,11 +412,21 @@ to activate persistence** (code degrades to no-op until then).
   Groq last-resort fallback when both Gemini keys are quota-exhausted, 19 garbage facts
   deleted from prod. Re-run the validation after a few scans to measure the improvement.
 
+- [x] **V4-10. Coverage sprint** (2026-07-07) — root cause of judge "MISSING" gaps: trump +
+  iran-war search strategies predated IC11 (0 domains, one generic query/scan). Both rebuilt
+  in prod (4 domains × 2 queries). QueryBuilder prompt now injects today's date (examples had
+  hardcoded 2025 which the LLM copied). MAX_K 25→32. `V4_SIGNAL_SCORER` default True.
+  Retroactive cleanup: `scripts/cleanup_facts.py` deleted 25 deterministic dup rows from prod.
+  Off-topic LLM sweep (`--off-topic`) written but held until Groq 70b tokens available —
+  never delete history on a flash-lite verdict.
+
 **V4 activation checklist:**
 1. `GROQ_API_KEY=<key>` in `.env` (Groq account: https://console.groq.com)
 2. Apply migration 023 in Supabase SQL editor
 3. `V4_STORY_STITCHING=True` in `.env` (after migration 023 is applied)
-4. `V4_SIGNAL_SCORER=True` in `.env` + Railway (migrations 024/025 already applied 2026-07-06)
+4. ~~`V4_SIGNAL_SCORER=True`~~ — now the settings default (2026-07-07); Railway picks it up on next deploy
+5. **Groq Dev tier** (console.groq.com/settings/billing, ~$1-3/mo) — free tier's 100k tokens/day
+   dies from 2-3 scans once the harvester falls back to Groq; this is the #1 reliability spend
 
 ---
 
