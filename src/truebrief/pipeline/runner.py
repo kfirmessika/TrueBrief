@@ -1031,9 +1031,23 @@ class PipelineRunner:
             )
             return source.search(domain_q), source.name, domain.name
 
+        # Breaking-news fan-out (2026-07-07): the stored domains are STATIC facets
+        # (military ops, sanctions, proxies...). A storyline that erupts today —
+        # e.g. "Iran strikes two vessels in Hormuz" — may fit none of them, so no
+        # targeted engine ever sees it, while Google's own ranking would put it at
+        # the top of a broad query. Always add one broad query alongside the facets;
+        # freshness-ranked engines turn it into "today's hottest storyline" coverage.
+        _fanout_domains = list(query.domains) + [
+            TopicDomain(
+                name="breaking_news",
+                description="broad freshness query — catches storylines the static facets miss",
+                queries=[query.primary_query or query.topic_name],
+            )
+        ]
+
         tasks = [
             (source, domain)
-            for domain in query.domains
+            for domain in _fanout_domains
             for source in targeted_sources
         ]
 
