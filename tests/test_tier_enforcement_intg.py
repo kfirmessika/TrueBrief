@@ -57,6 +57,7 @@ def _make_db(*, tier: str, topic_count: int, last_scan_at=None,
         "frequency": "daily",
         "is_active": True,
         "last_scan_at": last_scan_iso,
+        "last_run_at": last_scan_iso,  # the column the scan endpoint actually reads
     }
     topics_chain = MagicMock()
     # Existing-topic lookup: return row if topic_exists, else empty (triggers insert)
