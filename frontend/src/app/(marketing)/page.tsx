@@ -65,7 +65,7 @@ const FEATURES = [
   {
     icon: Clock,
     title: "Measures time saved",
-    desc: "We log every article we skip on your behalf. Most users reclaim 3–5 hours of reading per week.",
+    desc: "We log every article we scan and skip on your behalf, so you can see exactly what you didn't have to read.",
   },
   {
     icon: Globe,
@@ -122,7 +122,7 @@ const PLANS = [
     price: "$19",
     period: "/ month",
     desc: "For professionals who need deeper, faster coverage.",
-    features: ["15 topics", "Hourly scans", "Google News, Brave & Exa", "Private topics", "Priority processing"],
+    features: ["15 topics", "Hourly scans", "Google News, Brave & Exa", "Private topics", "Developer API — 500 calls/day"],
     cta: "Start Pro",
     href: "/sign-up",
     featured: true,
@@ -132,7 +132,7 @@ const PLANS = [
     price: "$49",
     period: "/ month",
     desc: "Unlimited topics and near-real-time scanning.",
-    features: ["Unlimited topics", "Scans every 15 min", "All source layers", "Private topics", "Early API access"],
+    features: ["Unlimited topics", "Scans every 15 min", "All source layers", "Private topics", "Developer API — 5,000 calls/day"],
     cta: "Go Power",
     href: "/sign-up",
     featured: false,
@@ -167,7 +167,8 @@ export default function LandingPage() {
 
           {/* Subtext */}
           <p className="max-w-lg mx-auto text-lg text-[var(--color-text-secondary)] leading-relaxed mb-10">
-            TrueBrief monitors any topic around the clock and delivers only what's genuinely new since your last read.
+            TrueBrief watches any topic around the clock, checks every article against what you&apos;ve
+            already seen, and reports only what actually changed — with sources attached.
           </p>
 
           {/* CTAs */}
@@ -204,7 +205,7 @@ export default function LandingPage() {
           <div className="grid grid-cols-3 gap-6 text-center">
             {[
               { value: '40+', label: 'news sources monitored' },
-              { value: '3–5h', label: 'saved per user per week' },
+              { value: '47 → 3', label: 'articles scanned → facts worth reading, in a typical scan' },
               { value: '0', label: 'repeated stories' },
             ].map(({ value, label }) => (
               <div key={label}>
@@ -339,6 +340,34 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
+
+          {/* Enterprise / API strip */}
+          <div className="mt-8 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-7 py-6 flex flex-col md:flex-row md:items-center gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-[var(--color-text)] mb-1">
+                Need TrueBrief inside your product or team?
+              </p>
+              <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                The developer API ships with Pro and Power. For custom volume, custom topics,
+                or an enterprise feed, talk to us directly.
+              </p>
+            </div>
+            <div className="flex gap-3 shrink-0">
+              <Link
+                href="/developers"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] transition-all hover:bg-[var(--color-surface-overlay)]"
+              >
+                API docs
+              </Link>
+              <a
+                href="mailto:kfirmessika@gmail.com?subject=TrueBrief%20Enterprise"
+                className="inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90"
+                style={{ background: 'oklch(0.55 0.22 264)' }}
+              >
+                Contact us
+              </a>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -356,7 +385,7 @@ export default function LandingPage() {
           </h2>
           <p className="text-base leading-relaxed mb-10 max-w-md mx-auto"
             style={{ color: 'oklch(0.60 0 0)' }}>
-            Join analysts, founders, and researchers who've reclaimed hours of reading time without missing a single important development.
+            Stop re-reading the same story across ten outlets. TrueBrief tells you what actually changed — and skips everything you&apos;ve already seen.
           </p>
           <Link
             href="/sign-up"

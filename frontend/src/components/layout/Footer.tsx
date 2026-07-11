@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Zap } from 'lucide-react';
 
 export default function Footer() {
@@ -13,8 +14,9 @@ export default function Footer() {
             © {new Date().getFullYear()} TrueBrief Intelligence. All rights reserved.
           </p>
           <div className="flex gap-5">
-            <a href="#" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors">Privacy</a>
-            <a href="#" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors">Terms</a>
+            <Link href="/developers" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors">API</Link>
+            <Link href="/privacy" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors">Privacy</Link>
+            <Link href="/terms" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-brand)] transition-colors">Terms</Link>
           </div>
         </div>
       </div>

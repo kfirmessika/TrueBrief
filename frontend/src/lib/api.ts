@@ -35,6 +35,24 @@ export interface TierLimits {
   min_interval_hours: number;
   sources: string[];
   private_topics: boolean;
+  api_calls_per_day: number;
+}
+
+// API Key Types
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiKeyUsage {
+  day: string;
+  calls_used: number;
+  daily_limit: number;
+  tier: string;
 }
 
 export interface BillingStatus {
