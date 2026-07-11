@@ -20,6 +20,7 @@ class TierLimits:
     min_interval_hours: float  # minimum hours between scans; 0 = unlimited
     sources: list[str] = field(default_factory=list)
     private_topics: bool = False
+    api_calls_per_day: int = 0  # developer API quota; 0 = no API access, -1 = unlimited
 
 
 # ---------------------------------------------------------------------------
@@ -31,17 +32,20 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         min_interval_hours=24.0,
         sources=["rss", "tavily"],
         private_topics=False,
+        api_calls_per_day=0,     # no developer API on free
     ),
     Tier.PRO: TierLimits(
         max_topics=15,
         min_interval_hours=1.0,
         sources=["rss", "tavily", "google_news", "brave", "exa"],
         private_topics=True,
+        api_calls_per_day=500,
     ),
     Tier.POWER: TierLimits(
         max_topics=-1,          # unlimited
         min_interval_hours=0.25,
         sources=["__all__"],    # pipeline interprets as: enable everything
         private_topics=True,
+        api_calls_per_day=5000,
     ),
 }

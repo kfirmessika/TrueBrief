@@ -81,6 +81,7 @@ def get_tiers():
             "min_interval_hours": limits.min_interval_hours,
             "sources": limits.sources,
             "private_topics": limits.private_topics,
+            "api_calls_per_day": limits.api_calls_per_day,
         }
         for tier, limits in TIER_LIMITS.items()
     }
@@ -167,5 +168,6 @@ def get_subscription_status(user: User = Depends(get_current_user)):
             "min_interval_hours": limits.min_interval_hours,
             "sources": limits.sources,
             "private_topics": limits.private_topics,
+            "api_calls_per_day": limits.api_calls_per_day,
         },
     }

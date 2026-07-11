@@ -17,6 +17,8 @@ from truebrief.api.routes import router
 from truebrief.billing.billing_routes import router as billing_router
 from truebrief.api.digest_routes import router as digest_router
 from truebrief.api.push_routes import router as push_router
+from truebrief.api.public_routes import router as public_router
+from truebrief.apikeys.routes import router as apikeys_router
 from postgrest.exceptions import APIError as PostgrestAPIError
 
 # Setup logging
@@ -65,6 +67,8 @@ app.include_router(router, prefix="/api/v1")
 app.include_router(billing_router, prefix="/api/v1/billing")
 app.include_router(digest_router, prefix="/api/v1")
 app.include_router(push_router, prefix="/api/v1")
+app.include_router(apikeys_router, prefix="/api/v1")   # key management (Clerk-authed)
+app.include_router(public_router, prefix="/v1")        # developer API (API-key-authed)
 
 @app.get("/health")
 def health_check():
