@@ -1107,9 +1107,12 @@ def get_topic_summary(
     body: SummaryRequest,
     user: User = Depends(get_current_user),
 ):
-    """Generate a 2-3 sentence executive summary of the supplied facts.
+    """Generate an executive summary of the supplied facts, sized to their volume.
 
-    Designed for the V4 dashboard flip-card. Fast and cheap (gemini-2.0-flash-lite).
+    Designed for the V4 dashboard flip-card. The summary is what most users read
+    INSTEAD of the raw alphas, so it must cover every distinct development — a
+    fixed 2-3 sentences over 40 facts silently loses most of the day. Scale:
+    ≤5 facts → 2-3 sentences; ≤15 → 4-6 sentences; more → newline-bulleted digest.
     Returns {"summary": null} on empty input or LLM failure — non-fatal by design.
     """
     _require_uuid(topic_id, "topic_id")
@@ -1125,12 +1128,35 @@ def get_topic_summary(
         raise HTTPException(status_code=404, detail="Topic not found")
     raw_query = topic_res.data[0]["raw_query"]
 
-    bullet_list = "\n".join(f"- {f}" for f in body.facts[:20])
+    facts = body.facts[:40]
+    n = len(facts)
+    bullet_list = "\n".join(f"- {f}" for f in facts)
+
+    if n <= 5:
+        shape = (
+            "Write 2-3 crisp sentences summarising these specific developments. "
+            "Lead with the single most important one."
+        )
+    elif n <= 15:
+        shape = (
+            "Write 4-6 crisp sentences. Group related facts into single sentences, "
+            "lead with the most important development, and make sure EVERY distinct "
+            "development is represented — do not drop any story."
+        )
+    else:
+        shape = (
+            f"These {n} facts span several developments. Write a tight executive digest: "
+            "one short line per distinct development (start each line with '• '), "
+            "most important first, merging duplicate/related facts into one line. "
+            "Use as many lines as there are distinct developments (typically 6-12). "
+            "EVERY distinct development must appear — a reader who sees only your "
+            "digest must not miss a story that is in the facts. Completeness beats brevity."
+        )
+
     prompt = (
         f"Topic: {raw_query}\n\n"
         f"New facts (these are the ONLY facts you may reference):\n{bullet_list}\n\n"
-        "Write 2-3 crisp sentences summarising these specific developments. "
-        "Lead with the single most important one. "
+        f"{shape} "
         "Reference ONLY facts listed above — do not add background, context, or information not in the list. "
         "Be direct and specific — no fluff, no \"based on the above\", no \"in summary\"."
     )

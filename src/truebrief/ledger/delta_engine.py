@@ -37,7 +37,10 @@ DEFAULT_WINDOW_HOURS = 48
 BACKFILL_LAG_DAYS = 45
 
 # Per-topic cap so one noisy topic can't swamp the cross-topic feed.
-PER_TOPIC_CAP = 15
+# 40 (was 15): the dashboard summary is generated FROM these facts — a tighter cap
+# silently dropped busy-day developments before the LLM ever saw them. The card UI
+# displays only the first few alphas; the rest feed the summary.
+PER_TOPIC_CAP = 40
 
 # Facts with a stored relevance score below this floor are off-topic noise; skip them.
 # NULL relevance (pre-migration-022 facts) always pass — we can't penalise what we haven't scored.
