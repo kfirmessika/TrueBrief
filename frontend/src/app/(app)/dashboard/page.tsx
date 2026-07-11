@@ -103,7 +103,7 @@ function TopicFlipCard({
       setState('loading');
       shouldAutoFlip.current = true;
       api
-        .post(`/topics/${topic.topic_id}/summary`, { facts: texts.slice(0, 20) }, { timeout: 20_000 })
+        .post(`/topics/${topic.topic_id}/summary`, { facts: texts.slice(0, 40) }, { timeout: 25_000 })
         .then((res) => {
           if (cancelled) return;
           const s = (res.data?.summary as string | null) ?? null;
@@ -221,12 +221,18 @@ function TopicFlipCard({
         {/* Content — swapped at the invisible midpoint of the squeeze animation */}
         {!showBack ? (
           <div>
-            {topic.facts.map((fact, i) => <AlphaRow key={i} fact={fact} />)}
+            {topic.facts.slice(0, 8).map((fact, i) => <AlphaRow key={i} fact={fact} />)}
+            {topic.facts.length > 8 && (
+              <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '6px 0 0' }}>
+                +{topic.facts.length - 8} more in this topic
+              </p>
+            )}
             <div style={{ marginTop: 10 }}>{OpenTopicBtn}</div>
           </div>
         ) : (
           <div>
-            <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--color-text-primary)', margin: '8px 0 0' }}>
+            {/* pre-line: the digest form of the summary separates developments with \n bullets */}
+            <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--color-text-primary)', margin: '8px 0 0', whiteSpace: 'pre-line' }}>
               {summary}
             </p>
             <div style={{ marginTop: 12 }}>{OpenTopicBtn}</div>
