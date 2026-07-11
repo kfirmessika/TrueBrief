@@ -1240,7 +1240,8 @@ def get_topic_story(
         f"For each ADJACENT pair (1→2, 2→3, …), write ONE short bridge sentence "
         f"(max 18 words) that connects the earlier event to the later one — show how "
         f"the story moved from one to the next. Ground every bridge in the events; do "
-        f"NOT invent facts. Return ONLY a JSON array of exactly {n_pairs} strings, in order."
+        f'NOT invent facts. Return ONLY this JSON: {{"connectors": ["sentence1", "sentence2", ...]}} '
+        f"with exactly {n_pairs} strings in the array, in order."
     )
 
     try:
@@ -1251,16 +1252,31 @@ def get_topic_story(
             json_mode=True,
             system_prompt="You are a news analyst writing terse connective narration.",
         )
-        connectors = json.loads(raw)
-        if not isinstance(connectors, list):
-            return {"connectors": []}
-        connectors = [str(c).strip() for c in connectors][:n_pairs]
-        # Pad to exactly n_pairs so the client can index safely.
-        connectors += [""] * (n_pairs - len(connectors))
-        return {"connectors": connectors}
+        return {"connectors": _parse_story_connectors(raw, n_pairs)}
     except Exception as exc:
         logger.warning("story_stitch LLM call failed (non-fatal): %s", exc)
         return {"connectors": []}
+
+
+def _parse_story_connectors(raw: str, n_pairs: int) -> list[str]:
+    """Parse the story_stitch LLM response into exactly n_pairs bridge strings.
+
+    Groq's json_object mode forces a top-level object, so the model returns
+    {"connectors": [...]} — but accept a bare array and common alt keys too.
+    Always returns a list of length n_pairs (padded with "") so the client
+    can index safely; returns all-empty on unparseable shapes.
+    """
+    parsed = json.loads(raw)
+    if isinstance(parsed, dict):
+        connectors = parsed.get("connectors") or parsed.get("bridges") or parsed.get("passages") or []
+    elif isinstance(parsed, list):
+        connectors = parsed
+    else:
+        connectors = []
+    if not isinstance(connectors, list):
+        connectors = []
+    out = [str(c).strip() for c in connectors if c][:n_pairs]
+    return out + [""] * (n_pairs - len(out))
 
 
 # ---------------------------------------------------------------------------
