@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 import json
 import logging
+import math
 import re
 from datetime import datetime
 from uuid import UUID
@@ -1101,20 +1102,50 @@ def get_feed_digest(user: User = Depends(get_current_user)):
 # Dashboard summary (V4-5)
 # ---------------------------------------------------------------------------
 
+def _select_m_facts(facts: list[str]) -> list[str]:
+    """Return the top M(N) facts for the summary.
+
+    Facts arrive already ranked by salience from the delta engine (significance ×
+    recency × relevance), so truncation is the pre-filter — the most important
+    ones lead. The curve is logarithmic so a short daily visit gets all facts and
+    a month-long absence caps at ~50 instead of dumping the entire backlog.
+    Constants are a starting point — calibrate against real summaries post-launch.
+    """
+    n = len(facts)
+    if n <= 10:
+        return facts
+    m = round(8 + 6 * math.log2(1 + n / 8))
+    return facts[:m]
+
+
+def _adaptive_window(m: int) -> tuple[int, int]:
+    """Logarithmically-scaled sentence budget for M selected facts.
+
+    Grows from ~2-4 sentences for a handful of facts to ~8-12 for a busy week,
+    plateauing so a very long absence still produces a readable digest, not an essay.
+    Constants to be calibrated after user testing.
+    """
+    log_val = math.log2(max(m, 1) + 2)
+    s_min = max(2, round(log_val + 0.5))
+    s_max = min(20, max(s_min + 2, round(2.2 * log_val + 1)))
+    return s_min, s_max
+
+
 @router.post("/topics/{topic_id}/summary")
 def get_topic_summary(
     topic_id: str,
     body: SummaryRequest,
     user: User = Depends(get_current_user),
 ):
-    """Generate a short editorial summary of the supplied facts.
+    """Generate an adaptive editorial summary of the supplied facts.
 
-    Designed for the V4 dashboard flip-card. The summary is what most users read
-    INSTEAD of the raw alphas — an editor's briefing, not an index: the most
-    consequential development first, related facts folded in, minor items
-    deliberately dropped. All facts (up to 40) are sent so the model can RANK
-    well, but the output stays short prose (2026-07-12: bullets-per-development
-    read like the alphas again — prioritisation beats completeness here).
+    Three-layer pipeline (see docs/roadmap.md §V4-5):
+    1. Pre-filter  — _select_m_facts() takes top M(N) from the salience-ordered list.
+    2. Budget      — _adaptive_window() injects a logarithmically-scaled sentence
+                     target: 2-4 for a quiet day, 8-12 for a busy week, plateauing
+                     so a month-long absence still produces a readable digest.
+    3. Editorial   — lede-first, directional language, facts merged by theme,
+                     ruthless omission of minor/routine/repetitive items.
     Returns {"summary": null} on empty input or LLM failure — non-fatal by design.
     """
     _require_uuid(topic_id, "topic_id")
@@ -1130,25 +1161,25 @@ def get_topic_summary(
         raise HTTPException(status_code=404, detail="Topic not found")
     raw_query = topic_res.data[0]["raw_query"]
 
-    facts = body.facts[:40]
-    n = len(facts)
-    bullet_list = "\n".join(f"- {f}" for f in facts)
+    # Layer 1: select top M facts (already salience-ordered from delta engine)
+    selected = _select_m_facts(body.facts[:40])
+    m = len(selected)
+    bullet_list = "\n".join(f"- {f}" for f in selected)
 
-    if n <= 5:
-        shape = (
-            "Write 2-3 crisp sentences summarising these specific developments. "
-            "Lead with the single most important one."
-        )
-    else:
-        shape = (
-            "Write ONE short paragraph of 3-5 sentences — plain prose, no bullets, "
-            "no lists, no line breaks. You are the editor deciding what the reader "
-            "must know to feel up to date in five seconds: open with the single most "
-            "consequential development, fold closely related facts into it, then the "
-            "few remaining developments that genuinely change the picture. "
-            "Deliberately omit minor, routine, or repetitive items — ruthless "
-            "prioritisation beats completeness."
-        )
+    # Layer 2: sentence budget scales with information volume
+    s_min, s_max = _adaptive_window(m)
+
+    # Layer 3: editorial presentation — lede-first, directional, merges related facts
+    shape = (
+        f"Write {s_min}–{s_max} sentences of plain prose — no bullets, no lists, no line breaks. "
+        "You are a news editor writing a tight situational update: "
+        "open with a single declarative sentence naming the most consequential development; "
+        "merge closely related facts into one sentence rather than listing them separately; "
+        "signal the direction — is the situation escalating, stabilising, or resolved — using "
+        "active verbs that show motion; "
+        "ruthlessly drop minor, routine, or repetitive items; "
+        "do not pad to reach the sentence target — if fewer sentences capture everything, use fewer."
+    )
 
     prompt = (
         f"Topic: {raw_query}\n\n"
