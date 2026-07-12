@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest"
+    "test": "vitest",
+    "icons": "node scripts/generate-icons.mjs && node scripts/generate-android-icons.mjs",
+    "cap:sync": "cap sync",
+    "cap:android": "cap open android"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.3.2",
@@ -30,6 +33,10 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
