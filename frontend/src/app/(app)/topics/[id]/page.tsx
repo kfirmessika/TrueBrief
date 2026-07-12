@@ -28,14 +28,6 @@ const FREQ_OPTS: { label: string; seconds: number | null; desc: string }[] = [
   { label: 'Ultra Fast', seconds: 900,   desc: 'Every 15 min — breaks news, high quota use' },
 ];
 
-function intervalToLabel(s: number | null | undefined): string {
-  if (!s) return 'Auto';
-  if (s >= 86400) return 'Slow';
-  if (s >= 21600) return 'Medium';
-  if (s >= 3600)  return 'Fast';
-  return 'Ultra Fast';
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string | null): string {
@@ -55,6 +47,13 @@ function formatDayLabel(ymd: string): string {
   const now = new Date();
   const sameYear = dt.getFullYear() === now.getFullYear();
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch { return ''; }
 }
 
 // ── History view ─────────────────────────────────────────────────────────────
@@ -111,11 +110,19 @@ function HistoryFactRow({ fact }: { fact: HistoryFact }) {
           <SourceChip domain={fact.source_domain} url={fact.source_url} />
         )}
         {fact.verified_count > 1 && (
-          <span title={`${fact.verified_count} independent sources`} style={{
-            fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-tertiary)',
-            background: 'var(--color-background-tertiary)', borderRadius: 5, padding: '1px 6px',
-          }}>
-            +{fact.verified_count - 1} more
+          <span
+            title={`Confirmed by ${fact.verified_count} independent sources (only the primary source link is stored)`}
+            style={{
+              fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-tertiary)',
+              background: 'var(--color-background-tertiary)', borderRadius: 5, padding: '1px 6px',
+            }}
+          >
+            ✓ {fact.verified_count} sources
+          </span>
+        )}
+        {fact.first_seen_at && (
+          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', opacity: 0.7 }}>
+            {formatTime(fact.first_seen_at)}
           </span>
         )}
         {fact.contradiction_note && (
@@ -161,29 +168,36 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
   // Flatten in display order (newest first) so alphas keep identical positions in
   // both modes — story just inserts a bridge between adjacent rows.
   const flat = useMemo(() => timeline.flatMap((g) => g.facts), [timeline]);
-  const N = flat.length;
+
+  // Story mode: cap to newest 25 facts. Sending all 600 would place connectors at
+  // the bottom of the page (oldest facts) where the user never scrolls. Capping to
+  // newest 25 puts connectors where the user is actually reading.
+  const MAX_STORY_FACTS = 25;
+  const storyFlat = useMemo(() => flat.slice(0, MAX_STORY_FACTS), [flat]);
+  const M = storyFlat.length; // number of facts that have connectors
 
   // Story connectors: the backend links chronological pairs (oldest→newest). We send
   // chronological order and map each connector back into the newest-first display.
-  const chronoTexts = useMemo(() => flat.map((f) => f.text).reverse(), [flat]);
+  const chronoTexts = useMemo(() => storyFlat.map((f) => f.text).reverse(), [storyFlat]);
   const chronoIds = useMemo(() => {
-    const ids = flat.map((f) => f.id ?? null).reverse();
+    const ids = storyFlat.map((f) => f.id ?? null).reverse();
     return ids.every(Boolean) ? (ids as string[]) : null;
-  }, [flat]);
+  }, [storyFlat]);
   const { data: storyData, isFetching: storyFetching, isError: storyFailed } = useQuery<{ connectors: string[] }>({
-    queryKey: ['topic-story', topicId, N],
+    queryKey: ['topic-story', topicId, M],
     queryFn: async () =>
       (await api.post(`/topics/${topicId}/story`, { facts: chronoTexts, ...(chronoIds && { fact_ids: chronoIds }) }, { timeout: 20_000 })).data,
-    enabled: storyMode && N >= 2,
+    enabled: storyMode && M >= 2,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
   });
   const connectors = storyData?.connectors ?? [];
 
-  // The bridge shown BELOW display row i (between i and the older i+1). See mapping note.
+  // The bridge shown BELOW display row i (between i and the older i+1 in the story window).
+  // Only rows 0…M-2 get a bridge; rows M-1 and beyond (older facts) show none.
   const connectorBelow = (displayIdx: number): string => {
-    if (!storyMode || displayIdx >= N - 1) return '';
-    return connectors[N - 2 - displayIdx] ?? '';
+    if (!storyMode || displayIdx >= M - 1) return '';
+    return connectors[M - 2 - displayIdx] ?? '';
   };
 
   if (isLoading) {
@@ -213,12 +227,12 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
   return (
     <div style={{ padding: '8px 22px 48px' }}>
       <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 6px' }}>
-        {data?.fact_count ?? 0} facts · {storyMode ? 'story view' : 'newest first'}
+        {(() => { const c = data?.fact_count ?? 0; return c >= 600 ? `${c}+` : c; })()} facts · {storyMode ? `story (newest ${M})` : 'newest first'}
       </div>
       {storyMode && storyFetching && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, paddingLeft: 22 }}>
           <Loader2 size={12} color="var(--color-text-tertiary)" style={{ animation: 'spin 1s linear infinite' }} />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Weaving the story between facts…</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Weaving the story between the newest {M} facts…</span>
         </div>
       )}
       {storyMode && storyFailed && !storyFetching && (
@@ -228,10 +242,10 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
           </span>
         </div>
       )}
-      {storyMode && !storyFetching && !storyFailed && storyData && connectors.filter(Boolean).length === 0 && N >= 2 && (
+      {storyMode && !storyFetching && !storyFailed && storyData && connectors.filter(Boolean).length === 0 && M >= 2 && (
         <div style={{ marginBottom: 12, paddingLeft: 22 }}>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            No connectors generated — showing raw timeline.
+          <span style={{ fontSize: 12, color: '#B45309' }}>
+            Story weave returned empty — Groq quota may be exhausted. Showing raw timeline.
           </span>
         </div>
       )}
@@ -518,7 +532,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                   opacity: isUpdatingFreq ? 0.5 : 1,
                 }}
               >
-                {intervalToLabel(topic.poll_interval_seconds)}
+                {topic.frequency ?? 'Auto'}
                 <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ marginLeft: 1 }}>
                   <path d="M1 2.5L4 5.5L7 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
@@ -532,7 +546,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                   minWidth: 220, overflow: 'hidden',
                 }}>
                   {FREQ_OPTS.map(opt => {
-                    const current = intervalToLabel(topic.poll_interval_seconds);
+                    const current = topic.frequency ?? 'Auto';
                     const isActive = opt.label === current;
                     return (
                       <button
