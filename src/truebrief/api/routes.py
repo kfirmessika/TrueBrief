@@ -1107,12 +1107,14 @@ def get_topic_summary(
     body: SummaryRequest,
     user: User = Depends(get_current_user),
 ):
-    """Generate an executive summary of the supplied facts, sized to their volume.
+    """Generate a short editorial summary of the supplied facts.
 
     Designed for the V4 dashboard flip-card. The summary is what most users read
-    INSTEAD of the raw alphas, so it must cover every distinct development — a
-    fixed 2-3 sentences over 40 facts silently loses most of the day. Scale:
-    ≤5 facts → 2-3 sentences; ≤15 → 4-6 sentences; more → newline-bulleted digest.
+    INSTEAD of the raw alphas — an editor's briefing, not an index: the most
+    consequential development first, related facts folded in, minor items
+    deliberately dropped. All facts (up to 40) are sent so the model can RANK
+    well, but the output stays short prose (2026-07-12: bullets-per-development
+    read like the alphas again — prioritisation beats completeness here).
     Returns {"summary": null} on empty input or LLM failure — non-fatal by design.
     """
     _require_uuid(topic_id, "topic_id")
@@ -1137,20 +1139,15 @@ def get_topic_summary(
             "Write 2-3 crisp sentences summarising these specific developments. "
             "Lead with the single most important one."
         )
-    elif n <= 15:
-        shape = (
-            "Write 4-6 crisp sentences. Group related facts into single sentences, "
-            "lead with the most important development, and make sure EVERY distinct "
-            "development is represented — do not drop any story."
-        )
     else:
         shape = (
-            f"These {n} facts span several developments. Write a tight executive digest: "
-            "one short line per distinct development (start each line with '• '), "
-            "most important first, merging duplicate/related facts into one line. "
-            "Use as many lines as there are distinct developments (typically 6-12). "
-            "EVERY distinct development must appear — a reader who sees only your "
-            "digest must not miss a story that is in the facts. Completeness beats brevity."
+            "Write ONE short paragraph of 3-5 sentences — plain prose, no bullets, "
+            "no lists, no line breaks. You are the editor deciding what the reader "
+            "must know to feel up to date in five seconds: open with the single most "
+            "consequential development, fold closely related facts into it, then the "
+            "few remaining developments that genuinely change the picture. "
+            "Deliberately omit minor, routine, or repetitive items — ruthless "
+            "prioritisation beats completeness."
         )
 
     prompt = (
