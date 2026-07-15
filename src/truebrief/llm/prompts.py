@@ -190,7 +190,26 @@ For each fact extract:
    Set is_background=true for these. Only set it FALSE when the sentence reports a concrete
    action that happened on/near the article date. Do NOT present background or standing
    conditions as today's news.
-6. "context": 20-40 words - why does this fact matter? What story does it belong to?
+6. "context": ONE sentence of BACKGROUND that helps a reader understand the fact —
+   information that is NOT already stated in alpha_text. Draw ONLY from this article.
+   It must be ADDITIVE: a prior related event, the earlier status this fact changes, the
+   specific figures/dates/parties the bare fact leaves out, or the concrete stakes the
+   article states. Rules:
+   - Do NOT restate, paraphrase, or re-describe alpha_text. If the reader has read the
+     fact, the context MUST tell them something they do not already know.
+   - Do NOT open with a meta-reference to the fact — "This event…", "This statement…",
+     "This reflects…", "This marks…", "This highlights…", "This serves as…", "Details
+     regarding…", "Identifies the…". Begin with the background itself.
+   - Do NOT add significance or analysis the article does not state ("signals growing
+     opposition", "highlights the disparity", "underscores", "serves as the context for").
+     Background is prior fact, not interpretation.
+   - If the article gives no genuine background beyond the fact itself, return "" (empty).
+     An empty context is BETTER than a restatement.
+   GOOD  alpha:   "The IRGC declared the Strait of Hormuz closed on June 20."
+         context: "The strait carries about a fifth of the world's seaborne oil; it had
+                   stayed open through the first two weeks of the conflict."
+   BAD   context: "This event pertains to the IRGC's decision to close the Strait of Hormuz,
+                   restricting maritime traffic." (restatement + meta-opener)
 7. "confidence": How verifiable is this? (0.0-1.0)
 8. "importance": How significant is this fact to the topic? (0.0-1.0)
    1.0 = decisive, topic-defining event (a state_change or escalation that directly changes the topic's status)
