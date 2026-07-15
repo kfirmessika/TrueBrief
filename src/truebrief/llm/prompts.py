@@ -515,9 +515,48 @@ Return ONLY valid JSON: {{"queries": ["query1", "query2", "query3"]}}"""
 
 
 # ============================================================
-# STAGE: story_stitch (shared pair prompt) — dashboard_summary/story_stitch cheap tier
-# (Groq llama-3.1-8b-instant when GROQ_API_KEY is set, else Gemini flash-lite)
+# STAGE: dashboard_summary — cheap tier (Groq llama-3.1-8b-instant when
+# GROQ_API_KEY is set, else Gemini flash-lite; see config/settings.py LLM_CONFIG)
 # ============================================================
+
+DASHBOARD_SUMMARY_SYSTEM = "You are a news analyst. Write a tight executive summary."
+
+
+def build_dashboard_summary_prompt(raw_query: str, bullet_list: str, s_min: int, s_max: int) -> str:
+    """Construct the adaptive editorial-summary prompt for POST /topics/{id}/summary.
+
+    Args:
+        raw_query: the topic's raw_query string.
+        bullet_list: "- fact\\n- fact\\n..." of the salience-selected facts.
+        s_min: minimum sentence count from the adaptive window.
+        s_max: maximum sentence count from the adaptive window.
+    """
+    shape = (
+        f"Write {s_min}–{s_max} sentences of plain prose — no bullets, no lists, no line breaks. "
+        "You are a news editor writing a tight situational update: "
+        "open with a single declarative sentence naming the most consequential development; "
+        "merge closely related facts into one sentence rather than listing them separately; "
+        "signal the direction — is the situation escalating, stabilising, or resolved — using "
+        "active verbs that show motion; "
+        "ruthlessly drop minor, routine, or repetitive items; "
+        "do not pad to reach the sentence target — if fewer sentences capture everything, use fewer."
+    )
+
+    return (
+        f"Topic: {raw_query}\n\n"
+        f"New facts (these are the ONLY facts you may reference):\n{bullet_list}\n\n"
+        f"{shape} "
+        "Reference ONLY facts listed above — do not add background, context, or information not in the list. "
+        "Be direct and specific — no fluff, no \"based on the above\", no \"in summary\"."
+    )
+
+
+# ============================================================
+# STAGE: story_stitch — cheap tier (Groq llama-3.1-8b-instant when
+# GROQ_API_KEY is set, else Gemini flash-lite; see config/settings.py LLM_CONFIG)
+# ============================================================
+
+STORY_STITCH_SYSTEM = "You are a news analyst writing terse connective narration."
 
 
 def build_story_stitch_pair_prompt(topic_name: str, fact_a: str, fact_b: str) -> str:
@@ -537,6 +576,28 @@ def build_story_stitch_pair_prompt(topic_name: str, fact_a: str, fact_b: str) ->
         f"Fact B: {fact_b}\n\n"
         f"Write ONE sentence (max 18 words) connecting A to B. "
         f'Return JSON: {{"passage": "..."}}.'
+    )
+
+
+def build_story_stitch_batch_prompt(topic_name: str, numbered_facts: str, n_pairs: int) -> str:
+    """Construct the legacy all-pairs-in-one-call story-stitch prompt for POST /topics/{id}/story.
+
+    Used when V4_STORY_STITCHING is off or the caller didn't supply fact_ids
+    (so the per-pair cache path can't run).
+
+    Args:
+        topic_name: the topic's raw_query string.
+        numbered_facts: "1. fact\\n2. fact\\n..." of the chronological facts.
+        n_pairs: number of adjacent-pair bridge sentences requested (len(facts) - 1).
+    """
+    return (
+        f"Topic: {topic_name}\n\n"
+        f"These {n_pairs + 1} events are listed in chronological order:\n{numbered_facts}\n\n"
+        f"For each ADJACENT pair (1→2, 2→3, …), write ONE short bridge sentence "
+        f"(max 18 words) that connects the earlier event to the later one — show how "
+        f"the story moved from one to the next. Ground every bridge in the events; do "
+        f'NOT invent facts. Return ONLY this JSON: {{"connectors": ["sentence1", "sentence2", ...]}} '
+        f"with exactly {n_pairs} strings in the array, in order."
     )
 
 
@@ -654,5 +715,31 @@ if __name__ == "__main__":
             topic_name="Tesla & EVs",
             fact_a="Tesla reported record deliveries.",
             fact_b="Tesla stock rose 5 percent.",
+        )
+    )
+
+    print("\n\n=== build_dashboard_summary_prompt ===")
+    print(
+        build_dashboard_summary_prompt(
+            raw_query="Israel-Hamas War",
+            bullet_list=(
+                "- A ceasefire was signed on June 17.\n"
+                "- Artillery exchanges continued in the eastern corridor."
+            ),
+            s_min=3,
+            s_max=7,
+        )
+    )
+
+    print("\n\n=== build_story_stitch_batch_prompt ===")
+    print(
+        build_story_stitch_batch_prompt(
+            topic_name="Tesla & EVs",
+            numbered_facts=(
+                "1. Tesla reported record deliveries.\n"
+                "2. Tesla stock rose 5 percent.\n"
+                "3. Tesla announced a new factory in Texas."
+            ),
+            n_pairs=2,
         )
     )

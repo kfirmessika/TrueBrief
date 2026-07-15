@@ -29,7 +29,13 @@ from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit
 from truebrief.auth.dependencies import User, get_current_user
 from truebrief.api.rate_limit import limiter
 from truebrief.llm.client import LLMClient
-from truebrief.llm.prompts import build_story_stitch_pair_prompt
+from truebrief.llm.prompts import (
+    build_dashboard_summary_prompt,
+    build_story_stitch_batch_prompt,
+    build_story_stitch_pair_prompt,
+    DASHBOARD_SUMMARY_SYSTEM,
+    STORY_STITCH_SYSTEM,
+)
 from config.settings import settings
 
 
@@ -1171,31 +1177,14 @@ def get_topic_summary(
     s_min, s_max = _adaptive_window(m)
 
     # Layer 3: editorial presentation — lede-first, directional, merges related facts
-    shape = (
-        f"Write {s_min}–{s_max} sentences of plain prose — no bullets, no lists, no line breaks. "
-        "You are a news editor writing a tight situational update: "
-        "open with a single declarative sentence naming the most consequential development; "
-        "merge closely related facts into one sentence rather than listing them separately; "
-        "signal the direction — is the situation escalating, stabilising, or resolved — using "
-        "active verbs that show motion; "
-        "ruthlessly drop minor, routine, or repetitive items; "
-        "do not pad to reach the sentence target — if fewer sentences capture everything, use fewer."
-    )
-
-    prompt = (
-        f"Topic: {raw_query}\n\n"
-        f"New facts (these are the ONLY facts you may reference):\n{bullet_list}\n\n"
-        f"{shape} "
-        "Reference ONLY facts listed above — do not add background, context, or information not in the list. "
-        "Be direct and specific — no fluff, no \"based on the above\", no \"in summary\"."
-    )
+    prompt = build_dashboard_summary_prompt(raw_query, bullet_list, s_min, s_max)
 
     try:
         llm = LLMClient()
         summary = llm.call(
             step_name="dashboard_summary",
             prompt=prompt,
-            system_prompt="You are a news analyst. Write a tight executive summary.",
+            system_prompt=DASHBOARD_SUMMARY_SYSTEM,
         )
         return {"summary": summary.strip()}
     except Exception as exc:
@@ -1276,7 +1265,7 @@ def get_topic_story(
                         step_name="story_stitch",
                         prompt=pair_prompt,
                         json_mode=True,
-                        system_prompt="You are a news analyst writing terse connective narration.",
+                        system_prompt=STORY_STITCH_SYSTEM,
                     )
                     parsed = json.loads(raw)
                     connectors[idx] = str(parsed.get("passage", "")).strip()
@@ -1287,15 +1276,7 @@ def get_topic_story(
 
     # Legacy path: one LLM call for all N-1 pairs (used when flag is off or no IDs provided).
     numbered = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(facts))
-    prompt = (
-        f"Topic: {raw_query}\n\n"
-        f"These {len(facts)} events are listed in chronological order:\n{numbered}\n\n"
-        f"For each ADJACENT pair (1→2, 2→3, …), write ONE short bridge sentence "
-        f"(max 18 words) that connects the earlier event to the later one — show how "
-        f"the story moved from one to the next. Ground every bridge in the events; do "
-        f'NOT invent facts. Return ONLY this JSON: {{"connectors": ["sentence1", "sentence2", ...]}} '
-        f"with exactly {n_pairs} strings in the array, in order."
-    )
+    prompt = build_story_stitch_batch_prompt(raw_query, numbered, n_pairs)
 
     try:
         llm = LLMClient()
@@ -1303,7 +1284,7 @@ def get_topic_story(
             step_name="story_stitch",
             prompt=prompt,
             json_mode=True,
-            system_prompt="You are a news analyst writing terse connective narration.",
+            system_prompt=STORY_STITCH_SYSTEM,
         )
         return {"connectors": _parse_story_connectors(raw, n_pairs)}
     except Exception as exc:
