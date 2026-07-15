@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from dateutil.parser import parse as parse_date
 from truebrief.llm.client import LLMClient
+from truebrief.llm.prompts import HARVESTER_SYSTEM, build_harvester_prompt
 from truebrief.models.article import RawArticle
 from truebrief.models.alpha import Alpha
 
@@ -61,7 +62,7 @@ class Harvester:
                 step_name="harvester",
                 prompt=prompt,
                 json_mode=True,
-                system_prompt="You are a precision intelligence analyst. Extract every atomic, verifiable fact from this article into a structured JSON list."
+                system_prompt=HARVESTER_SYSTEM,
             )
 
             data = json.loads(response_text)
@@ -299,130 +300,12 @@ Ignore any facts about unrelated events, people, or subjects — even if they ap
 
 """
 
-        if _s.V3_DATE_GUARD:
-            date_instruction = (
-                'REQUIRED. The date the event HAPPENED in ISO format (YYYY-MM-DD).\n'
-                '   Use the ARTICLE PUBLISHED DATE as the anchor. Relative phrases like "yesterday", "last month",\n'
-                '   "on Tuesday", "June 7" MUST resolve to a date within 1 year of the article publish date.\n'
-                '   The year MUST come from the publish date context — do NOT default to prior years.\n'
-                '   If you cannot confidently determine the year from context, do NOT extract the fact.'
-            )
-        else:
-            date_instruction = (
-                'REQUIRED. The date the event HAPPENED in ISO format (YYYY-MM-DD).\n'
-                '   Use the ARTICLE PUBLISHED DATE as anchor for relative phrases ("yesterday", "last quarter").\n'
-                '   If the article does not anchor the event in time, do NOT extract the fact.\n'
-                '   This field is non-optional — facts without a verifiable event date are not facts.'
-            )
-
-        return f"""
-ARTICLE PUBLISHED DATE: {pub_date_str}
-{topic_block}
-ARTICLE TEXT:
-{article.text}
-
-TASK:
-Extract every atomic, verifiable fact from this article into a structured JSON list.
-
-A FACT is an observable, checkable event or state: who did what, when, where, how many.
-NOT a fact: a writer's interpretation of meaning, cause, consequence, or significance.
-
-STRIP THE EDITORIAL CLAUSE — keep only the verifiable core:
-- BAD : "Khamenei's death has created a significant leadership vacuum and political instability."
-  GOOD: "Iranian Supreme Leader Ali Khamenei died during U.S.-Israeli airstrikes."
-  (drop "created a leadership vacuum and political instability" — that is analysis, not fact)
-- BAD : "Israeli troops in Syria constitute a violation undermining established diplomatic norms."
-  GOOD: "Israeli troops and tanks were present in the Syrian countryside near the 1974 buffer zone."
-  (drop "constitute a violation undermining norms" — that is a judgement, not fact)
-- BAD : "The IRGC closed the Strait of Hormuz, disrupting regional maritime security."
-  GOOD: "The IRGC declared the Strait of Hormuz closed on June 20."
-  (drop "disrupting regional maritime security" — that is a consequence the writer asserts)
-- BAD : "The killing complicates current diplomatic efforts."  → DROP ENTIRELY (pure commentary).
-- BAD : "Hamas is attempting to redevelop its rocket-firing capabilities."
-  → an attempt/effort/goal is NOT a discrete checkable event. Either extract the OBSERVABLE action
-  GOOD: "Hamas fired three rockets from northern Gaza on June 24." (if the article states it), or
-  ATTRIBUTE it GOOD: "The IDF said Hamas is rebuilding its rocket capability." — otherwise DROP.
-- BAD : "The ceasefire is likely to collapse within weeks."  → prediction; DROP unless attributed
-  GOOD: "A senior Israeli official said the ceasefire is likely to collapse within weeks."
-- BAD : "It was the deadliest strike since the war began."  → keep the verifiable core, drop the
-  comparative-significance claim:  GOOD: "The strike killed 14 people on June 24."
-
-ATTRIBUTION RULE — assessments, intentions, predictions, and significance claims are facts ONLY
-when attributed to a named actor, and then the fact is that they SAID/ASSESS it:
-- GOOD: "Hezbollah said the killing of two people in southern Lebanon violated the ceasefire."
-- GOOD: "A UN commission report alleged Israeli actions in Gaza amount to genocidal intent."
-- GOOD: "Iran announced it will enrich uranium to 60%."  (a discrete plan announced by a named actor)
-- BAD : "The strike was a clear violation of international law."  (whose claim? → drop or attribute)
-
-For each fact extract:
-1. "alpha_text": The verifiable event as ONE clean standalone sentence — core event only,
-   no causal/evaluative/predictive clause ("creating…", "undermining…", "which could…",
-   "in a major shift…", "complicating…", "amid growing…").
-2. "entities": List of named entities (companies, people, countries, products).
-3. "event_date": {date_instruction}
-4. "date_basis": How you determined event_date — EXACTLY ONE of:
-   - "explicit"  — the article states an absolute date for this event.
-   - "relative"  — you resolved it from "yesterday/last week/Tuesday" against the publish date.
-   - "inferred"  — a weak guess; the article does not clearly date this event.
-5. "is_background": true if this is NOT a fresh development reported today, but rather:
-   - PAST CONTEXT referenced as background ("since the war began in March…", "after the
-     leader's death months ago…"), OR
-   - a STANDING STATE / ongoing condition / institutional fact with no new dated action this
-     article: "X has been involved in a dispute since 1991", "the talks are ongoing", "X is
-     engaged in…", "the unit was established [years ago]", "X continues to…".
-   Set is_background=true for these. Only set it FALSE when the sentence reports a concrete
-   action that happened on/near the article date. Do NOT present background or standing
-   conditions as today's news.
-6. "context": 20-40 words - why does this fact matter? What story does it belong to?
-7. "confidence": How verifiable is this? (0.0-1.0)
-8. "importance": How significant is this fact to the topic? (0.0-1.0)
-   1.0 = decisive, topic-defining event (a state_change or escalation that directly changes the topic's status)
-   0.7 = clearly relevant new development worth tracking
-   0.4 = minor or supporting detail
-   0.1 = tangential or routine; barely touches the topic
-9. "event_class": The development type. Choose EXACTLY ONE:
-   - "state_change"  — a discrete, durable, TOPIC-LEVEL status flip: ceasefire signed, treaty agreed,
-                       court ruling issued, law passed, strait opened/closed, company acquired,
-                       or a HEAD-OF-STATE / leadership change (a head of state or org leader dies/resigns).
-   - "escalation"    — a new discrete aggressive or deteriorating act: strike, attack, front opens,
-                       sanctions imposed, talks collapsed, troops deployed.
-   - "casualty"      — an INDIVIDUAL person (or small group) killed, wounded, or detained in an
-                       incident: "X was shot dead", "a contractor was killed", "two were wounded".
-                       This is NOT a durable status flip — never the lede over a state_change.
-   - "development"   — a discrete new fact inside an ongoing story that does not flip a status:
-                       meeting held, statement issued, vote scheduled, person arrested.
-   - "incremental"   — a follow-up or minor update: "X now says…", clarification, minor revision.
-   - "tally"         — a cumulative running count or total that will be updated again:
-                       death tolls, case counts, funding totals, damage estimates. Label even if the
-                       number changed — it is NEVER the lede.
-   - "routine"       — scheduling/logistics: press briefing scheduled, convoy arrived, ship docked.
-
-RULES:
-- ONLY extract facts relevant to the TOPIC FILTER above (if specified).
-- NEVER extract opinions, predictions, analysis, or editorial commentary. If a sentence mixes a
-  fact with interpretation, KEEP THE FACT, DROP THE INTERPRETATION (see STRIP examples above).
-- An assessment/judgement is allowed ONLY when attributed to a named actor (ATTRIBUTION RULE above).
-- NEVER extract meta-information about the article itself (download links, app info, copyright notices).
-- Drop anything with confidence < 0.6.
-- DROP any fact where you cannot determine a specific event_date — omit it entirely.
-- Each fact must stand alone - a reader with no other context should understand it.
-- Output ONLY a valid JSON list.
-
-EXPECTED OUTPUT FORMAT:
-[
-  {{
-    "alpha_text": "Fact sentence — verifiable event only, no editorial clause.",
-    "entities": ["Entity1", "Entity2"],
-    "event_date": "2026-04-15",
-    "date_basis": "explicit",
-    "is_background": false,
-    "context": "Context string.",
-    "confidence": 0.95,
-    "importance": 0.9,
-    "event_class": "state_change"
-  }}
-]
-"""
+        return build_harvester_prompt(
+            article_text=article.text,
+            pub_date_str=pub_date_str,
+            topic_block=topic_block,
+            date_guard=_s.V3_DATE_GUARD,
+        )
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

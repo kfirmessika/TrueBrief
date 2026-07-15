@@ -25,6 +25,7 @@ from typing import Optional
 import yaml
 from config.settings import RSS_FEEDS_PATH
 from truebrief.llm.client import LLMClient
+from truebrief.llm.prompts import QUERY_BUILDER_SYSTEM, build_query_builder_prompt
 from truebrief.models.topic import Topic
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class QueryBuilder:
                 step_name="query_builder",
                 prompt=prompt,
                 json_mode=True,
-                system_prompt="You are the TrueBrief Librarian. Your job is to analyze user tracking topics.",
+                system_prompt=QUERY_BUILDER_SYSTEM,
             )
 
             data = json.loads(response_text)
@@ -154,72 +155,11 @@ class QueryBuilder:
     def _get_prompt(self, topic: str) -> str:
         from datetime import datetime
         _today = datetime.now().strftime("%B %Y")  # e.g. "July 2026"
-        return f"""
-Today's date: {_today}. When a query benefits from a year, use the CURRENT year — never a past one.
-
-The user wants to track breaking news for: '{topic}'
-
-TASK:
-1. Decide if the input is a legitimate news topic or gibberish/malicious. Reject the latter.
-2. Formalize a clean 'short_name' (e.g. 'Israel-Hamas War', 'TSMC Semiconductors').
-3. Split the topic into 3-4 DISTINCT DOMAINS — each covering a different facet.
-   For each domain generate 2 search queries that surface articles OTHER domains wouldn't.
-4. Choose relevant RSS categories from the list below.
-
-AVAILABLE RSS CATEGORIES:
-{self._rss_categories}
-
-DOMAIN RULES (critical — read carefully):
-- Each domain covers a DIFFERENT slice of the topic. No overlap.
-- Queries within a domain are angle variations of the SAME facet.
-- Queries ACROSS domains must be topically DIVERGENT: domain A queries must NOT return
-  the same articles as domain B queries. Think "what stories would only appear under this facet?"
-- Domain 0 is the PRIMARY facet (most direct match to user intent).
-- Keep queries specific enough for news search but not so narrow they return nothing.
-- Do NOT use site: operators or boolean syntax — plain keyword queries only.
-
-EXAMPLES:
-
-Topic "Israel":
-  domain 0 "military_operations":
-    queries: ["IDF Gaza offensive operations {_today.split()[-1]}", "Hezbollah rocket attack Lebanon Israel"]
-  domain 1 "diplomacy_ceasefire":
-    queries: ["Gaza ceasefire negotiations mediators", "US Iran nuclear talks Middle East"]
-  domain 2 "humanitarian_crisis":
-    queries: ["Gaza civilian casualties aid delivery", "West Bank Palestinian refugees UN"]
-  domain 3 "domestic_political":
-    queries: ["Netanyahu government coalition protest", "Israel defense industry economy war"]
-
-Topic "Shark attack Australia":
-  domain 0 "incident_victim":
-    queries: ["shark attack Queensland beach", "surfer bitten Australia coast fatality"]
-  domain 1 "safety_response":
-    queries: ["beach closure shark drumlines Queensland", "lifeguard aerial drone shark patrol"]
-  domain 2 "ecology_science":
-    queries: ["great white shark population Australia habitat", "shark species behavior attack research"]
-
-IF INPUT IS GIBBERISH/INVALID/HARMFUL:
-Return: {{"status": "REJECTED", "reason": "Explanation"}}
-
-IF VALID, return ONLY this JSON (no markdown, no extra keys):
-{{
-  "status": "APPROVED",
-  "short_name": "Clean Topic Name",
-  "corrected_query": "spelling-fixed version of the user input, or identical if no errors",
-  "rss_categories": ["category1", "category2"],
-  "domains": [
-    {{
-      "name": "domain_slug",
-      "description": "One sentence: what facet this covers",
-      "queries": ["query one", "query two"]
-    }}
-  ]
-}}
-
-corrected_query rules: fix ONLY spelling errors. Do NOT expand, rename, or add words.
-"isreal" -> "israel", "nvida" -> "nvidia", "iran war" -> "iran war", "us" -> "us".
-Short abbreviations and proper nouns in any case are fine as-is.
-"""
+        return build_query_builder_prompt(
+            topic=topic,
+            rss_categories=self._rss_categories,
+            today=_today,
+        )
 
 
 if __name__ == "__main__":
