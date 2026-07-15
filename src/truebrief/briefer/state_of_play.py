@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from truebrief.llm.client import LLMClient
+from truebrief.llm.prompts import STATE_OF_PLAY_SYSTEM, build_state_of_play_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +60,7 @@ class StateOfPlayGenerator:
                 step_name="state_of_play",
                 prompt=prompt,
                 json_mode=True,
-                system_prompt=(
-                    "You are an intelligence analyst writing a grounded status board. "
-                    "You report ONLY what the facts establish. You never predict."
-                ),
+                system_prompt=STATE_OF_PLAY_SYSTEM,
             )
         except Exception as exc:
             logger.warning(f"[STATE-OF-PLAY] LLM call failed: {exc}")
@@ -94,43 +92,12 @@ class StateOfPlayGenerator:
             ],
             indent=2,
         )
-        return f"""
-Build a "state of play" status board for this topic from the FACTS below — and ONLY
-from those facts. This is a glanceable header that answers "where do things stand right now?"
-
-TOPIC: {topic_name}
-DATE: {today}
-
-FACTS (most significant / recent first):
-{payload}
-
-Produce JSON with this EXACT shape:
-{{
-  "situation": "ONE sentence — the single most important reality right now. Write it the way
-                a senior analyst would brief a colleague: direct, concrete, no jargon.
-                Lead with the most significant state_change or escalation in the facts.
-                Example style: 'A 90-day ceasefire was signed on Jun 17; both sides have
-                pulled back, but artillery exchanges continue in the eastern corridor.'",
-  "threads": [
-    {{"label": "<short name of an open thread, 2–4 words>",
-      "status": "<one of: agreed | contested | postponed | escalating>",
-      "note": "<≤8 words anchoring it to a fact, e.g. 'signed Jun 17' or 'talks stalled'>"}}
-  ]
-}}
-
-RULES:
-- Use ONLY the facts provided. Do NOT add outside knowledge. Do NOT predict or speculate.
-- "situation" must be ONE sentence, ≤40 words, grounded in the highest-significance fact.
-- "status" MUST be exactly one of: agreed, contested, postponed, escalating.
-    agreed     = settled / signed / in force.
-    contested  = disputed, conflicting claims, or violated.
-    postponed  = delayed, paused, awaiting.
-    escalating = actively worsening / new hostilities.
-- 3 to {MAX_THREADS} threads, the most consequential first. No filler threads.
-- "note" must be short and tied to a fact (a date or a concrete detail). No prose.
-- If a fact set supports no clear thread, omit it rather than inventing one.
-- Output ONLY the JSON object. No markdown fences, no commentary.
-"""
+        return build_state_of_play_prompt(
+            topic_name=topic_name,
+            today=today,
+            payload=payload,
+            max_threads=MAX_THREADS,
+        )
 
     def _parse(self, raw: str) -> Optional[dict]:
         """Extract + validate the JSON block. Drops threads with bad statuses."""

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from truebrief.llm.client import LLMClient
+from truebrief.llm.prompts import BRIEFER_SYSTEM, build_briefer_prompt
 from truebrief.models.alpha import AlphaDecision, DecisionType
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class Briefer:
                 step_name="briefer",
                 prompt=prompt,
                 json_mode=False,
-                system_prompt="You are an elite intelligence briefer. Your job is to format raw facts into a scannable, highly readable report."
+                system_prompt=BRIEFER_SYSTEM,
             )
             return response_text.strip()
         except Exception as e:
@@ -99,51 +100,12 @@ class Briefer:
                 f'"📌 Bottom line"; the new facts below update it):\n{situation}\n'
             )
 
-        return f"""
-Generate a clean, professional intelligence brief based ONLY on the provided facts.
-Maximize signal-to-noise: lead with the single most important development, group
-related facts, and never repeat the same point.
-
-TOPIC: {topic_name}
-DATE: {today}{situation_hint}
-INPUT FACTS (already ordered most-significant first; "significance" ranks them:
-state_change > escalation > development > incremental > tally > routine):
-{payload}
-
-FORMAT — follow this EXACT structure:
-
-📋 TrueBrief | [Topic Name] | [Date]
-
-**📌 Bottom line:** [ONE sentence naming the single most important CURRENT development across all facts — this is the lede a reader sees first.]
-
-🆕 NEW STORIES ([Count])
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-**Story Title**
-• The fact, with its context woven in as natural prose (one flowing sentence or two — NOT labelled fragments). → Sources: [domain.com](url)
-
-📈 UPDATES ([Count])
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-**Story Title**
-• What changed, stated directly, with the prior situation woven in as prose. → Sources: [domain.com](url)
-
-RULES:
-- Do NOT hallucinate. Use ONLY the facts in the JSON payload.
-- LEAD WITH THE LEDE: the "📌 Bottom line" must name the most consequential current
-  development (prefer a state_change / escalation over a tally or routine item).
-- PRESERVE the given order — the most significant facts come first; render them first.
-- WEAVE context as prose. Do NOT prefix bullets with rigid all-caps labels (no
-  "whats-new" / "full-context" style tags) — write flowing sentences instead.
-- COLLAPSE running tallies: if several facts are successive counts of the same metric
-  (casualty totals, fund sizes), render ONE bullet with the latest figure — not one per update.
-- Group closely related facts from the same story under one **heading**, each its own bullet.
-- EVERY bullet ends with → Sources: [domain.com](url) using the exact url from that fact's
-  "source" field. Use the markdown link format [name](url).
-- ONE chip per OUTLET: if a bullet draws on several articles from the SAME domain, cite that
-  domain ONCE. Only list multiple sources when they are DIFFERENT outlets.
-- If a fact has corroborating_sources > 1, you may append " (N sources)" to the bullet text.
-- If a section (NEW STORIES or UPDATES) has 0 items, omit that section AND its header entirely.
-- Concise, punchy, professional. NO filler.
-"""
+        return build_briefer_prompt(
+            topic_name=topic_name,
+            today=today,
+            situation_hint=situation_hint,
+            payload=payload,
+        )
 
 if __name__ == "__main__":
     from truebrief.models.alpha import Alpha

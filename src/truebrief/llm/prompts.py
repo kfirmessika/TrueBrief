@@ -304,6 +304,130 @@ case, in order. Each object MUST include its 1-based "case" number:
 """
 
 
+# ============================================================
+# STAGE: briefer — Gemini 2.0-flash (main tier)
+# ============================================================
+
+BRIEFER_SYSTEM = (
+    "You are an elite intelligence briefer. Your job is to format raw facts into "
+    "a scannable, highly readable report."
+)
+
+
+def build_briefer_prompt(topic_name: str, today: str, situation_hint: str, payload: str) -> str:
+    """Construct the prompt for Briefer._get_prompt().
+
+    Args:
+        topic_name: human-readable topic name.
+        today: "%B %d, %Y"-formatted current date string.
+        situation_hint: pre-assembled "\nCURRENT SITUATION..." block, or "" if no situation.
+        payload: JSON-serialized {"NEW_STORIES": [...], "UPDATES": [...]} string.
+    """
+    return f"""
+Generate a clean, professional intelligence brief based ONLY on the provided facts.
+Maximize signal-to-noise: lead with the single most important development, group
+related facts, and never repeat the same point.
+
+TOPIC: {topic_name}
+DATE: {today}{situation_hint}
+INPUT FACTS (already ordered most-significant first; "significance" ranks them:
+state_change > escalation > development > incremental > tally > routine):
+{payload}
+
+FORMAT — follow this EXACT structure:
+
+📋 TrueBrief | [Topic Name] | [Date]
+
+**📌 Bottom line:** [ONE sentence naming the single most important CURRENT development across all facts — this is the lede a reader sees first.]
+
+🆕 NEW STORIES ([Count])
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Story Title**
+• The fact, with its context woven in as natural prose (one flowing sentence or two — NOT labelled fragments). → Sources: [domain.com](url)
+
+📈 UPDATES ([Count])
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Story Title**
+• What changed, stated directly, with the prior situation woven in as prose. → Sources: [domain.com](url)
+
+RULES:
+- Do NOT hallucinate. Use ONLY the facts in the JSON payload.
+- LEAD WITH THE LEDE: the "📌 Bottom line" must name the most consequential current
+  development (prefer a state_change / escalation over a tally or routine item).
+- PRESERVE the given order — the most significant facts come first; render them first.
+- WEAVE context as prose. Do NOT prefix bullets with rigid all-caps labels (no
+  "whats-new" / "full-context" style tags) — write flowing sentences instead.
+- COLLAPSE running tallies: if several facts are successive counts of the same metric
+  (casualty totals, fund sizes), render ONE bullet with the latest figure — not one per update.
+- Group closely related facts from the same story under one **heading**, each its own bullet.
+- EVERY bullet ends with → Sources: [domain.com](url) using the exact url from that fact's
+  "source" field. Use the markdown link format [name](url).
+- ONE chip per OUTLET: if a bullet draws on several articles from the SAME domain, cite that
+  domain ONCE. Only list multiple sources when they are DIFFERENT outlets.
+- If a fact has corroborating_sources > 1, you may append " (N sources)" to the bullet text.
+- If a section (NEW STORIES or UPDATES) has 0 items, omit that section AND its header entirely.
+- Concise, punchy, professional. NO filler.
+"""
+
+
+# ============================================================
+# STAGE: state_of_play — Gemini 2.0-flash (main tier)
+# ============================================================
+
+STATE_OF_PLAY_SYSTEM = (
+    "You are an intelligence analyst writing a grounded status board. "
+    "You report ONLY what the facts establish. You never predict."
+)
+
+
+def build_state_of_play_prompt(topic_name: str, today: str, payload: str, max_threads: int) -> str:
+    """Construct the prompt for StateOfPlayGenerator._get_prompt().
+
+    Args:
+        topic_name: human-readable topic name.
+        today: "%B %d, %Y"-formatted current date string.
+        payload: JSON-serialized list of fact dicts (fact/significance/date/source).
+        max_threads: MAX_THREADS cap on the number of open threads to return.
+    """
+    return f"""
+Build a "state of play" status board for this topic from the FACTS below — and ONLY
+from those facts. This is a glanceable header that answers "where do things stand right now?"
+
+TOPIC: {topic_name}
+DATE: {today}
+
+FACTS (most significant / recent first):
+{payload}
+
+Produce JSON with this EXACT shape:
+{{
+  "situation": "ONE sentence — the single most important reality right now. Write it the way
+                a senior analyst would brief a colleague: direct, concrete, no jargon.
+                Lead with the most significant state_change or escalation in the facts.
+                Example style: 'A 90-day ceasefire was signed on Jun 17; both sides have
+                pulled back, but artillery exchanges continue in the eastern corridor.'",
+  "threads": [
+    {{"label": "<short name of an open thread, 2–4 words>",
+      "status": "<one of: agreed | contested | postponed | escalating>",
+      "note": "<≤8 words anchoring it to a fact, e.g. 'signed Jun 17' or 'talks stalled'>"}}
+  ]
+}}
+
+RULES:
+- Use ONLY the facts provided. Do NOT add outside knowledge. Do NOT predict or speculate.
+- "situation" must be ONE sentence, ≤40 words, grounded in the highest-significance fact.
+- "status" MUST be exactly one of: agreed, contested, postponed, escalating.
+    agreed     = settled / signed / in force.
+    contested  = disputed, conflicting claims, or violated.
+    postponed  = delayed, paused, awaiting.
+    escalating = actively worsening / new hostilities.
+- 3 to {max_threads} threads, the most consequential first. No filler threads.
+- "note" must be short and tied to a fact (a date or a concrete detail). No prose.
+- If a fact set supports no clear thread, omit it rather than inventing one.
+- Output ONLY the JSON object. No markdown fences, no commentary.
+"""
+
+
 if __name__ == "__main__":
     # Sanity check: run each builder with representative sample inputs and
     # print the result, so a human (or a future refactor) can eyeball that
@@ -357,3 +481,37 @@ if __name__ == "__main__":
 
     print("\n\n=== ARBITER_BATCH_INSTRUCTIONS ===")
     print(ARBITER_BATCH_INSTRUCTIONS.format(n=2))
+
+    print("\n\n=== build_briefer_prompt (no situation) ===")
+    print(
+        build_briefer_prompt(
+            topic_name="Tesla & EVs",
+            today="July 15, 2026",
+            situation_hint="",
+            payload='{\n  "NEW_STORIES": [],\n  "UPDATES": []\n}',
+        )
+    )
+
+    print("\n\n=== build_briefer_prompt (with situation) ===")
+    print(
+        build_briefer_prompt(
+            topic_name="Tesla & EVs",
+            today="July 15, 2026",
+            situation_hint=(
+                '\nCURRENT SITUATION (IC7 anchor — use this as the basis for your '
+                '"📌 Bottom line"; the new facts below update it):\n'
+                "Tesla is expanding aggressively into Southeast Asia.\n"
+            ),
+            payload='{\n  "NEW_STORIES": [],\n  "UPDATES": []\n}',
+        )
+    )
+
+    print("\n\n=== build_state_of_play_prompt ===")
+    print(
+        build_state_of_play_prompt(
+            topic_name="Middle East Conflict",
+            today="July 15, 2026",
+            payload='[\n  {"fact": "A ceasefire was signed on June 17.", "significance": "state_change", "date": "2026-06-17", "source": "reuters.com"}\n]',
+            max_threads=6,
+        )
+    )
