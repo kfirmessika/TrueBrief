@@ -428,6 +428,118 @@ RULES:
 """
 
 
+# ============================================================
+# STAGE: story_summarizer — Gemini flash-lite (cheap)
+# ============================================================
+
+STORY_SUMMARIZER_SYSTEM = (
+    "You are a concise intelligence analyst. "
+    "Your job is to maintain an evolving summary of a news story. "
+    "Output ONLY the updated summary paragraph - no headers, "
+    "no labels, no formatting, no bullet points."
+)
+
+
+def build_story_summarizer_prompt(
+    title: str,
+    previous_summary: str,
+    new_fact: str,
+    new_fact_context: str,
+    max_summary_length: int,
+) -> str:
+    """Construct the recursive-summary prompt for StorySummarizer._build_prompt().
+
+    Args:
+        title: the story's title.
+        previous_summary: the story's current summary text.
+        new_fact: the newly-added Alpha's alpha_text.
+        new_fact_context: the newly-added Alpha's context, or "" if none.
+        max_summary_length: MAX_SUMMARY_LENGTH cap (characters) enforced in the prompt text.
+    """
+    context_line = ""
+    if new_fact_context:
+        context_line = f"\nCONTEXT FOR NEW FACT: {new_fact_context}"
+
+    return f"""You are maintaining an evolving summary for a news story.
+
+STORY TITLE: {title}
+
+CURRENT SUMMARY (what we know so far):
+{previous_summary}
+
+NEW FACT (just arrived):
+{new_fact}{context_line}
+
+TASK:
+Write an updated summary that seamlessly incorporates the new fact into the
+existing narrative.  The summary must:
+
+1. Be a SINGLE coherent paragraph (3-5 sentences max).
+2. Integrate the new fact naturally - don't just append it.
+3. Preserve all important information from the current summary.
+4. If the new fact contradicts the current summary, note both versions.
+5. Stay under {max_summary_length} characters.
+6. Use past/present tense appropriately based on the event timing.
+7. Do NOT add any information not present in the inputs above.
+
+Output ONLY the updated summary paragraph. No labels, no bullet points."""
+
+
+# ============================================================
+# STAGE: query_rotator — Gemini flash-lite (cheap)
+# ============================================================
+
+QUERY_ROTATOR_SYSTEM = "You are a professional news intelligence researcher."
+
+
+def build_query_rotator_prompt(raw_query: str, existing_json: str, max_regen_variants: int) -> str:
+    """Construct the prompt for QueryRotator._llm_generate_variants().
+
+    Args:
+        raw_query: the topic's raw query string.
+        existing_json: json.dumps(existing, indent=2) of the exhausted query variants.
+        max_regen_variants: MAX_REGEN_VARIANTS — how many fresh queries to request.
+    """
+    return f"""You are a news search strategist.
+
+Topic: '{raw_query}'
+
+The following search queries have been exhausted (finding no new facts):
+{existing_json}
+
+Generate {max_regen_variants} DIFFERENT search queries that approach this topic
+from fresh angles (e.g. financial impact, geopolitical, technical, personnel, regional).
+Each query must be meaningfully different from the exhausted ones above.
+
+Return ONLY valid JSON: {{"queries": ["query1", "query2", "query3"]}}"""
+
+
+# ============================================================
+# STAGE: story_stitch (shared pair prompt) — dashboard_summary/story_stitch cheap tier
+# (Groq llama-3.1-8b-instant when GROQ_API_KEY is set, else Gemini flash-lite)
+# ============================================================
+
+
+def build_story_stitch_pair_prompt(topic_name: str, fact_a: str, fact_b: str) -> str:
+    """Construct the single-pair story-stitch prompt.
+
+    Shared by VectorStore._maybe_stitch_pairs (ledger) and the
+    /topics/{id}/story-connectors cache-miss fallback in api/routes.py.
+
+    Args:
+        topic_name: human-readable topic/raw_query string.
+        fact_a: the earlier ("before") fact's alpha_text.
+        fact_b: the later ("after") fact's alpha_text.
+    """
+    return (
+        f"Topic: {topic_name}\n"
+        f"Fact A: {fact_a}\n"
+        f"Fact B: {fact_b}\n\n"
+        f"Write ONE sentence (max 18 words) connecting A to B. "
+        f'Return JSON: {{"passage": "..."}}.'
+    )
+
+
 if __name__ == "__main__":
     # Sanity check: run each builder with representative sample inputs and
     # print the result, so a human (or a future refactor) can eyeball that
@@ -513,5 +625,34 @@ if __name__ == "__main__":
             today="July 15, 2026",
             payload='[\n  {"fact": "A ceasefire was signed on June 17.", "significance": "state_change", "date": "2026-06-17", "source": "reuters.com"}\n]',
             max_threads=6,
+        )
+    )
+
+    print("\n\n=== build_story_summarizer_prompt ===")
+    print(
+        build_story_summarizer_prompt(
+            title="Tesla Q3 Earnings",
+            previous_summary="Tesla reported strong Q3 deliveries.",
+            new_fact="Tesla stock rose 5% after the report.",
+            new_fact_context="Investors reacted positively to delivery numbers.",
+            max_summary_length=500,
+        )
+    )
+
+    print("\n\n=== build_query_rotator_prompt ===")
+    print(
+        build_query_rotator_prompt(
+            raw_query="Tesla stock",
+            existing_json='[\n  "Tesla stock price",\n  "Tesla earnings report"\n]',
+            max_regen_variants=3,
+        )
+    )
+
+    print("\n\n=== build_story_stitch_pair_prompt ===")
+    print(
+        build_story_stitch_pair_prompt(
+            topic_name="Tesla & EVs",
+            fact_a="Tesla reported record deliveries.",
+            fact_b="Tesla stock rose 5 percent.",
         )
     )

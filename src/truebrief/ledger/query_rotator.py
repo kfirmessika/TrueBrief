@@ -41,6 +41,8 @@ import math
 from datetime import datetime, timezone
 from typing import Optional
 
+from truebrief.llm.prompts import QUERY_ROTATOR_SYSTEM, build_query_rotator_prompt
+
 logger = logging.getLogger(__name__)
 
 
@@ -290,24 +292,17 @@ class QueryRotator:
         try:
             from truebrief.llm.client import LLMClient
             llm = LLMClient()
-            prompt = f"""You are a news search strategist.
-
-Topic: '{raw_query}'
-
-The following search queries have been exhausted (finding no new facts):
-{json.dumps(existing, indent=2)}
-
-Generate {MAX_REGEN_VARIANTS} DIFFERENT search queries that approach this topic
-from fresh angles (e.g. financial impact, geopolitical, technical, personnel, regional).
-Each query must be meaningfully different from the exhausted ones above.
-
-Return ONLY valid JSON: {{"queries": ["query1", "query2", "query3"]}}"""
+            prompt = build_query_rotator_prompt(
+                raw_query=raw_query,
+                existing_json=json.dumps(existing, indent=2),
+                max_regen_variants=MAX_REGEN_VARIANTS,
+            )
 
             response = llm.call(
                 step_name="query_rotator",
                 prompt=prompt,
                 json_mode=True,
-                system_prompt="You are a professional news intelligence researcher.",
+                system_prompt=QUERY_ROTATOR_SYSTEM,
             )
             data = json.loads(response)
             return [q.strip() for q in data.get("queries", []) if q.strip()]

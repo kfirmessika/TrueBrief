@@ -18,6 +18,7 @@ from truebrief.ledger.database import get_supabase
 from truebrief.ledger.source_logger import extract_domain
 from truebrief.models.alpha import Alpha
 from truebrief.llm.client import LLMClient
+from truebrief.llm.prompts import build_story_stitch_pair_prompt
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -222,12 +223,10 @@ class VectorStore:
 
             for before, after in pairs:
                 try:
-                    prompt = (
-                        f"Topic: {topic_name}\n"
-                        f"Fact A: {before['alpha_text']}\n"
-                        f"Fact B: {after['alpha_text']}\n\n"
-                        f"Write ONE sentence (max 18 words) connecting A to B. "
-                        f'Return JSON: {{"passage": "..."}}.'
+                    prompt = build_story_stitch_pair_prompt(
+                        topic_name=topic_name,
+                        fact_a=before["alpha_text"],
+                        fact_b=after["alpha_text"],
                     )
                     raw = llm.call(
                         step_name="story_stitch",

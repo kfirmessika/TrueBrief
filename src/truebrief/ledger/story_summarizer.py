@@ -25,6 +25,7 @@ import logging
 from typing import Optional
 
 from truebrief.llm.client import LLMClient
+from truebrief.llm.prompts import STORY_SUMMARIZER_SYSTEM, build_story_summarizer_prompt
 from truebrief.ledger.story_manager import StoryManager
 from truebrief.models.alpha import Alpha
 
@@ -109,12 +110,7 @@ class StorySummarizer:
                 step_name="story_summarizer",
                 prompt=prompt,
                 json_mode=False,
-                system_prompt=(
-                    "You are a concise intelligence analyst. "
-                    "Your job is to maintain an evolving summary of a news story. "
-                    "Output ONLY the updated summary paragraph - no headers, "
-                    "no labels, no formatting, no bullet points."
-                ),
+                system_prompt=STORY_SUMMARIZER_SYSTEM,
             )
             new_summary = new_summary.strip()
 
@@ -155,30 +151,10 @@ class StorySummarizer:
         plus the NEW fact, and ask it to produce an updated summary.  This means
         the LLM never needs to read all raw facts - just the last summary + delta.
         """
-        context_line = ""
-        if new_fact_context:
-            context_line = f"\nCONTEXT FOR NEW FACT: {new_fact_context}"
-
-        return f"""You are maintaining an evolving summary for a news story.
-
-STORY TITLE: {title}
-
-CURRENT SUMMARY (what we know so far):
-{previous_summary}
-
-NEW FACT (just arrived):
-{new_fact}{context_line}
-
-TASK:
-Write an updated summary that seamlessly incorporates the new fact into the
-existing narrative.  The summary must:
-
-1. Be a SINGLE coherent paragraph (3-5 sentences max).
-2. Integrate the new fact naturally - don't just append it.
-3. Preserve all important information from the current summary.
-4. If the new fact contradicts the current summary, note both versions.
-5. Stay under {MAX_SUMMARY_LENGTH} characters.
-6. Use past/present tense appropriately based on the event timing.
-7. Do NOT add any information not present in the inputs above.
-
-Output ONLY the updated summary paragraph. No labels, no bullet points."""
+        return build_story_summarizer_prompt(
+            title=title,
+            previous_summary=previous_summary,
+            new_fact=new_fact,
+            new_fact_context=new_fact_context or "",
+            max_summary_length=MAX_SUMMARY_LENGTH,
+        )

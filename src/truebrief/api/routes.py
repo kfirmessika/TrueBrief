@@ -29,6 +29,7 @@ from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit
 from truebrief.auth.dependencies import User, get_current_user
 from truebrief.api.rate_limit import limiter
 from truebrief.llm.client import LLMClient
+from truebrief.llm.prompts import build_story_stitch_pair_prompt
 from config.settings import settings
 
 
@@ -1266,12 +1267,10 @@ def get_topic_story(
             llm = LLMClient()
             for idx, before_text, after_text in pairs_needing_llm:
                 try:
-                    pair_prompt = (
-                        f"Topic: {raw_query}\n"
-                        f"Fact A: {before_text}\n"
-                        f"Fact B: {after_text}\n\n"
-                        f"Write ONE sentence (max 18 words) connecting A to B. "
-                        f'Return JSON: {{"passage": "..."}}.'
+                    pair_prompt = build_story_stitch_pair_prompt(
+                        topic_name=raw_query,
+                        fact_a=before_text,
+                        fact_b=after_text,
                     )
                     raw = llm.call(
                         step_name="story_stitch",
