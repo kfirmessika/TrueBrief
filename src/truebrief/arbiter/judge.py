@@ -23,6 +23,12 @@ from datetime import datetime, date
 from typing import List, Optional, Tuple
 
 from truebrief.llm.client import LLMClient, LLMError
+from truebrief.llm.prompts import (
+    ARBITER_BATCH_INSTRUCTIONS,
+    ARBITER_CASE_BLOCK,
+    ARBITER_SINGLE_INSTRUCTIONS,
+    ARBITER_SYSTEM,
+)
 from truebrief.models.alpha import Alpha, DecisionType
 
 logger = logging.getLogger(__name__)
@@ -55,64 +61,6 @@ def _score_label(score: float) -> str:
     if score >= 0.75:
         return "STRONG_MATCH"
     return "RELATED"
-
-
-_SYSTEM_PROMPT = """\
-You are a precision news intelligence arbiter. Your job is to determine whether a new fact
-duplicates, updates, or is entirely different from known stored facts.
-
-Rules (apply strictly):
-1. A change in numbers (price, %, revenue, count, date) = UPDATE, never MERGE.
-2. If the entities are different companies/people/products → lean NEW.
-3. Editorial rephrasing of the exact same factual claim → MERGE.
-4. When uncertain between UPDATE and MERGE → choose UPDATE (false negatives are worse).
-5. Output ONLY valid JSON. No explanation outside the JSON object.
-"""
-
-_CASE_BLOCK = """\
-NEW FACT (just extracted from an article):
-  "{new_fact}"
-  Entities: {new_entities}
-  Event date: {new_date}
-
-CLOSEST KNOWN FACTS (from memory, ranked by similarity):
-{matches_block}"""
-
-_PROMPT_TEMPLATE = _CASE_BLOCK + """
-
-Choose exactly ONE decision and output ONLY valid JSON:
-
-If MERGE (duplicate/trivial restatement - no new information):
-  {{"decision": "MERGE"}}
-
-If UPDATE (new information that extends or corrects a known fact):
-  {{"decision": "UPDATE", "delta": "One sentence stating exactly the new verifiable fact."}}
-  The delta must be a FACT, not characterization: state what changed (the new status, number,
-  or action), NOT a read of its trajectory or significance. Do NOT use evaluative verbs like
-  "progressed/advanced/improved/worsened/escalated" or phrases like "in a major step".
-  BAD : "Talks have progressed to peace-specific negotiations."
-  GOOD: "Lebanon and Israel held a round of negotiations focused on a peace agreement on June 25."
-
-If NEW (no existing knowledge matches - brand new information):
-  {{"decision": "NEW"}}
-"""
-
-# Batch prompt — N self-contained cases judged in one call (V3_BATCH_JUDGE).
-# Safe to batch because each case is independent (no shared state between facts).
-_BATCH_INSTRUCTIONS = """\
-
-==============================================================================
-You are given {n} INDEPENDENT cases above, numbered CASE 1 .. CASE {n}.
-For EACH case choose exactly ONE decision: MERGE, UPDATE, or NEW (same rules as
-a single case). Output ONLY a valid JSON array with exactly {n} objects, one per
-case, in order. Each object MUST include its 1-based "case" number:
-
-[
-  {{"case": 1, "decision": "MERGE"}},
-  {{"case": 2, "decision": "UPDATE", "delta": "One sentence on what is new."}},
-  {{"case": 3, "decision": "NEW"}}
-]
-"""
 
 
 class JudgeLLM:
@@ -154,7 +102,7 @@ class JudgeLLM:
                     step_name="arbiter",
                     prompt=prompt,
                     json_mode=True,
-                    system_prompt=_SYSTEM_PROMPT,
+                    system_prompt=ARBITER_SYSTEM,
                 )
                 return self._parse_response(raw)
 
@@ -205,7 +153,7 @@ class JudgeLLM:
                 step_name="arbiter",
                 prompt=prompt,
                 json_mode=True,
-                system_prompt=_SYSTEM_PROMPT,
+                system_prompt=ARBITER_SYSTEM,
             )
             parsed = self._parse_batch_response(raw, len(cases))
             if parsed is not None:
@@ -245,7 +193,7 @@ class JudgeLLM:
 
         matches_block = "\n".join(lines) if lines else "  (none)"
 
-        return _CASE_BLOCK.format(
+        return ARBITER_CASE_BLOCK.format(
             new_fact=new_alpha.alpha_text,
             new_entities=new_entities_str,
             new_date=new_date_str,
@@ -255,8 +203,7 @@ class JudgeLLM:
     def _build_prompt(self, new_alpha: Alpha, matches: List[Tuple[Alpha, float]]) -> str:
         """Construct the full single-case classification prompt (block + instructions)."""
         block = self._format_case_block(new_alpha, matches)
-        # _PROMPT_TEMPLATE == _CASE_BLOCK + instructions tail; reuse the tail only.
-        return block + _PROMPT_TEMPLATE[len(_CASE_BLOCK):]
+        return block + ARBITER_SINGLE_INSTRUCTIONS
 
     def _build_batch_prompt(
         self, cases: List[Tuple[Alpha, List[Tuple[Alpha, float]]]]
@@ -266,7 +213,7 @@ class JudgeLLM:
         for idx, (new_alpha, matches) in enumerate(cases, start=1):
             parts.append(f"CASE {idx}:\n{self._format_case_block(new_alpha, matches)}")
         body = "\n\n".join(parts)
-        return body + _BATCH_INSTRUCTIONS.format(n=len(cases))
+        return body + ARBITER_BATCH_INSTRUCTIONS.format(n=len(cases))
 
     def _parse_batch_response(
         self, raw: str, expected: int

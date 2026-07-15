@@ -242,6 +242,68 @@ EXPECTED OUTPUT FORMAT:
 """
 
 
+# ============================================================
+# STAGE: arbiter — Gemini flash-lite (cheap)
+# ============================================================
+
+ARBITER_SYSTEM = """\
+You are a precision news intelligence arbiter. Your job is to determine whether a new fact
+duplicates, updates, or is entirely different from known stored facts.
+
+Rules (apply strictly):
+1. A change in numbers (price, %, revenue, count, date) = UPDATE, never MERGE.
+2. If the entities are different companies/people/products → lean NEW.
+3. Editorial rephrasing of the exact same factual claim → MERGE.
+4. When uncertain between UPDATE and MERGE → choose UPDATE (false negatives are worse).
+5. Output ONLY valid JSON. No explanation outside the JSON object.
+"""
+
+ARBITER_CASE_BLOCK = """\
+NEW FACT (just extracted from an article):
+  "{new_fact}"
+  Entities: {new_entities}
+  Event date: {new_date}
+
+CLOSEST KNOWN FACTS (from memory, ranked by similarity):
+{matches_block}"""
+
+ARBITER_SINGLE_INSTRUCTIONS = """
+
+Choose exactly ONE decision and output ONLY valid JSON:
+
+If MERGE (duplicate/trivial restatement - no new information):
+  {{"decision": "MERGE"}}
+
+If UPDATE (new information that extends or corrects a known fact):
+  {{"decision": "UPDATE", "delta": "One sentence stating exactly the new verifiable fact."}}
+  The delta must be a FACT, not characterization: state what changed (the new status, number,
+  or action), NOT a read of its trajectory or significance. Do NOT use evaluative verbs like
+  "progressed/advanced/improved/worsened/escalated" or phrases like "in a major step".
+  BAD : "Talks have progressed to peace-specific negotiations."
+  GOOD: "Lebanon and Israel held a round of negotiations focused on a peace agreement on June 25."
+
+If NEW (no existing knowledge matches - brand new information):
+  {{"decision": "NEW"}}
+"""
+
+# Batch prompt — N self-contained cases judged in one call (V3_BATCH_JUDGE).
+# Safe to batch because each case is independent (no shared state between facts).
+ARBITER_BATCH_INSTRUCTIONS = """\
+
+==============================================================================
+You are given {n} INDEPENDENT cases above, numbered CASE 1 .. CASE {n}.
+For EACH case choose exactly ONE decision: MERGE, UPDATE, or NEW (same rules as
+a single case). Output ONLY a valid JSON array with exactly {n} objects, one per
+case, in order. Each object MUST include its 1-based "case" number:
+
+[
+  {{"case": 1, "decision": "MERGE"}},
+  {{"case": 2, "decision": "UPDATE", "delta": "One sentence on what is new."}},
+  {{"case": 3, "decision": "NEW"}}
+]
+"""
+
+
 if __name__ == "__main__":
     # Sanity check: run each builder with representative sample inputs and
     # print the result, so a human (or a future refactor) can eyeball that
@@ -278,3 +340,20 @@ if __name__ == "__main__":
             date_guard=False,
         )
     )
+
+    print("\n\n=== ARBITER_CASE_BLOCK ===")
+    print(
+        ARBITER_CASE_BLOCK.format(
+            new_fact="Company X acquired Company Y for $5B.",
+            new_entities="Company X, Company Y",
+            new_date="2026-07-01",
+            matches_block='  1. [STRONG_MATCH 0.82] "Company X agreed to acquire Company Y."\n'
+            "     Entities: Company X, Company Y | Event date: 2026-06-28",
+        )
+    )
+
+    print("\n\n=== ARBITER_SINGLE_INSTRUCTIONS ===")
+    print(ARBITER_SINGLE_INSTRUCTIONS)
+
+    print("\n\n=== ARBITER_BATCH_INSTRUCTIONS ===")
+    print(ARBITER_BATCH_INSTRUCTIONS.format(n=2))
