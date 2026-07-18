@@ -138,19 +138,24 @@ function HistoryFactRow({ fact }: { fact: HistoryFact }) {
   );
 }
 
-// A connective-tissue bridge between two adjacent alphas (story mode).
-function StoryConnector({ text }: { text: string }) {
-  if (!text) return null;
+// Story mode: a day's worth of facts + their connective bridges rendered as one
+// flowing paragraph — no dates, no source chips, no per-fact separation. Fact
+// sentences and connector sentences share the exact same font/size/color so the
+// whole thing reads like prose, not a list.
+function StoryParagraph({ items }: { items: { fact: HistoryFact; bridge: string }[] }) {
   return (
-    <div style={{ paddingLeft: 22, paddingBottom: 14, marginTop: -8 }}>
-      <p style={{
-        fontSize: 12.5, fontStyle: 'italic', lineHeight: 1.5,
-        color: 'var(--color-text-tertiary)', margin: 0,
-        borderLeft: '2px solid var(--color-border-secondary)', paddingLeft: 10,
-      }}>
-        {text}
-      </p>
-    </div>
+    <p style={{
+      fontSize: 13.5, lineHeight: 1.85, color: 'var(--color-text-primary)',
+      margin: '0 0 22px',
+    }}>
+      {items.map(({ fact, bridge }, i) => (
+        <span key={fact.id ?? i}>
+          {fact.text.trim()}
+          {bridge && ' ' + bridge.trim()}
+          {i < items.length - 1 ? ' ' : ''}
+        </span>
+      ))}
+    </p>
   );
 }
 
@@ -199,6 +204,11 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
     if (!storyMode || displayIdx >= M - 1) return '';
     return connectors[M - 2 - displayIdx] ?? '';
   };
+
+  // Facts inside the story window render as flowing prose (no date/source/rail);
+  // referential membership works because storyFlat is a slice of the same fact
+  // objects that live inside `timeline` groups.
+  const storyFactSet = useMemo(() => new Set(storyFlat), [storyFlat]);
 
   if (isLoading) {
     return (
@@ -249,33 +259,48 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
           </span>
         </div>
       )}
-      {timeline.map((group) => (
-        <div key={group.date} style={{ marginBottom: 8 }}>
-          <div style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-            color: 'var(--color-text-secondary)', margin: '6px 0 10px',
-          }}>
-            {formatDayLabel(group.date)}
-          </div>
-          {/* vertical timeline rail */}
-          <div style={{ position: 'relative' }}>
-            <div style={{
-              position: 'absolute', left: 4, top: 4, bottom: 8, width: 1,
-              background: 'var(--color-border-tertiary)',
-            }} />
-            {group.facts.map((f, i) => {
-              gi += 1;
-              const bridge = connectorBelow(gi);
-              return (
-                <div key={i}>
-                  <HistoryFactRow fact={f} />
-                  {bridge && <StoryConnector text={bridge} />}
+      {timeline.map((group) => {
+        // Partition this day's facts into the story-window portion (flowing prose,
+        // no chrome) and the rest (normal alpha rail). gi must still advance once
+        // per fact, in original order, so connectorBelow's indices stay correct.
+        const storyItems: { fact: HistoryFact; bridge: string }[] = [];
+        const alphaItems: HistoryFact[] = [];
+        for (const f of group.facts) {
+          gi += 1;
+          if (storyMode && storyFactSet.has(f)) {
+            storyItems.push({ fact: f, bridge: connectorBelow(gi) });
+          } else {
+            alphaItems.push(f);
+          }
+        }
+
+        return (
+          <div key={group.date} style={{ marginBottom: 8 }}>
+            {storyItems.length > 0 && <StoryParagraph items={storyItems} />}
+
+            {alphaItems.length > 0 && (
+              <>
+                <div style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                  color: 'var(--color-text-secondary)', margin: '6px 0 10px',
+                }}>
+                  {formatDayLabel(group.date)}
                 </div>
-              );
-            })}
+                {/* vertical timeline rail */}
+                <div style={{ position: 'relative' }}>
+                  <div style={{
+                    position: 'absolute', left: 4, top: 4, bottom: 8, width: 1,
+                    background: 'var(--color-border-tertiary)',
+                  }} />
+                  {alphaItems.map((f, i) => (
+                    <HistoryFactRow fact={f} key={f.id ?? i} />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
