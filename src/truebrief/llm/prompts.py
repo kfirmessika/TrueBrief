@@ -553,10 +553,15 @@ def build_dashboard_summary_prompt(raw_query: str, bullet_list: str, s_min: int,
     shape = (
         f"Write {s_min}–{s_max} sentences of plain prose — no bullets, no lists, no line breaks. "
         "You are a news editor writing a tight situational update: "
-        "open with a single declarative sentence naming the most consequential development; "
+        "open with a single declarative sentence naming the most consequential development that "
+        "has ALREADY HAPPENED — never lead with a prediction, forecast, or probability estimate; "
+        "those belong later in the summary, if at all; "
         "merge closely related facts into one sentence rather than listing them separately; "
         "signal the direction — is the situation escalating, stabilising, or resolved — using "
         "active verbs that show motion; "
+        "when two cumulative totals (deaths, strikes, funds) are anchored to DIFFERENT start "
+        "dates, do not merge them into one clause as if simultaneous — keep them in separate "
+        "sentences or name each anchor, so the reader isn't misled about the timeframe; "
         "ruthlessly drop minor, routine, or repetitive items; "
         "do not pad to reach the sentence target — if fewer sentences capture everything, use fewer."
     )
@@ -593,8 +598,36 @@ def build_story_stitch_pair_prompt(topic_name: str, fact_a: str, fact_b: str) ->
         f"Topic: {topic_name}\n"
         f"Fact A: {fact_a}\n"
         f"Fact B: {fact_b}\n\n"
-        f"Write ONE sentence (max 18 words) connecting A to B. "
-        f'Return JSON: {{"passage": "..."}}.'
+        "Write ONE sentence (max 18 words) stating the RELATIONSHIP between Fact A and "
+        "Fact B — is B a consequence, a response, an escalation, a reversal, or simply "
+        "the next event in the same story? Rules:\n"
+        "- Do NOT restate or closely paraphrase either fact — say how they connect, not "
+        "what they say.\n"
+        "- Only state a cause, consequence, or response if A and B describe the SAME "
+        "specific chain of events. Two facts that merely share a topic (e.g. a military "
+        "strike and an unrelated market-price move) are NOT causally linked — do not "
+        "connect them with 'response to', 'linked to', 'led to', 'coincided with', or "
+        "similar, and do not hedge with 'appears to', 'likely', 'may have' to smuggle in "
+        "a link the facts don't establish. If in doubt, the link does not exist.\n"
+        "- Do NOT use empty wrapper filler that adds no information: 'is the next event "
+        "in this story', 'is part of the same ongoing conflict', 'contributed to' when no "
+        "mechanism is stated. If you have nothing concrete to add, that means there is no "
+        "real bridge — leave it empty (see below), don't dress up a non-bridge in vague "
+        "phrasing.\n"
+        "- Do NOT introduce any number, date, or name that is not already present in "
+        "Fact A or Fact B.\n"
+        "- If there is no real narrative link between A and B, the passage value must be "
+        'the literal empty string "" — do NOT write a sentence explaining that they are '
+        "unrelated or separate developments. Just leave it empty.\n"
+        "GOOD  A: \"The IRGC declared the Strait of Hormuz closed.\" "
+        "B: \"Brent crude prices rose 8 percent.\"\n"
+        "      passage: \"\" (the article never states the price rose BECAUSE of the "
+        "closure — a plausible guess is still a fabrication)\n"
+        "GOOD  A: \"Congress passed a war-powers resolution restricting the president.\" "
+        "B: \"The White House said the president would veto the resolution.\"\n"
+        "      passage: \"The White House responded to the resolution by vowing a veto.\" "
+        "(the article explicitly frames B as a reaction to A)\n"
+        'Return JSON: {"passage": "..."}.'
     )
 
 
@@ -612,11 +645,18 @@ def build_story_stitch_batch_prompt(topic_name: str, numbered_facts: str, n_pair
     return (
         f"Topic: {topic_name}\n\n"
         f"These {n_pairs + 1} events are listed in chronological order:\n{numbered_facts}\n\n"
-        f"For each ADJACENT pair (1→2, 2→3, …), write ONE short bridge sentence "
-        f"(max 18 words) that connects the earlier event to the later one — show how "
-        f"the story moved from one to the next. Ground every bridge in the events; do "
-        f'NOT invent facts. Return ONLY this JSON: {{"connectors": ["sentence1", "sentence2", ...]}} '
-        f"with exactly {n_pairs} strings in the array, in order."
+        f"For each ADJACENT pair (1→2, 2→3, …), write ONE short bridge sentence (max 18 "
+        f"words) stating the RELATIONSHIP between the two events — is the later one a "
+        f"consequence, a response, an escalation, a reversal, or simply the next event? "
+        f"Rules:\n"
+        f"- Do NOT restate or closely paraphrase either event — say how they connect, "
+        f"not what they say.\n"
+        f"- Do NOT invent a cause, motive, or link the two events don't establish.\n"
+        f"- Do NOT introduce any number, date, or name not already present in the pair.\n"
+        f"- If a pair has no real narrative link, use an empty string \"\" for that pair "
+        f"— an empty bridge beats a fabricated one.\n"
+        f'Return ONLY this JSON: {{"connectors": ["sentence1", "sentence2", ...]}} '
+        f"with exactly {n_pairs} strings in the array, in order (each may be empty)."
     )
 
 
