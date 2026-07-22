@@ -251,6 +251,35 @@ class Arbiter:
                         [],
                     )
 
+        # Step 2c — raw-cosine auto-merge fast-path (always on, no flag).
+        # Diagnosed 2026-07-22 on live data: AUTO_MERGE_THRESHOLD (below, Step 3) is tested
+        # against the TEMPORALLY-ADJUSTED score, and event_date extraction can drift by
+        # days-to-weeks across re-reportings of the identical fact — decaying even a raw
+        # 1.0 match below threshold. Confirmed live example: "Twelve IDF soldiers and 23
+        # civilians have been killed..." stored twice, verbatim, with event_date 24 days
+        # apart. Near-identical wording is stronger duplicate evidence than a shakily
+        # extracted date, so bypass temporal adjustment entirely at this confidence level.
+        for match, raw_score in raw_matches:
+            if raw_score >= AUTO_MERGE_THRESHOLD:
+                logger.info(
+                    f"{log_prefix} → RAW-COSINE-DUPLICATE "
+                    f"(raw_sim={raw_score:.3f} >= {AUTO_MERGE_THRESHOLD}, "
+                    "bypassing temporal adjustment)"
+                )
+                return (
+                    AlphaDecision(
+                        alpha=alpha,
+                        decision=DecisionType.DUPLICATE,
+                        similarity_score=raw_score,
+                        matched_alpha_id=match.id,
+                        reasoning=(
+                            f"Raw-cosine auto-merge: {raw_score:.3f} >= {AUTO_MERGE_THRESHOLD} "
+                            "— near-identical text regardless of event_date."
+                        ),
+                    ),
+                    [(match, raw_score)],
+                )
+
         # Step 3 - Apply temporal (and optionally entity) adjustment to each raw score
         adjusted: List[Tuple[Alpha, float]] = []
         for match, score in raw_matches:
