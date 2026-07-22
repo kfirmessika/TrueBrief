@@ -31,6 +31,14 @@ GEMINI_EMBEDDING_PER_TOKEN = 0.0
 GROQ_LLAMA8B_INPUT_PER_TOKEN = 0.000_000_050   # $0.05 per 1M tokens
 GROQ_LLAMA8B_OUTPUT_PER_TOKEN = 0.000_000_080  # $0.08 per 1M tokens
 
+# Groq — Llama 3.3 70B Versatile. Used by signal_scorer when GROQ_API_KEY is set, and as
+# GROQ_FALLBACK_MODEL (config/settings.py) for any step when Gemini keys are quota-exhausted.
+# Was missing here entirely, causing those calls to silently cost $0 in llm_call_log — see
+# tests/test_pricing_coverage.py, which now guards against this recurring.
+# Source: Groq pricing (llama-3.3-70b-versatile), verified 2026-07-22.
+GROQ_LLAMA70B_INPUT_PER_TOKEN = 0.000_000_590   # $0.59 per 1M tokens
+GROQ_LLAMA70B_OUTPUT_PER_TOKEN = 0.000_000_790  # $0.79 per 1M tokens
+
 
 _INPUT_RATES: dict[str, float] = {
     "gemini-3.1-flash-lite-preview": GEMINI_FLASH_LITE_INPUT_PER_TOKEN,
@@ -42,6 +50,8 @@ _INPUT_RATES: dict[str, float] = {
     "gemini-1.5-pro": GEMINI_PRO_INPUT_PER_TOKEN,
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
+    "llama-3.1-8b-instant": GROQ_LLAMA8B_INPUT_PER_TOKEN,
+    "llama-3.3-70b-versatile": GROQ_LLAMA70B_INPUT_PER_TOKEN,
 }
 
 _OUTPUT_RATES: dict[str, float] = {
@@ -54,6 +64,8 @@ _OUTPUT_RATES: dict[str, float] = {
     "gemini-1.5-pro": GEMINI_PRO_OUTPUT_PER_TOKEN,
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
+    "llama-3.1-8b-instant": GROQ_LLAMA8B_OUTPUT_PER_TOKEN,
+    "llama-3.3-70b-versatile": GROQ_LLAMA70B_OUTPUT_PER_TOKEN,
 }
 
 # V4 steps that we bill at Groq rates regardless of the model actually serving them.
