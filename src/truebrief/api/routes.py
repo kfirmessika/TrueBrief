@@ -25,7 +25,7 @@ def _require_uuid(value: str, name: str = "id") -> str:
     return value
 
 from truebrief.ledger.database import get_supabase
-from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit
+from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit, _get_limits
 from truebrief.auth.dependencies import User, get_current_user
 from truebrief.api.rate_limit import limiter
 from truebrief.llm.client import LLMClient
@@ -182,9 +182,11 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         logger.info(f"Topic '{normalized_query}' already exists. Subscribing user.")
     else:
         # 2. Create new shared topic — no user_id, the subscription table owns ownership
-        # T_base map: architecture spec (fast=3600, medium=21600, slow=86400)
-        # Tier floor ensures free users can't request faster than their plan
-        _tier_floor_s = {"free": 86400, "pro": 21600, "power": 900}.get(tier_str, 86400)
+        # Tier floor ensures free users can't request faster than their plan.
+        # Single source of truth: models/tier.py TIER_LIMITS (also what ayr_engine.py
+        # and the tier_intervals DB table agree on) — routes.py previously hardcoded
+        # its own {"pro": 21600} here, 6x slower than the real pro floor (3600s).
+        _tier_floor_s = int(_get_limits(tier_str).min_interval_hours * 3600)
         if topic.poll_interval_seconds is not None:
             _interval_s = max(topic.poll_interval_seconds, _tier_floor_s)
             _user_interval_s: Optional[int] = _interval_s
@@ -392,7 +394,7 @@ def update_topic_frequency(
 
     sub_res = db.table("user_subscriptions").select("tier").eq("user_id", user.id).execute()
     tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
-    _tier_floor_s = {"free": 86400, "pro": 21600, "power": 900}.get(tier_str, 86400)
+    _tier_floor_s = int(_get_limits(tier_str).min_interval_hours * 3600)
 
     if body.poll_interval_seconds is not None:
         new_interval = max(body.poll_interval_seconds, _tier_floor_s)
