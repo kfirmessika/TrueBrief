@@ -21,8 +21,15 @@ A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 16 (
   prefer connecting a proven service over reinventing one · validation is the benchmark judge +
   founder read, never "Claude says it works."
 - **Plan of record:** `C:\Users\user\.claude\plans\cheeky-exploring-ullman.md`
-- **Next:** Phase 1 — evaluate memory/dedup + judge on real DB data, research off-the-shelf
-  alternatives, then write `docs/core/architecture_v5.md`.
+- **V5 architecture:** `docs/core/architecture_v5.md` — short by design, read it in full.
+- **Phase 1 verdicts (2026-07-22, measured on live DB):** memory/dedup **KEEP + 3 fixes**
+  (embedder is clean: dup 0.978-1.000 vs different-event 0.397-0.679; but 22.1%/10.5%/9.2% near-dup
+  rate because auto-merge tests the *temporally adjusted* score, so identical text with drifted
+  `event_date` escapes) · judge **KEEP but SHRINK** (16/18 real pairs → UPDATE; a cosine threshold
+  matched it 12/18; its only non-replicable win is lexically-similar-but-different events) ·
+  off-the-shelf replacements for either: **none exist** (Supabase's own reference for this problem
+  IS pgvector + local embeddings).
+- **Next:** Phase 3 — build the minimal V5 pipeline (Gemini Search → memory), cost telemetry first.
 
 ---
 
