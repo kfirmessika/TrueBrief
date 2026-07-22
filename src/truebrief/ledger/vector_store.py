@@ -24,6 +24,28 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+_GEMINI_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+
+
+def _resolve_source_domain(alpha: Alpha) -> str:
+    """Domain to display for this fact's source.
+
+    Normally just extract_domain(source_url) — unchanged from before, so V4 collectors
+    (and the Phase 4 A/B benchmark, which still runs V4's PipelineRunner) keep their
+    exact existing behavior. The one exception: V5's Gemini Search collector stores
+    Google's grounding-redirect URL as source_url — real domains are deliberately
+    obscured behind vertexaisearch.cloud.google.com, so extract_domain() on it would
+    show the SAME redirect host for every single fact, not the real outlet. In that
+    one case, use source_name, which the collector already set from the real,
+    verified grounding_chunks[].web.title.
+    """
+    if _GEMINI_GROUNDING_REDIRECT_HOST in (alpha.source_url or ""):
+        name = (alpha.source_name or "").strip()
+        if name:
+            return name
+    return extract_domain(alpha.source_url)
+
+
 def _cosine(a: list, b: list) -> float:
     """Cosine similarity between two equal-length float vectors."""
     av, bv = np.array(a, dtype=float), np.array(b, dtype=float)
@@ -65,7 +87,7 @@ class VectorStore:
             "context":         alpha.context,
             "confidence":      alpha.confidence,
             "source_url":      alpha.source_url,
-            "source_domain":   extract_domain(alpha.source_url),
+            "source_domain":   _resolve_source_domain(alpha),
             "verified_count":  alpha.verified_count,
             "verifier_flags":  alpha.verifier_flags,
             "event_class":     alpha.event_class,
