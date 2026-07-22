@@ -4,33 +4,15 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApi } from '@/lib/useApi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, Clock, ScanLine, ChevronDown } from 'lucide-react';
+import { ArrowUp, ScanLine, ChevronDown } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type PanelId = 'frequency' | 'coverage' | null;
+type PanelId = 'coverage' | null;
 
-// T_base values match the architecture spec:
-//   Fast   T_base=3600s  → AYR modulates to  1–4 h actual range
-//   Medium T_base=21600s → AYR modulates to  6–12 h actual range
-//   Slow   T_base=86400s → AYR modulates to ~24 h actual range
-const FREQUENCY_OPTIONS = [
-  { label: 'Auto',       badge: 'Recommended', style: 'rec',   tooltip: 'TrueBrief measures how fast each topic changes and adjusts scan speed automatically.' },
-  { label: 'Slow',       badge: 'Free',        style: 'free',  tooltip: 'Around once a day. Good for slow-moving topics like research or regulation.' },
-  { label: 'Medium',     badge: 'Pro',         style: 'pro',   tooltip: 'Every 6–12 hours. Good for market updates and political developments.' },
-  { label: 'Fast',       badge: 'Pro',         style: 'pro',   tooltip: 'Every 1–4 hours. Best for breaking news, earnings, and live events.' },
-  { label: 'Ultra Fast', badge: 'Power',       style: 'power', tooltip: 'Every 15–90 min. Maximum scan speed for live events and breaking news.' },
-  { label: 'Custom',     badge: 'Coming soon', style: 'dim',   disabled: true },
-];
-
-const FREQUENCY_INTERVAL: Record<string, number | null> = {
-  'Auto':       null,   // backend uses tier floor as T_base; AYR manages freely
-  'Slow':       86400,  // T_base = 24 h
-  'Medium':     21600,  // T_base = 6 h
-  'Fast':       3600,   // T_base = 1 h
-  'Ultra Fast': 900,    // T_base = 15 min (Power tier only)
-  'Custom':     null,
-};
+// V5 (docs/core/architecture_v5.md §7): scan cadence is set via manual alarm-clock
+// times on the topic page after creation, not at creation time — a new topic starts
+// with the default (once/day) schedule automatically.
 
 const COVERAGE_OPTIONS = [
   { label: 'Quick',    badge: 'Free',        style: 'free' },
@@ -127,7 +109,6 @@ export default function NewTopicPage() {
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [frequency, setFrequency] = useState('Auto');
   const [coverage, setCoverage] = useState('Standard');
   const [openPanel, setOpenPanel] = useState<PanelId>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -169,12 +150,7 @@ export default function NewTopicPage() {
     setError(null);
     setNudge(false);
     try {
-      const intervalSeconds = FREQUENCY_INTERVAL[frequency];
-      const payload: Record<string, unknown> = { raw_query: q };
-      if (intervalSeconds !== null && intervalSeconds !== undefined) {
-        payload.poll_interval_seconds = intervalSeconds;
-      }
-      const res = await api.post('/topics', payload);
+      const res = await api.post('/topics', { raw_query: q });
       await qc.invalidateQueries({ queryKey: ['topics'] });
       // Store the first scan task_id so the topic page can show the progress bar
       if (res.data.scan_task_id) {
@@ -202,7 +178,7 @@ export default function NewTopicPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
-  const togglePanel = (p: 'frequency' | 'coverage') => {
+  const togglePanel = (p: 'coverage') => {
     setOpenPanel(prev => prev === p ? null : p);
   };
 
@@ -266,10 +242,6 @@ export default function NewTopicPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5,
           padding: '7px 10px', borderTop: '0.5px solid var(--color-border-tertiary)',
         }}>
-          <button type="button" onClick={() => togglePanel('frequency')}
-            style={{ ...pillBase, ...(openPanel === 'frequency' ? pillActiveStyle : {}) }}>
-            <Clock size={11} />{frequency}<ChevronDown size={10} />
-          </button>
           <button type="button" onClick={() => togglePanel('coverage')}
             style={{ ...pillBase, ...(openPanel === 'coverage' ? pillActiveStyle : {}) }}>
             <ScanLine size={11} />{coverage}<ChevronDown size={10} />
@@ -295,12 +267,6 @@ export default function NewTopicPage() {
       </div>
 
       {/* Dropdowns */}
-      {openPanel === 'frequency' && (
-        <div style={{ width: '100%', maxWidth: 420 }}>
-          <DropdownPanel options={FREQUENCY_OPTIONS} selected={frequency}
-            onSelect={l => { setFrequency(l); setOpenPanel(null); }} />
-        </div>
-      )}
       {openPanel === 'coverage' && (
         <div style={{ width: '100%', maxWidth: 420 }}>
           <DropdownPanel options={COVERAGE_OPTIONS} selected={coverage}

@@ -18,15 +18,23 @@ interface Topic {
   is_scanning?: boolean;
 }
 
-// ── Frequency picker ───────────────────────────────────────────────────────
+// ── Schedule picker (V5 manual alarm-clock scheduling, docs/core/architecture_v5.md §7) ──
+// Replaces the old Auto/Slow/Medium/Fast/Ultra-Fast interval picker: the user sets
+// specific daily run times (UTC) instead of a polling interval AYR used to manage.
 
-const FREQ_OPTS: { label: string; seconds: number | null; desc: string }[] = [
-  { label: 'Auto',       seconds: null,  desc: 'TrueBrief adjusts speed based on activity' },
-  { label: 'Slow',       seconds: 86400, desc: 'Once a day — quiet topics, low quota use' },
-  { label: 'Medium',     seconds: 21600, desc: 'Every 6 hours' },
-  { label: 'Fast',       seconds: 3600,  desc: 'Every hour' },
-  { label: 'Ultra Fast', seconds: 900,   desc: 'Every 15 min — breaks news, high quota use' },
-];
+interface ScheduleTime { hour: number; minute: number }
+interface ScheduleResponse { times: ScheduleTime[]; is_default: boolean }
+
+function fmtScheduleTime(t: ScheduleTime): string {
+  return `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
+}
+
+function scheduleButtonLabel(schedule: ScheduleResponse | undefined): string {
+  if (!schedule || schedule.is_default) return 'Auto';
+  if (schedule.times.length === 0) return 'Auto';
+  if (schedule.times.length <= 2) return schedule.times.map(fmtScheduleTime).join(', ');
+  return `${fmtScheduleTime(schedule.times[0])} +${schedule.times.length - 1}`;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -399,9 +407,11 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const [scanError, setScanError] = useState<string | null>(null);
   const [storyMode, setStoryMode] = useState(false);
   const [showFreqPicker, setShowFreqPicker] = useState(false);
+  const [newTimeInput, setNewTimeInput] = useState('09:00');
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const freqRef = useRef<HTMLDivElement>(null);
 
-  // Close frequency picker on outside click
+  // Close schedule picker on outside click
   useEffect(() => {
     if (!showFreqPicker) return;
     const handler = (e: MouseEvent) => {
@@ -413,15 +423,42 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     return () => document.removeEventListener('mousedown', handler);
   }, [showFreqPicker]);
 
-  const { mutate: updateFreq, isPending: isUpdatingFreq } = useMutation({
-    mutationFn: (seconds: number | null) =>
-      api.patch(`/topics/${id}/frequency`, { poll_interval_seconds: seconds }),
+  const { data: schedule } = useQuery<ScheduleResponse>({
+    queryKey: ['topic-schedule', id],
+    queryFn: async () => (await api.get(`/topics/${id}/schedule`)).data,
+    staleTime: 30_000,
+  });
+
+  const { mutate: updateSchedule, isPending: isUpdatingFreq } = useMutation({
+    mutationFn: (times: ScheduleTime[]) =>
+      api.put(`/topics/${id}/schedule`, { times }),
     onSuccess: () => {
+      setScheduleError(null);
+      qc.invalidateQueries({ queryKey: ['topic-schedule', id] });
       qc.invalidateQueries({ queryKey: ['topic', id] });
       qc.invalidateQueries({ queryKey: ['topics'] });
-      setShowFreqPicker(false);
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setScheduleError(detail || 'Could not update schedule');
+      setTimeout(() => setScheduleError(null), 5000);
     },
   });
+
+  const addScheduleTime = () => {
+    const [hStr, mStr] = newTimeInput.split(':');
+    const hour = parseInt(hStr, 10);
+    const minute = parseInt(mStr, 10);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return;
+    const current = schedule && !schedule.is_default ? schedule.times : [];
+    if (current.some(t => t.hour === hour && t.minute === minute)) return;
+    updateSchedule([...current, { hour, minute }].sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute)));
+  };
+
+  const removeScheduleTime = (t: ScheduleTime) => {
+    const current = (schedule?.times ?? []).filter(x => !(x.hour === t.hour && x.minute === t.minute));
+    updateSchedule(current);
+  };
 
   const { mutate: triggerScan, isPending: isScanPending } = useTriggerScan();
 
@@ -548,7 +585,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
               <button
                 onClick={() => setShowFreqPicker(v => !v)}
                 disabled={isUpdatingFreq}
-                title="Change scan frequency"
+                title="Change scheduled scan times"
                 style={{
                   fontSize: 10, borderWidth: '0.5px', borderStyle: 'solid',
                   borderColor: showFreqPicker ? 'var(--color-border-primary)' : 'var(--color-border-secondary)',
@@ -557,7 +594,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                   opacity: isUpdatingFreq ? 0.5 : 1,
                 }}
               >
-                {topic.frequency ?? 'Auto'}
+                {scheduleButtonLabel(schedule)}
                 <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ marginLeft: 1 }}>
                   <path d="M1 2.5L4 5.5L7 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
@@ -568,31 +605,73 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                   background: 'var(--color-background-primary)',
                   border: '0.5px solid var(--color-border-secondary)',
                   borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                  minWidth: 220, overflow: 'hidden',
+                  minWidth: 240, padding: 10,
                 }}>
-                  {FREQ_OPTS.map(opt => {
-                    const current = topic.frequency ?? 'Auto';
-                    const isActive = opt.label === current;
-                    return (
-                      <button
-                        key={opt.label}
-                        onClick={() => updateFreq(opt.seconds)}
-                        style={{
-                          display: 'block', width: '100%', textAlign: 'left',
-                          padding: '8px 12px', border: 'none', cursor: 'pointer',
-                          background: isActive ? 'var(--color-background-secondary)' : 'transparent',
-                          borderBottom: '0.5px solid var(--color-border-tertiary)',
-                        }}
-                      >
-                        <span style={{ fontSize: 12, fontWeight: isActive ? 500 : 400, color: 'var(--color-text-primary)', display: 'block' }}>
-                          {opt.label}
+                  <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-tertiary)', margin: '0 0 8px' }}>
+                    Scheduled run times (UTC)
+                  </p>
+                  {schedule?.is_default ? (
+                    <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>
+                      Auto — once a day at {schedule.times[0] ? fmtScheduleTime(schedule.times[0]) : '09:00'}.
+                      Add a time below to set your own schedule.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                      {(schedule?.times ?? []).map(t => (
+                        <span
+                          key={`${t.hour}:${t.minute}`}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)',
+                            background: 'var(--color-background-secondary)',
+                            padding: '3px 6px 3px 8px', borderRadius: 12,
+                          }}
+                        >
+                          {fmtScheduleTime(t)}
+                          <button
+                            onClick={() => removeScheduleTime(t)}
+                            disabled={isUpdatingFreq}
+                            title="Remove this time"
+                            style={{
+                              border: 'none', background: 'none', cursor: 'pointer',
+                              color: 'var(--color-text-tertiary)', fontSize: 13, lineHeight: 1,
+                              padding: 0, display: 'flex',
+                            }}
+                          >
+                            ×
+                          </button>
                         </span>
-                        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                          {opt.desc}
-                        </span>
-                      </button>
-                    );
-                  })}
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      type="time"
+                      value={newTimeInput}
+                      onChange={(e) => setNewTimeInput(e.target.value)}
+                      style={{
+                        fontSize: 12, padding: '4px 6px', borderRadius: 6,
+                        border: '0.5px solid var(--color-border-secondary)',
+                        background: 'var(--color-background-primary)',
+                        color: 'var(--color-text-primary)', flex: 1,
+                      }}
+                    />
+                    <button
+                      onClick={addScheduleTime}
+                      disabled={isUpdatingFreq}
+                      style={{
+                        fontSize: 12, fontWeight: 500, color: 'var(--tb-green)',
+                        background: 'none', border: '0.5px solid var(--tb-green)',
+                        borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+                        opacity: isUpdatingFreq ? 0.5 : 1,
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {scheduleError && (
+                    <p style={{ fontSize: 11, color: '#B45309', margin: '8px 0 0' }}>{scheduleError}</p>
+                  )}
                 </div>
               )}
             </div>

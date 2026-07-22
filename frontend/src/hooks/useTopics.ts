@@ -28,10 +28,7 @@ export function useCreateTopic() {
 
   return useMutation({
     mutationFn: async (raw_query: string) => {
-      const { data } = await api.post<Topic>('/topics', { 
-        raw_query, 
-        poll_interval_seconds: 3600 
-      });
+      const { data } = await api.post<Topic>('/topics', { raw_query });
       return data;
     },
     onSuccess: () => {

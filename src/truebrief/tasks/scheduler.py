@@ -62,7 +62,7 @@ def check_and_schedule_topics() -> dict:
 
         response = (
             db.table("topics")
-            .select("id, raw_query, poll_interval_seconds, next_run_at")
+            .select("id, raw_query, next_run_at")
             .eq("is_active", True)
             .lte("next_run_at", now_iso)    # next_run_at <= now
             .not_.is_("next_run_at", "null")  # exclude topics with no next_run_at set
@@ -82,13 +82,12 @@ def check_and_schedule_topics() -> dict:
         for topic in due_topics:
             topic_id = topic["id"]
             raw_query = topic["raw_query"]
-            interval = topic.get("poll_interval_seconds") or 3600
 
             # Step 1: Advance next_run_at BEFORE enqueuing (prevents double-schedule).
             # If the advance fails, skip the enqueue — the topic stays due and will be
             # retried on the next heartbeat. Never enqueue without advancing first, as
             # that causes the triple-send bug (heartbeat sees topic still due and fires again).
-            if not _advance_next_run(db, topic_id, interval):
+            if not _advance_next_run(db, topic_id):
                 logger.error(
                     f"  Skipping enqueue for '{raw_query[:50]}' (id={topic_id}) "
                     f"— next_run_at advance failed; will retry next heartbeat."
@@ -99,8 +98,7 @@ def check_and_schedule_topics() -> dict:
             task = run_pipeline_task.delay(topic_id=topic_id, raw_query=raw_query)
             scheduled.append(topic_id)
             logger.info(
-                f"  Enqueued topic '{raw_query[:50]}' "
-                f"(id={topic_id}, task={task.id}, interval={interval}s)"
+                f"  Enqueued topic '{raw_query[:50]}' (id={topic_id}, task={task.id})"
             )
 
         return {"scheduled": scheduled, "skipped": 0}
@@ -110,9 +108,11 @@ def check_and_schedule_topics() -> dict:
         return {"scheduled": [], "skipped": -1, "error": str(exc)}
 
 
-def _advance_next_run(db, topic_id: str, interval_seconds: int) -> bool:
+def _advance_next_run(db, topic_id: str) -> bool:
     """
-    Set next_run_at = now() + interval_seconds AND update last_run_at = now().
+    V5 (docs/core/architecture_v5.md §7): set next_run_at to the topic's next
+    configured alarm time (a small buffer past "now" guarantees we move past the
+    slot that just fired, not immediately re-select it) AND update last_run_at.
     Done BEFORE enqueuing to prevent double-scheduling on overlapping heartbeats.
 
     Returns True if the DB write succeeded, False otherwise.
@@ -120,10 +120,12 @@ def _advance_next_run(db, topic_id: str, interval_seconds: int) -> bool:
     """
     from datetime import timedelta
 
-    now = datetime.now(timezone.utc)
-    next_run = now + timedelta(seconds=interval_seconds)
+    from truebrief.ledger.alarm_schedule import compute_next_run, get_schedule_times
 
+    now = datetime.now(timezone.utc)
     try:
+        times = get_schedule_times(db, topic_id)
+        next_run = compute_next_run(times, now.replace(tzinfo=None) + timedelta(minutes=1))
         db.table("topics").update({
             "next_run_at": next_run.isoformat(),
             "last_run_at": now.isoformat(),
@@ -134,42 +136,18 @@ def _advance_next_run(db, topic_id: str, interval_seconds: int) -> bool:
         return False
 
 
-def set_next_run(topic_id: str, interval_seconds: int | None = None) -> None:
+def set_next_run(topic_id: str) -> None:
     """
-    Public helper: schedule (or re-schedule) a topic for its next run.
+    Public helper: schedule (or re-schedule) a topic for its next alarm-clock run.
 
     Called from:
       - create_topic API endpoint (schedule first scan immediately)
-      - Any code that wants to force a topic to re-scan soon
-
-    Args:
-        topic_id:         The topic UUID.
-        interval_seconds: Override the topic's configured interval.
-                          If None, reads poll_interval_seconds from DB.
+      - The schedule-times PUT endpoint (times just changed, recompute next_run_at)
+      - Any code that wants to (re)compute when a topic should next run
     """
+    from truebrief.ledger.alarm_schedule import reschedule_topic
     from truebrief.ledger.database import get_supabase
-    from datetime import timedelta
 
     db = get_supabase()
-    now = datetime.now(timezone.utc)
-
-    if interval_seconds is None:
-        res = (
-            db.table("topics")
-            .select("poll_interval_seconds")
-            .eq("id", topic_id)
-            .single()
-            .execute()
-        )
-        interval_seconds = (res.data or {}).get("poll_interval_seconds", 3600)
-
-    next_run = now + timedelta(seconds=interval_seconds)
-
-    db.table("topics").update({
-        "next_run_at": next_run.isoformat(),
-    }).eq("id", topic_id).execute()
-
-    logger.info(
-        f"Scheduled topic {topic_id}: next_run_at={next_run.isoformat()} "
-        f"(in {interval_seconds}s)"
-    )
+    next_run = reschedule_topic(db, topic_id)
+    logger.info(f"Scheduled topic {topic_id}: next_run_at={next_run.isoformat()}")

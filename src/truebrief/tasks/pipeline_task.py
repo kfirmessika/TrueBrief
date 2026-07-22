@@ -76,9 +76,12 @@ def enqueue_pipeline(topic_id: str, raw_query: str) -> _ThreadTaskHandle:
             _thread_tasks[task_id]["state"] = "STARTED"
         _set_scanning(topic_id, True)
         try:
-            # Import here to avoid circular imports at module load time
-            from truebrief.pipeline.runner import PipelineRunner
-            runner = PipelineRunner()
+            # Import here to avoid circular imports at module load time.
+            # V5 (docs/core/architecture_v5.md): Gemini Search collector + memory/dedup.
+            # V4's PipelineRunner stays available (pipeline/runner.py) for the Phase 4
+            # benchmark comparison, just not called from production anymore.
+            from truebrief.pipeline.v5_runner import GeminiSearchRunner
+            runner = GeminiSearchRunner()
             brief_content = runner.run(raw_query, topic_id=topic_id)
             if brief_content and not brief_content.startswith("Topic rejected:"):
                 _save_brief(topic_id, brief_content)
@@ -158,14 +161,12 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
     exit_status = "error"
 
     try:
-        from truebrief.pipeline.runner import PipelineRunner
+        # V5 (docs/core/architecture_v5.md): Gemini Search collector + memory/dedup.
+        # V4's PipelineRunner stays available (pipeline/runner.py, unmodified) for the
+        # Phase 4 benchmark comparison, just not called from production anymore.
+        from truebrief.pipeline.v5_runner import GeminiSearchRunner
 
-        runner = PipelineRunner()
-
-        # --- Run and capture intermediate metrics ---
-        # We instrument run() by injecting a metrics-aware wrapper around _collect_all
-        # and the decisions list. Rather than refactor PipelineRunner (which would break
-        # tests), we patch after run() and read the runner's internal state.
+        runner = GeminiSearchRunner()
         brief_content = runner.run(raw_query, topic_id=topic_id)
 
         # Detect no-update / rejection from the brief text
@@ -195,12 +196,9 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
             **getattr(runner, "last_run_stats", {}),
         )
 
-        # Recalibrate poll interval based on observed Alpha Yield Rate (fire-and-forget)
-        try:
-            from truebrief.ledger.ayr_engine import update_topic_interval
-            update_topic_interval(topic_id)
-        except Exception as ayr_err:
-            logger.warning(f"[TASK] AYR recalibration skipped: {ayr_err}")
+        # V5 (docs/core/architecture_v5.md §7): no adaptive recalibration — the
+        # scheduler's heartbeat already advanced next_run_at to the topic's next
+        # configured alarm-clock time before this task was even enqueued.
 
         # Fire web push notification to all subscribers (fire-and-forget)
         try:

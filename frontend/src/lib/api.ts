@@ -68,8 +68,7 @@ export interface BillingStatus {
 export const topicsApi = {
   list: () => api.get<Topic[]>('/topics'),
   get: (id: string) => api.get<Topic>(`/topics/${id}`),
-  create: (raw_query: string, poll_interval_seconds: number = 3600) => 
-    api.post<Topic>('/topics', { raw_query, poll_interval_seconds }),
+  create: (raw_query: string) => api.post<Topic>('/topics', { raw_query }),
   delete: (id: string) => api.delete(`/topics/${id}`),
   scan: (id: string) => api.post<{ task_id: string; topic_id: string; status: string }>(`/topics/${id}/scan`),
 };

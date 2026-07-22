@@ -181,23 +181,14 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         topic_record = existing.data[0]
         logger.info(f"Topic '{normalized_query}' already exists. Subscribing user.")
     else:
-        # 2. Create new shared topic — no user_id, the subscription table owns ownership
-        # Tier floor ensures free users can't request faster than their plan.
-        # Single source of truth: models/tier.py TIER_LIMITS (also what ayr_engine.py
-        # and the tier_intervals DB table agree on) — routes.py previously hardcoded
-        # its own {"pro": 21600} here, 6x slower than the real pro floor (3600s).
-        _tier_floor_s = int(_get_limits(tier_str).min_interval_hours * 3600)
-        if topic.poll_interval_seconds is not None:
-            _interval_s = max(topic.poll_interval_seconds, _tier_floor_s)
-            _user_interval_s: Optional[int] = _interval_s
-        else:
-            _interval_s = _tier_floor_s
-            _user_interval_s = None  # Auto — AYR manages freely within tier
+        # 2. Create new shared topic — no user_id, the subscription table owns ownership.
+        # V5 (docs/core/architecture_v5.md §7): manual alarm-clock scheduling replaces
+        # AYR-managed poll_interval_seconds. A new topic gets zero topic_schedule_times
+        # rows (= the one-run/day default, see ledger/alarm_schedule.py); the user adds
+        # specific times via PUT /topics/{id}/schedule.
         data = {
             "raw_query": normalized_query,
             "user_id": val_uuid,  # kept as original-creator metadata only
-            "poll_interval_seconds": _interval_s,
-            "user_interval_seconds": _user_interval_s,
         }
 
         try:
@@ -205,6 +196,12 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
             if not res.data:
                 raise HTTPException(status_code=500, detail="Database failed to return the created topic.")
             topic_record = res.data[0]
+
+            try:
+                from truebrief.tasks.scheduler import set_next_run
+                set_next_run(topic_record["id"])
+            except Exception as sched_next_err:
+                logger.warning("Could not set initial next_run_at: %s", sched_next_err)
 
             # Embed the raw_query so relevance scores can be computed for its facts.
             try:
@@ -359,8 +356,12 @@ def delete_topic(request: Request, topic_id: str, user: User = Depends(get_curre
 
     return {"status": "unsubscribed"}
 
-class TopicFrequencyUpdate(BaseModel):
-    poll_interval_seconds: Optional[int] = None  # None = switch back to Auto
+class ScheduleTime(BaseModel):
+    hour: int    # 0-23, UTC
+    minute: int = 0  # 0-59, UTC
+
+class ScheduleTimesUpdate(BaseModel):
+    times: list[ScheduleTime]  # empty list = default (one run/day)
 
 class SummaryRequest(BaseModel):
     facts: list[str]  # up to 20 fact texts to summarise
@@ -373,47 +374,71 @@ class StoryRequest(BaseModel):
     fact_ids: Optional[list[str]] = None
 
 
-@router.patch("/topics/{topic_id}/frequency")
-@limiter.limit("30/hour")
-def update_topic_frequency(
-    request: Request,
-    topic_id: str,
-    body: TopicFrequencyUpdate,
-    user: User = Depends(get_current_user),
-):
+@router.get("/topics/{topic_id}/schedule")
+@limiter.limit("60/hour")
+def get_topic_schedule(request: Request, topic_id: str, user: User = Depends(get_current_user)):
     """
-    Change the polling frequency for a topic the user is subscribed to.
-
-    Sends poll_interval_seconds = N to lock to a specific interval.
-    Sends poll_interval_seconds = null to switch back to Auto (AYR-managed).
-    Clamps the requested interval to the user's tier floor.
+    V5 (docs/core/architecture_v5.md §7): a topic's configured daily alarm-clock run
+    times (UTC). Empty list = default, one run/day (ledger/alarm_schedule.py).
     """
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
 
+    from truebrief.ledger.alarm_schedule import DEFAULT_HOUR, DEFAULT_MINUTE, get_schedule_times
+
+    times = get_schedule_times(db, topic_id)
+    is_default = not times
+    if is_default:
+        times = [(DEFAULT_HOUR, DEFAULT_MINUTE)]
+
+    return {
+        "times": [{"hour": h, "minute": m} for h, m in times],
+        "is_default": is_default,
+    }
+
+
+@router.put("/topics/{topic_id}/schedule")
+@limiter.limit("30/hour")
+def put_topic_schedule(
+    request: Request,
+    topic_id: str,
+    body: ScheduleTimesUpdate,
+    user: User = Depends(get_current_user),
+):
+    """
+    Replace a topic's alarm-clock run times. Sends times=[] to reset to the default
+    (one run/day). Enforces the user's tier floor as MINIMUM SPACING between any two
+    times (reuses models/tier.py TIER_LIMITS.min_interval_hours — the existing "this
+    tier can't scan faster than X" meaning — rather than a separate max-count limit).
+    """
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
+
+    from truebrief.ledger.alarm_schedule import min_spacing_hours_ok, set_schedule_times
+    from truebrief.tasks.scheduler import set_next_run
+
     sub_res = db.table("user_subscriptions").select("tier").eq("user_id", user.id).execute()
     tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
-    _tier_floor_s = int(_get_limits(tier_str).min_interval_hours * 3600)
+    floor_hours = _get_limits(tier_str).min_interval_hours
 
-    if body.poll_interval_seconds is not None:
-        new_interval = max(body.poll_interval_seconds, _tier_floor_s)
-        user_interval: Optional[int] = new_interval
-    else:
-        new_interval = _tier_floor_s
-        user_interval = None  # Auto
+    times = [(t.hour, t.minute) for t in body.times]
+    for h, m in times:
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise HTTPException(status_code=422, detail=f"Invalid time {h:02d}:{m:02d}.")
 
-    _label_map = {900: "Ultra Fast", 3600: "Fast", 21600: "Medium", 86400: "Slow"}
-    frequency_label = _label_map.get(new_interval, "Auto") if user_interval else "Auto"
+    if not min_spacing_hours_ok(times, floor_hours):
+        raise HTTPException(
+            status_code=402,
+            detail=f"Your plan requires at least {floor_hours}h between scheduled run times.",
+        )
 
-    db.table("topics").update({
-        "poll_interval_seconds": new_interval,
-        "user_interval_seconds": user_interval,
-        "frequency": frequency_label,
-    }).eq("id", topic_id).execute()
+    set_schedule_times(db, topic_id, times)
+    set_next_run(topic_id)
 
-    logger.info(f"Topic {topic_id} frequency updated: {new_interval}s ({frequency_label})")
-    return {"poll_interval_seconds": new_interval, "user_interval_seconds": user_interval, "frequency": frequency_label}
+    logger.info(f"Topic {topic_id} schedule updated: {times}")
+    return {"times": [{"hour": h, "minute": m} for h, m in times]}
 
 
 @router.post("/topics/{topic_id}/scan")

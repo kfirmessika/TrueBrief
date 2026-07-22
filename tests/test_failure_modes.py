@@ -208,11 +208,14 @@ class TestDoubleScheduleRace:
         from truebrief.tasks import scheduler
 
         mock_db = MagicMock()
+        # V5 (alarm-clock scheduling): set_next_run reads topic_schedule_times first
+        # (empty here -> falls back to the one-run/day default), then updates topics.
+        mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.order.return_value.execute.return_value.data = []
         mock_db.table.return_value.update.return_value.eq.return_value.execute.return_value = MagicMock()
 
         with patch("truebrief.ledger.database.get_supabase", return_value=mock_db):
-            scheduler.set_next_run("topic-1", interval_seconds=3600)
-            scheduler.set_next_run("topic-1", interval_seconds=3600)
+            scheduler.set_next_run("topic-1")
+            scheduler.set_next_run("topic-1")
 
         # update (idempotent) must be called; insert must NOT be called
         assert mock_db.table.return_value.update.call_count == 2
