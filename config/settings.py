@@ -228,6 +228,15 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
         "provider": "groq" if settings.GROQ_API_KEY else "gemini",
         "model": "llama-3.3-70b-versatile" if settings.GROQ_API_KEY else "gemini-2.0-flash",
     },
+
+    # V5 Gemini Search collector (docs/core/architecture_v5.md). gemini-2.5-flash-lite is the
+    # verified-working grounding model (live-tested 2026-07-22 — grounding_chunks/supports
+    # populate correctly here; forcing JSON mode on other models suppressed them entirely).
+    "gemini_search": {"provider": "gemini", "model": "gemini-2.5-flash-lite"},
+
+    # Restructures the grounded prose into the alpha+context JSON contract. Plain (non-grounded)
+    # extraction call, same model as the harvester it replaces.
+    "gemini_extract": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
 }
 
 

@@ -660,6 +660,155 @@ def build_story_stitch_batch_prompt(topic_name: str, numbered_facts: str, n_pair
     )
 
 
+# ============================================================
+# STAGE: gemini_search — Gemini 2.5 flash-lite, Google Search grounding (V5)
+# ============================================================
+# Two calls, not one — verified live 2026-07-22 that forcing JSON output on the SAME
+# call that uses the search tool suppresses grounding_metadata entirely (empty
+# grounding_chunks/supports) and makes the model fabricate a plausible-looking-but-fake
+# source URL when a JSON schema asks for one. So: call 1 asks for plain grounded prose
+# (real grounding_chunks/supports come back correctly); the collector then inserts
+# citation markers into that prose using the *verified* segment offsets and passes the
+# cited text to call 2, a cheap non-grounded restructuring call that returns citation
+# INDICES (never a URL) — the real URL is substituted afterward from grounding_chunks.
+
+GEMINI_SEARCH_SYSTEM = (
+    "You are a news research assistant. Search the web and report factual, dated "
+    "developments in plain prose. Do not use JSON or markdown formatting."
+)
+
+
+def build_gemini_search_prompt(topic_name: str, last_run_date: str, today: str) -> str:
+    """Construct the grounded-search prompt (call 1 of 2).
+
+    Args:
+        topic_name: human-readable topic name.
+        last_run_date: "%Y-%m-%d" of the last successful run, or "" for a first-ever run
+            (in which case the window is "the last 7 days" instead of an exact range).
+        today: "%Y-%m-%d" of the current date.
+    """
+    window = (
+        f"from {last_run_date} to {today}"
+        if last_run_date
+        else f"in the last 7 days (today is {today})"
+    )
+    return (
+        f"Search the web for developments on '{topic_name}' {window}.\n\n"
+        "List every distinct development you find, each as its own item with an explicit "
+        "date. Be specific — include names, numbers, and locations. Do not include your own "
+        "analysis, predictions, or significance judgments — report what happened, not what "
+        "it means. If nothing new happened in this window, say so plainly."
+    )
+
+
+GEMINI_EXTRACT_SYSTEM = (
+    "You are a precision intelligence analyst. Extract every atomic, verifiable fact from "
+    "this cited text into a structured JSON list."
+)
+
+
+def build_gemini_extract_prompt(cited_text: str, source_legend: str, topic_name: str, today: str) -> str:
+    """Construct the restructuring prompt (call 2 of 2) — ports the harvester's fact-quality
+    rules (STRIP THE EDITORIAL CLAUSE, ATTRIBUTION RULE, event_class taxonomy, additive-only
+    context) onto multi-source grounded prose instead of a single article.
+
+    Args:
+        cited_text: the grounded response text with inline [N] / [N,M] markers inserted at
+            each grounding_supports segment boundary (built by the collector, not the LLM).
+        source_legend: "[0] uniindia.com\\n[1] justsecurity.org\\n..." — numbered index into
+            the SAME real, verified grounding_chunks the markers reference.
+        topic_name: human-readable topic name, for the TOPIC FILTER.
+        today: "%Y-%m-%d" — the anchor date. Unlike the harvester (anchored to one article's
+            publish date), every fact here anchors to TODAY, since this text was gathered by a
+            live search, not read from one dated article.
+    """
+    return f"""
+TODAY: {today}
+TOPIC FILTER: {topic_name}
+Only extract facts directly relevant to this topic.
+
+SOURCE LEGEND (numbered — cite ONLY these numbers, never write a URL yourself):
+{source_legend}
+
+CITED TEXT (bracketed numbers mark which source(s) back each passage):
+{cited_text}
+
+TASK:
+Extract every atomic, verifiable fact from the cited text into a structured JSON list.
+
+A FACT is an observable, checkable event or state: who did what, when, where, how many.
+NOT a fact: a writer's interpretation of meaning, cause, consequence, or significance.
+
+STRIP THE EDITORIAL CLAUSE — keep only the verifiable core:
+- BAD : "Khamenei's death has created a significant leadership vacuum and political instability."
+  GOOD: "Iranian Supreme Leader Ali Khamenei died during U.S.-Israeli airstrikes."
+- BAD : "The IRGC closed the Strait of Hormuz, disrupting regional maritime security."
+  GOOD: "The IRGC declared the Strait of Hormuz closed on June 20."
+- BAD : "The ceasefire is likely to collapse within weeks."  → prediction; DROP unless attributed
+  GOOD: "A senior Israeli official said the ceasefire is likely to collapse within weeks."
+
+ATTRIBUTION RULE — assessments, intentions, predictions, and significance claims are facts ONLY
+when attributed to a named actor, and then the fact is that they SAID/ASSESS it:
+- GOOD: "Iran announced it will enrich uranium to 60%."  (a discrete plan announced by a named actor)
+- BAD : "The strike was a clear violation of international law."  (whose claim? → drop or attribute)
+
+For each fact extract:
+1. "alpha_text": The verifiable event as ONE clean standalone sentence — core event only,
+   no causal/evaluative/predictive clause ("creating…", "undermining…", "which could…",
+   "in a major shift…", "complicating…", "amid growing…").
+2. "entities": List of named entities (companies, people, countries, products).
+3. "event_date": REQUIRED, ISO format (YYYY-MM-DD). Anchor relative phrases ("yesterday",
+   "last week") to TODAY ({today}), not to any date mentioned inside a quoted source. If the
+   SAME event appears more than once in the text, use the SAME event_date every time — do not
+   let re-reporting drift the date. If you cannot confidently date an event, DROP it.
+4. "date_basis": EXACTLY ONE of "explicit" (text states an absolute date) | "relative"
+   (resolved from "yesterday"/"last week" against TODAY) | "inferred" (weak guess).
+5. "is_background": true if this is PAST CONTEXT or a STANDING STATE with no new dated action
+   in this window ("the war has continued since March", "talks are ongoing"), not a fresh
+   development. Do NOT present background as today's news.
+6. "context": ONE sentence of BACKGROUND that helps a reader understand the fact — information
+   NOT already stated in alpha_text (a prior related event, the earlier status this fact
+   changes, figures/dates/parties the bare fact leaves out). Do NOT restate alpha_text. Do NOT
+   open with "This event…"/"This reflects…"/similar meta-reference. If there is no genuine
+   background beyond the fact itself, return "" — empty beats a restatement.
+7. "confidence": How verifiable is this? (0.0-1.0). Drop anything below 0.6.
+8. "importance": How significant to the topic? (0.0-1.0). 1.0 = decisive/topic-defining,
+   0.7 = clearly relevant, 0.4 = minor/supporting, 0.1 = tangential.
+9. "event_class": EXACTLY ONE of "state_change" (durable topic-level status flip: ceasefire
+   signed, treaty agreed, leadership change) | "escalation" (new aggressive/deteriorating act)
+   | "casualty" (individual(s) killed/wounded/detained — never the lede over a state_change)
+   | "development" (discrete new fact, no status flip) | "incremental" (minor follow-up)
+   | "tally" (a cumulative running count/total — never the lede) | "routine" (scheduling/logistics).
+10. "citation_indices": list of integers from the SOURCE LEGEND above — the bracketed
+   number(s) attached to the passage this fact was drawn from. Copy them exactly; do not
+   invent a number not present in the legend. Empty list if no marker covers this passage.
+
+RULES:
+- ONLY extract facts relevant to the TOPIC FILTER above.
+- NEVER extract opinions, predictions, analysis, or editorial commentary.
+- NEVER write a URL, domain, or source name yourself — cite only by legend number.
+- Drop anything with confidence < 0.6 or without a determinable event_date.
+- Each fact must stand alone — a reader with no other context should understand it.
+- Output ONLY a valid JSON list, no markdown fences.
+
+EXPECTED OUTPUT FORMAT:
+[
+  {{
+    "alpha_text": "Fact sentence — verifiable event only, no editorial clause.",
+    "entities": ["Entity1", "Entity2"],
+    "event_date": "{today}",
+    "date_basis": "explicit",
+    "is_background": false,
+    "context": "Context string.",
+    "confidence": 0.95,
+    "importance": 0.9,
+    "event_class": "state_change",
+    "citation_indices": [0, 2]
+  }}
+]
+"""
+
+
 if __name__ == "__main__":
     # Sanity check: run each builder with representative sample inputs and
     # print the result, so a human (or a future refactor) can eyeball that
@@ -800,5 +949,18 @@ if __name__ == "__main__":
                 "3. Tesla announced a new factory in Texas."
             ),
             n_pairs=2,
+        )
+    )
+
+    print("\n\n=== build_gemini_search_prompt ===")
+    print(build_gemini_search_prompt("Iran War", "2026-07-20", "2026-07-22"))
+
+    print("\n\n=== build_gemini_extract_prompt ===")
+    print(
+        build_gemini_extract_prompt(
+            cited_text="Iran proposed a 10-day ceasefire.[0] The U.S. reviewed the offer.[1,0]",
+            source_legend="[0] reuters.com\n[1] apnews.com",
+            topic_name="Iran War",
+            today="2026-07-22",
         )
     )

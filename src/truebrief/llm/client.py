@@ -15,6 +15,7 @@ import concurrent.futures
 import contextvars
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Optional, List, Any
 
 _GEMINI_GENERATE_TIMEOUT = 60   # seconds; 60s covers long-form briefs
@@ -23,6 +24,21 @@ _GEMINI_EMBED_TIMEOUT = 30      # seconds; embeddings should be fast
 from truebrief.llm.pricing import compute_cost_usd
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GroundedResult:
+    """Result of a Gemini Search-grounded call. See LLMClient.call_gemini_with_grounding.
+
+    chunks: real, verified sources (chunks[i].web.uri / .title) — the ONLY place a source_url
+        should ever come from. supports: maps text spans in `text` to which chunk(s) back them
+        (segment.start_index/end_index are exact Python string offsets into `text`).
+    """
+    text: str
+    chunks: list = field(default_factory=list)
+    supports: list = field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 # Context variable: set this in pipeline_task before calling the LLM so every
 # call in that task automatically logs against the correct pipeline_run row.
@@ -206,6 +222,81 @@ class LLMClient:
                             )
                     raise LLMError(f"Failed after {self.MAX_RETRIES} attempts: {exc}") from exc
         return ""
+
+    def call_gemini_with_grounding(
+        self,
+        step_name: str,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+    ) -> "GroundedResult":
+        """Call Gemini with the Google Search grounding tool. V5's collector entry point.
+
+        Deliberately separate from call(): grounding requires tools=[GoogleSearch()] and
+        MUST NOT force response_mime_type="application/json" — verified live 2026-07-22 that
+        combining the two suppresses grounding_metadata entirely (grounding_chunks/supports
+        come back empty) AND the model fabricates a plausible-looking-but-fake grounding-
+        redirect URL when a JSON schema asks for one directly. Always request plain prose;
+        real, verified source URLs come only from response.candidates[0].grounding_metadata.
+        grounding_chunks — never from model-generated text.
+
+        No cross-provider fallback (Groq doesn't do this kind of search grounding) — only the
+        primary/backup Gemini key rotation that call() already does for quota exhaustion.
+        """
+        cfg = self._config.get(step_name)
+        model = cfg["model"] if cfg else "gemini-2.5-flash-lite"
+        from google.genai import types
+
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt if system_prompt else None,
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+        )
+
+        def _do_call(client) -> "GroundedResult":
+            response = self._call_with_timeout(
+                lambda: client.models.generate_content(model=model, contents=prompt, config=config),
+                _GEMINI_GENERATE_TIMEOUT,
+            )
+            text = (response.text or "").strip() if response else ""
+            in_tok = out_tok = 0
+            if response is not None and getattr(response, "usage_metadata", None):
+                meta = response.usage_metadata
+                in_tok = getattr(meta, "prompt_token_count", 0) or 0
+                out_tok = getattr(meta, "candidates_token_count", 0) or 0
+            chunks: list = []
+            supports: list = []
+            cand = response.candidates[0] if response and response.candidates else None
+            gm = cand.grounding_metadata if cand else None
+            if gm:
+                chunks = list(gm.grounding_chunks or [])
+                supports = list(gm.grounding_supports or [])
+            return GroundedResult(text=text, chunks=chunks, supports=supports,
+                                   input_tokens=in_tok, output_tokens=out_tok)
+
+        t0 = time.monotonic()
+        try:
+            result = _do_call(self._get_gemini_client())
+        except Exception as exc:
+            if self._is_quota_exhausted(exc):
+                backup = self._get_gemini_client_backup()
+                if backup:
+                    logger.warning(
+                        "[LLM] Primary GOOGLE_API_KEY quota exhausted (step=%s, grounded). "
+                        "Switching to GOOGLE_API_KEY_BACKUP.", step_name,
+                    )
+                    result = _do_call(backup)
+                else:
+                    raise LLMError(f"Gemini quota exhausted for grounded step '{step_name}', no backup key.") from exc
+            else:
+                raise
+
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        self._log_call(
+            stage=step_name, model=model,
+            input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+            duration_ms=duration_ms, prompt=prompt, system_prompt=system_prompt,
+            response=result.text,
+        )
+        return result
 
     def embed(self, text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
         """Generate a vector embedding for a single text string.
