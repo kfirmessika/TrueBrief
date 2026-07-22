@@ -3,17 +3,34 @@
 ## What This Is
 A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 16 (App Router) + Clerk auth + Paddle billing. DB: Supabase (Postgres + pgvector). Deployed on Railway.
 
-## Current Status
-- **Done:** Phases 0–2 complete. All V3 ICs (IC1–IC14) complete. Semantic relevance scoring (migration 022, local BAAI embeddings, cosine per-fact). Topic page: unified HistoryView, State of Play removed. Dashboard: per-topic relevance color dots.
-- **V4 vision decided (2026-07-03):** flip-card dashboard + story view on topic page + cheap LLM (Groq/DeepSeek) for summaries + incremental stitching. Details + task list in `docs/roadmap.md §4-V4`.
-- **Next candidates:** (1) Deploy migration 022 to Supabase prod, (2) Deploy `EMBED_PROVIDER=local` to Railway, (3) V4-1 disable StateOfPlayGenerator in pipeline, (4) V4-3 Groq/DeepSeek integration
-- **Full task list & status:** `docs/roadmap.md`
+## Current Status — V5 RESET (2026-07-22)
+
+**V4 is frozen. We are building V5, Gemini-first.**
+
+- **Why:** V4's custom collect→harvest→arbitrate pipeline (~90% of 10 months of work) *lost* to raw
+  Gemini Search on quality (benchmark 2026-07-21: **24 vs 33**), cost 10–50x more (~$5 in <20 days on
+  4 topics), and was unreliable. 0 users in 10 months. Full evidence: `docs/core/V4_ARCHIVE.md §1`.
+- **V4 preserved, not deleted:** tag `v4-final` + branch `v4-archive` (commit `6f26fac`).
+  **⚠️ Before rebuilding ANY feature, use the `architecture-v4-map` skill and port from V4 — never
+  reinvent something V4 already solved.**
+- **V5 shape:** Gemini Search grounding becomes the main pipeline (one call → alpha+context JSON,
+  last-run → now). Keep only proven strongholds: memory/dedup (verify first), judge only if it earns
+  its place. Manual "alarm-clock" scheduling replaces AYR auto-scan. Story mode + auto-scan removed
+  (reintroduce from V4 post-production only if proven).
+- **Guardrails:** simplicity over cleverness · nothing kept without evidence from real data + tests ·
+  prefer connecting a proven service over reinventing one · validation is the benchmark judge +
+  founder read, never "Claude says it works."
+- **Plan of record:** `C:\Users\user\.claude\plans\cheeky-exploring-ullman.md`
+- **Next:** Phase 1 — evaluate memory/dedup + judge on real DB data, research off-the-shelf
+  alternatives, then write `docs/core/architecture_v5.md`.
 
 ---
 
 ## How to Find Things
 - **The plan:** `docs/core/architecture_v3.md` — use the **`architecture-v3-map`** skill to jump to a section; never read it in full. **Task list:** `docs/roadmap.md`.
-- **Skills** (`.claude/skills/`, auto-load by topic): `truebrief-pipeline`, `truebrief-backend`, `truebrief-frontend`, `truebrief-database`, `accuracy-eval`, `run-truebrief-locally`, `architecture-v3-map`.
+- **V4 archive (READ BEFORE REBUILDING ANYTHING):** `docs/core/V4_ARCHIVE.md` — use the
+  **`architecture-v4-map`** skill to find where a V4 feature lives and whether to port/cut it.
+- **Skills** (`.claude/skills/`, auto-load by topic): `architecture-v4-map`, `truebrief-pipeline`, `truebrief-backend`, `truebrief-frontend`, `truebrief-database`, `accuracy-eval`, `run-truebrief-locally`, `architecture-v3-map`.
 - **Subagents** (`.claude/agents/`): `truebrief-backend`, `truebrief-frontend`, `truebrief-db`, `accuracy-evaluator`, `pipeline-debugger`.
 - **Commands** (`.claude/commands/`): `/build-step`, `/accuracy-check`, `/eval-pipeline`, `/db-health`, `/finish-step`.
 - **Coding conventions:** the matching `truebrief-*` skill (backend / frontend / database).
