@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useCallback, useEffect, useMemo, useRef, use, useState } from 'react';
-import { Clock, ScanSearch, BookOpen, List, Loader2 } from 'lucide-react';
+import { Clock, ScanSearch } from 'lucide-react';
 import { useScanStatus, useTriggerScan } from '@/hooks/useTopics';
 import { SourceChip } from '@/components/SourceChip';
 
@@ -146,28 +146,7 @@ function HistoryFactRow({ fact }: { fact: HistoryFact }) {
   );
 }
 
-// Story mode: a day's worth of facts + their connective bridges rendered as one
-// flowing paragraph — no dates, no source chips, no per-fact separation. Fact
-// sentences and connector sentences share the exact same font/size/color so the
-// whole thing reads like prose, not a list.
-function StoryParagraph({ items }: { items: { fact: HistoryFact; bridge: string }[] }) {
-  return (
-    <p style={{
-      fontSize: 13.5, lineHeight: 1.85, color: 'var(--color-text-primary)',
-      margin: '0 0 22px',
-    }}>
-      {items.map(({ fact, bridge }, i) => (
-        <span key={fact.id ?? i}>
-          {fact.text.trim()}
-          {bridge && ' ' + bridge.trim()}
-          {i < items.length - 1 ? ' ' : ''}
-        </span>
-      ))}
-    </p>
-  );
-}
-
-function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boolean }) {
+function HistoryView({ topicId }: { topicId: string }) {
   const api = useApi();
   const { data, isLoading } = useQuery<HistoryDoc>({
     queryKey: ['topic-history', topicId],
@@ -177,46 +156,6 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
   });
 
   const timeline = data?.timeline ?? [];
-
-  // Flatten in display order (newest first) so alphas keep identical positions in
-  // both modes — story just inserts a bridge between adjacent rows.
-  const flat = useMemo(() => timeline.flatMap((g) => g.facts), [timeline]);
-
-  // Story mode: cap to newest 25 facts. Sending all 600 would place connectors at
-  // the bottom of the page (oldest facts) where the user never scrolls. Capping to
-  // newest 25 puts connectors where the user is actually reading.
-  const MAX_STORY_FACTS = 25;
-  const storyFlat = useMemo(() => flat.slice(0, MAX_STORY_FACTS), [flat]);
-  const M = storyFlat.length; // number of facts that have connectors
-
-  // Story connectors: the backend links chronological pairs (oldest→newest). We send
-  // chronological order and map each connector back into the newest-first display.
-  const chronoTexts = useMemo(() => storyFlat.map((f) => f.text).reverse(), [storyFlat]);
-  const chronoIds = useMemo(() => {
-    const ids = storyFlat.map((f) => f.id ?? null).reverse();
-    return ids.every(Boolean) ? (ids as string[]) : null;
-  }, [storyFlat]);
-  const { data: storyData, isFetching: storyFetching, isError: storyFailed } = useQuery<{ connectors: string[] }>({
-    queryKey: ['topic-story', topicId, M],
-    queryFn: async () =>
-      (await api.post(`/topics/${topicId}/story`, { facts: chronoTexts, ...(chronoIds && { fact_ids: chronoIds }) }, { timeout: 20_000 })).data,
-    enabled: storyMode && M >= 2,
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-  });
-  const connectors = storyData?.connectors ?? [];
-
-  // The bridge shown BELOW display row i (between i and the older i+1 in the story window).
-  // Only rows 0…M-2 get a bridge; rows M-1 and beyond (older facts) show none.
-  const connectorBelow = (displayIdx: number): string => {
-    if (!storyMode || displayIdx >= M - 1) return '';
-    return connectors[M - 2 - displayIdx] ?? '';
-  };
-
-  // Facts inside the story window render as flowing prose (no date/source/rail);
-  // referential membership works because storyFlat is a slice of the same fact
-  // objects that live inside `timeline` groups.
-  const storyFactSet = useMemo(() => new Set(storyFlat), [storyFlat]);
 
   if (isLoading) {
     return (
@@ -241,74 +180,31 @@ function HistoryView({ topicId, storyMode }: { topicId: string; storyMode: boole
     );
   }
 
-  let gi = -1; // running global display index across all groups
   return (
     <div style={{ padding: '8px 22px 48px' }}>
       <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 6px' }}>
-        {(() => { const c = data?.fact_count ?? 0; return c >= 600 ? `${c}+` : c; })()} facts · {storyMode ? `story (newest ${M})` : 'newest first'}
+        {(() => { const c = data?.fact_count ?? 0; return c >= 600 ? `${c}+` : c; })()} facts · newest first
       </div>
-      {storyMode && storyFetching && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, paddingLeft: 22 }}>
-          <Loader2 size={12} color="var(--color-text-tertiary)" style={{ animation: 'spin 1s linear infinite' }} />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Weaving the story between the newest {M} facts…</span>
-        </div>
-      )}
-      {storyMode && storyFailed && !storyFetching && (
-        <div style={{ marginBottom: 12, paddingLeft: 22 }}>
-          <span style={{ fontSize: 12, color: '#B45309' }}>
-            Story weave failed — LLM quota may be exhausted. Showing raw timeline.
-          </span>
-        </div>
-      )}
-      {storyMode && !storyFetching && !storyFailed && storyData && connectors.filter(Boolean).length === 0 && M >= 2 && (
-        <div style={{ marginBottom: 12, paddingLeft: 22 }}>
-          <span style={{ fontSize: 12, color: '#B45309' }}>
-            Story weave returned empty — Groq quota may be exhausted. Showing raw timeline.
-          </span>
-        </div>
-      )}
-      {timeline.map((group) => {
-        // Partition this day's facts into the story-window portion (flowing prose,
-        // no chrome) and the rest (normal alpha rail). gi must still advance once
-        // per fact, in original order, so connectorBelow's indices stay correct.
-        const storyItems: { fact: HistoryFact; bridge: string }[] = [];
-        const alphaItems: HistoryFact[] = [];
-        for (const f of group.facts) {
-          gi += 1;
-          if (storyMode && storyFactSet.has(f)) {
-            storyItems.push({ fact: f, bridge: connectorBelow(gi) });
-          } else {
-            alphaItems.push(f);
-          }
-        }
-
-        return (
-          <div key={group.date} style={{ marginBottom: 8 }}>
-            {storyItems.length > 0 && <StoryParagraph items={storyItems} />}
-
-            {alphaItems.length > 0 && (
-              <>
-                <div style={{
-                  fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                  color: 'var(--color-text-secondary)', margin: '6px 0 10px',
-                }}>
-                  {formatDayLabel(group.date)}
-                </div>
-                {/* vertical timeline rail */}
-                <div style={{ position: 'relative' }}>
-                  <div style={{
-                    position: 'absolute', left: 4, top: 4, bottom: 8, width: 1,
-                    background: 'var(--color-border-tertiary)',
-                  }} />
-                  {alphaItems.map((f, i) => (
-                    <HistoryFactRow fact={f} key={f.id ?? i} />
-                  ))}
-                </div>
-              </>
-            )}
+      {timeline.map((group) => (
+        <div key={group.date} style={{ marginBottom: 8 }}>
+          <div style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            color: 'var(--color-text-secondary)', margin: '6px 0 10px',
+          }}>
+            {formatDayLabel(group.date)}
           </div>
-        );
-      })}
+          {/* vertical timeline rail */}
+          <div style={{ position: 'relative' }}>
+            <div style={{
+              position: 'absolute', left: 4, top: 4, bottom: 8, width: 1,
+              background: 'var(--color-border-tertiary)',
+            }} />
+            {group.facts.map((f, i) => (
+              <HistoryFactRow fact={f} key={f.id ?? i} />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -405,7 +301,6 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const qc = useQueryClient();
 
   const [scanError, setScanError] = useState<string | null>(null);
-  const [storyMode, setStoryMode] = useState(false);
   const [showFreqPicker, setShowFreqPicker] = useState(false);
   const [newTimeInput, setNewTimeInput] = useState('09:00');
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -679,26 +574,10 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      {/* Content — raw alpha timeline (skeleton); Story button weaves connectors between them */}
+      {/* Content — raw alpha + context timeline. Story mode removed for V5 (never
+          proven better than the plain feed; reintroduce post-production only if proven). */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '12px 22px 0' }}>
-          <button
-            onClick={() => setStoryMode((s) => !s)}
-            title={storyMode ? 'Show raw alphas' : 'Weave the alphas into a story'}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              fontSize: 11, fontWeight: 600,
-              color: storyMode ? 'var(--tb-green)' : 'var(--color-text-secondary)',
-              background: storyMode ? 'var(--color-background-tertiary)' : 'transparent',
-              border: '1px solid var(--color-border-secondary)', borderRadius: 8,
-              padding: '4px 10px', cursor: 'pointer',
-            }}
-          >
-            {storyMode ? <List size={12} /> : <BookOpen size={12} />}
-            {storyMode ? 'Raw alphas' : 'Story'}
-          </button>
-        </div>
-        <HistoryView topicId={id} storyMode={storyMode} />
+        <HistoryView topicId={id} />
       </div>
     </div>
   );
