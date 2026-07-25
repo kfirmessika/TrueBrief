@@ -31,16 +31,27 @@ npm run build
 src/app/
   (marketing)/       # Public landing page — no auth
   (app)/             # All authenticated routes — wrapped by AppLayout (Sidebar + main)
-    dashboard/       # Topic feed with preview cards
+    dashboard/       # "Today" feed — per-topic flip cards (unseen alphas / cheap-LLM summary)
     topics/new/      # Topic creation page
-    topics/[id]/     # Topic thread — briefs, source chips, scan progress
+    topics/[id]/     # Topic view — sticky header (scan + schedule) + alpha/context timeline
+    admin/compare/   # Internal-only: V4 vs V5 vs reference brief comparison tool
     settings/        # User/billing settings
   sign-in/ sign-up/  # Clerk hosted auth pages
 ```
 
+**V5 note (2026-07):** there is no user-facing "Brief" page/route. The backend's `Briefer`
+still generates a markdown brief every scan (`docs/core/architecture_v5.md`), but the only
+place it's ever rendered is `admin/compare` (internal pipeline-comparison tool, via
+`BriefContent`). Regular users see the raw alpha+context timeline (topic page) and a cheap
+per-visit LLM summary (dashboard flip card) — never the Briefer markdown directly. Don't
+reintroduce a brief-viewing route without checking this is still true; several dead
+components (`TopicCard`, `TopicTabs`, `BriefCard`, `CopyLinkButton`, a `briefsApi` export, a
+`useMarkBriefsRead` hook, a non-functional "Search briefs" box) were removed 2026-07-26
+because they pointed at a `/topics/{id}/briefs` route that never existed as a real page.
+
 ### Auth + API pattern
 - **Every authenticated API call** must go through `useApi()` (`src/lib/useApi.ts`), which injects the Clerk JWT automatically via an axios interceptor.
-- `src/lib/api.ts` exports typed API helpers (`topicsApi`, `briefsApi`, `billingApi`) and the `apiFetch` server-side helper that uses `auth()` from `@clerk/nextjs/server`.
+- `src/lib/api.ts` exports typed API helpers (`topicsApi`, `billingApi`) and the `apiFetch` server-side helper that uses `auth()` from `@clerk/nextjs/server`.
 - The middleware (`src/proxy.ts`) protects `/dashboard`, `/topics`, `/onboarding`, `/settings` via Clerk.
 - Never use the bare `api` export from `lib/api.ts` in client components — it has no auth token. Use `useApi()` instead.
 
@@ -50,13 +61,13 @@ src/app/
 - Query keys follow this convention:
   - `['topics']` — sidebar list
   - `['topic', id]` — single topic (includes `last_scan_at`)
-  - `['topic-briefs', id]` — briefs for topic page
-  - `['topic-known-facts', id]` — raw alpha articles (source chip tooltips)
+  - `['topic-history', id]` — the alpha/context timeline (`GET /topics/{id}/history`)
+  - `['topic-schedule', id]` — alarm-clock run times (`GET/PUT /topics/{id}/schedule`)
   - `['scan-status', taskId]` — Celery task poll (2s interval, stops on SUCCESS/FAILURE)
-  - `['dashboard']` — dashboard feed
+  - `['feed']` — dashboard "Today" feed (`GET /feed`, unseen alphas per topic)
 
 ### Scan task flow
-When a scan is triggered (sidebar 3-dots → Scan, or new topic creation), the backend returns a `task_id`. The frontend stores it in `localStorage` as `scan_task_${topicId}`. The topic page polls `localStorage` every 500ms to pick it up and render `ScanProgressBar`. `useScanStatus` polls `/scan-status/{taskId}` every 2s; on SUCCESS it invalidates `['topic', id]`, `['topic-briefs', id]`, and `['topics']`. On 429 errors, the sidebar shows a rate-limit message.
+When a scan is triggered (sidebar 3-dots → Scan, or new topic creation), the backend returns a `task_id`. The frontend stores it in `localStorage` as `scan_task_${topicId}`. The topic page polls `localStorage` every 500ms to pick it up and render `ScanProgressBar`. `useScanStatus` polls `/scan-status/{taskId}` every 2s; on SUCCESS it invalidates `['topic', id]`, `['topic-history', id]`, and `['topics']`. On 429 errors, the sidebar shows a rate-limit message.
 
 ### Styling
 - **No Tailwind in the app shell or topic page** — those use inline `style={{}}` props with CSS variables from the design system (e.g. `var(--color-text-primary)`, `var(--tb-green)`).
@@ -64,36 +75,25 @@ When a scan is triggered (sidebar 3-dots → Scan, or new topic creation), the b
 - Don't mix the two approaches within a single file.
 
 ### Topic page (`topics/[id]/page.tsx`)
-This is the most complex file. Key internal architecture:
-
-- **`parseBriefSections(md)`** — splits brief markdown into `BriefSection[]`. Each section has a heading, body lines, and sources. Badge lines (`🆕 NEW STORIES`) become `isBadge: true` sections.
-- **`renderBodyLine(line, key)`** — renders a single body line. Detects ` → Sources: [Name](url)` at the end of a bullet and renders `SourcePill` chips inline (per-bullet attribution). Falls back to section-level sources for old briefs.
-- **`SourcePill`** — reads `DomainAlphasCtx` (React context) to populate its tooltip with raw alpha articles from `known_facts`. Uses a 200ms hide delay so the user can hover into the tooltip.
-- **`DomainAlphasCtx`** — populated from `GET /topics/{id}/known-facts`, grouped by `source_domain`. Provided at page root, consumed by every `SourcePill`.
-- **`ScanProgressBar`** — shown when `scanTaskId` is set. Receives `taskId` as a prop; internally calls `useScanStatus`.
-
-### Brief content format
-Briefs are raw markdown strings stored in the `briefs` table. The LLM outputs:
-```
-📋 TrueBrief | Topic | Date
-🆕 NEW STORIES (N)
-━━━━━━━━━━━━
-**Section Title**
-• Bullet text. → Sources: [domain.com](https://full-article-url)
-• Another bullet. → Sources: [a.com](url1), [b.com](url2)
-📈 UPDATES (N)
-━━━━━━━━━━━━
-**Section Title**
-• WHAT'S NEW: ... → Sources: [domain.com](url)
-• FULL CONTEXT: ... → Sources: [domain.com](url)
-```
-The `parseContent()` helper strips the `📋 TrueBrief` header line before passing to `parseBriefSections`.
+- **Sticky header**: topic name, scan status/button (`ScanProgressBar` while running), and the
+  alarm-clock schedule picker (`GET/PUT /topics/{id}/schedule` — daily UTC run times, default
+  1/day; replaces the old Auto/Slow/Medium/Fast/Ultra-Fast interval picker, see
+  `docs/core/architecture_v5.md §7`).
+- **`HistoryView`**: fetches `GET /topics/{id}/history`, renders every stored fact grouped by
+  day, newest first. This is the entire content area — no tabs, no story mode (removed
+  2026-07-26; it hallucinated causation/corrupted numbers and was never proven better than
+  the plain feed — see `docs/core/V4_ARCHIVE.md`).
+- **`HistoryFactRow`**: the actual per-fact presentation — fact text, its additive `context`
+  line directly below (from the harvester/collector's context field, never a restatement),
+  an event-class chip for `state_change`/`escalation` only, a `SourceChip`, a
+  "✓ N sources" badge when corroborated, and a "⚠️ Disputed" badge when `contradiction_note`
+  is set.
 
 ### Source chips
-- `parseSourceLine(line)` parses `→ Sources: [Name](url), ...` into `SourceChip[]`.
-- `SourceChip.url` = full article URL; `SourceChip.domain` = hostname (e.g. `reuters.com`).
-- Chips link directly to the article URL when available, otherwise to the domain homepage.
-- Tooltip shows: domain header + up to N raw alpha articles from that domain for this topic (text snippet, date, "View article →" link).
+- `SourceChip` (`src/components/SourceChip.tsx`) takes `{ domain, url }` and renders a
+  favicon-linked chip to the source article (falls back to the domain homepage).
+- Used identically in `HistoryFactRow` (topic page) and `AlphaRow` (dashboard flip card) —
+  the two real places facts are ever shown to a user.
 
 ### Hooks (`src/hooks/`)
 - `useTopics` / `useCreateTopic` / `useDeleteTopic` / `useTriggerScan` / `useScanStatus` — all in `useTopics.ts`

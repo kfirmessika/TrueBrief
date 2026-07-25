@@ -6,7 +6,7 @@ import { useUser } from '@clerk/nextjs';
 import { useApi } from '@/lib/useApi';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Plus, Search, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2,
+  Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2,
 } from 'lucide-react';
 
 interface Topic {
@@ -148,18 +148,6 @@ export default function Sidebar() {
         <Plus size={14} />
         New topic
       </button>
-
-      {/* Search */}
-      <div style={{
-        margin: '0 10px 6px', padding: '6px 10px',
-        border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8,
-        fontSize: 12, color: 'var(--color-text-tertiary)',
-        display: 'flex', alignItems: 'center', gap: 7,
-        background: 'var(--color-background-primary)',
-      }}>
-        <Search size={12} style={{ flexShrink: 0 }} />
-        <span>Search briefs...</span>
-      </div>
 
       <hr style={{ border: 'none', borderTop: '0.5px solid var(--color-border-tertiary)', margin: '4px 10px' }} />
 

@@ -55,22 +55,6 @@ export function useDeleteTopic() {
 }
 
 /**
- * Mark all unread briefs for a topic as read.
- * Call when the user opens the topic page.
- */
-export function useMarkBriefsRead() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (topicId: string) => api.post(`/topics/${topicId}/briefs/mark-read`),
-    onSuccess: () => {
-      // Refresh the delta feed (the V3 home) so counts update.
-      queryClient.invalidateQueries({ queryKey: ['feed'] });
-    },
-  });
-}
-
-/**
  * Hook to trigger a manual scan for a topic.
  */
 export function useTriggerScan() {

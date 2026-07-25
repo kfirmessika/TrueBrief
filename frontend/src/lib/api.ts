@@ -21,14 +21,6 @@ export interface Topic {
   is_scanning?: boolean;
 }
 
-// Brief Types
-export interface Brief {
-  id: string;
-  topic_id: string;
-  content: string;
-  delivered_at: string;
-}
-
 // Billing Types
 export interface TierLimits {
   max_topics: number;
@@ -71,11 +63,6 @@ export const topicsApi = {
   create: (raw_query: string) => api.post<Topic>('/topics', { raw_query }),
   delete: (id: string) => api.delete(`/topics/${id}`),
   scan: (id: string) => api.post<{ task_id: string; topic_id: string; status: string }>(`/topics/${id}/scan`),
-};
-
-export const briefsApi = {
-  listForTopic: (topicId: string) => api.get<Brief[]>(`/topics/${topicId}/briefs`),
-  get: (id: string) => api.get<Brief>(`/briefs/${id}`),
 };
 
 export const billingApi = {
