@@ -29,7 +29,27 @@ A news intelligence SaaS. Backend: Python/FastAPI/Celery. Frontend: Next.js 16 (
   matched it 12/18; its only non-replicable win is lexically-similar-but-different events) ·
   off-the-shelf replacements for either: **none exist** (Supabase's own reference for this problem
   IS pgvector + local embeddings).
-- **Next:** Phase 3 — build the minimal V5 pipeline (Gemini Search → memory), cost telemetry first.
+- **Phase 3 complete (2026-07-22/23):** cost telemetry fixed (3 missing RPCs created live, Groq
+  priced) · raw-cosine dedup bug fixed (duplicates were escaping via temporally-decayed scoring) ·
+  pro-tier scan-floor bug fixed (was silently 6x slower) · `GeminiSearchCollector` built and wired
+  into production (`src/truebrief/collector/gemini_search_collector.py` — 2-call design: grounded
+  prose search, then a non-grounded restructuring call; source URLs come ONLY from real
+  `grounding_chunks`, never model text — verified the model fabricates fake URLs if asked directly)
+  · manual alarm-clock scheduling replaces AYR (`src/truebrief/ledger/alarm_schedule.py`) · judge
+  prompt rewritten to stop fabricating deltas on subset facts/padding (`ARBITER_SYSTEM`) +
+  `ANTONYM_PAIRS` extended (bought/sold, hired/fired).
+- **Phase 4 complete (2026-07-26) — V5 vs V4 vs plain Gemini, benchmarked live, not simulated:**
+  V4 **failed to complete on both topics** (300s timeout — Tavily quota exceeded, Brave 402, most
+  article sources 403-blocked/bot-detected — this is real, current production state, not a fluke).
+  V5 tied a plain unstructured "give me the news" Gemini ask on topic 1 (30 vs 30) and beat it
+  clearly on topic 2 (31 vs 26), consistently winning noise_level and lede_quality both times —
+  proof the memory/dedup layer earns its cost over just asking Gemini directly. Weak axis:
+  completeness, but it flipped between the two runs (lost run 1, won run 2) — not a fixed
+  structural gap. Reports: `docs/benchmarks/2026-07-26_iran-war-ceasefire-deal.md`,
+  `docs/benchmarks/2026-07-26_trump-white-house.md`. Benchmark tooling for this 3-way comparison
+  lives in `scripts/quality_benchmark.py` (`run_truebrief`=V4, `run_v5`=V5, `run_gemini_search`=Reference).
+- **Next:** Phase 5 — production readiness (V4's search/scrape dependencies are the one hard
+  blocker now that V5 doesn't need them), then revisit go-to-market.
 
 ---
 
