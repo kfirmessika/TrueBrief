@@ -53,6 +53,13 @@ ANTONYM_PAIRS = [
     ("survived", "killed"),
     ("won", "lost"),
     ("victory", "defeat"),
+    # Found 2026-07-22 by the judge-validation workflow's ablation pass: a real ownership
+    # reversal (Trump advisers bought Palantir shares in one fact, sold in another) slipped
+    # through as an undetected duplicate/update because no pair here covered it.
+    ("bought", "sold"),
+    ("acquired", "sold"),
+    ("hired", "fired"),
+    ("close", "open"),
 ]
 
 # A numeric conflict only counts if both facts are talking about the same kind of
