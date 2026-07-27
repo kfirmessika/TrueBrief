@@ -440,11 +440,15 @@ function ScanProgressBar({ topicId, taskId, active, onDone }: { topicId: string;
         {displayStep}
       </span>
       <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'var(--color-border-secondary)', overflow: 'hidden', maxWidth: 160 }}>
+        {/* Fill is full-width and scaled on the X axis rather than width-animated:
+            the parent ticks every 250ms for the whole scan, and transform stays on
+            the compositor instead of forcing a layout pass on each tick. */}
         <div style={{
-          height: '100%', borderRadius: 2,
+          height: '100%', width: '100%', borderRadius: 2,
           background: 'var(--tb-green)',
-          width: `${progress}%`,
-          transition: isDone ? 'width 0.4s ease' : 'width 0.25s linear',
+          transform: `scaleX(${progress / 100})`,
+          transformOrigin: 'left center',
+          transition: isDone ? 'transform 0.4s ease' : 'transform 0.25s linear',
         }} />
       </div>
     </div>
