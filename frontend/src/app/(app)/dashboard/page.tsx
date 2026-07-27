@@ -36,6 +36,11 @@ function AlphaRow({ fact }: { fact: FeedFact }) {
       <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--color-text-primary)', margin: 0 }}>
         {fact.text}
       </p>
+      {fact.context && (
+        <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--color-text-tertiary)', margin: '3px 0 0' }}>
+          {fact.context}
+        </p>
+      )}
       {(fact.source_domain || fact.source_url || fact.verified_count > 1) && (
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
           {(fact.source_domain || fact.source_url) && (

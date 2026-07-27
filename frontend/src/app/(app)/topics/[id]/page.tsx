@@ -64,6 +64,161 @@ function formatTime(iso: string | null): string {
   } catch { return ''; }
 }
 
+// ── Brief panel ──────────────────────────────────────────────────────────────
+// The Briefer runs on every V5 scan and its output is what the 2026-07-26 benchmark
+// actually scored (30/31 vs a plain Gemini ask) — but nothing rendered it, so users
+// only ever saw the raw fact list. This surfaces it above the timeline.
+
+interface BriefRow { id: string; content: string; delivered_at: string }
+
+interface BriefBullet { text: string; sources: { domain: string; url: string }[] }
+type BriefBlock =
+  | { kind: 'lede'; text: string }
+  | { kind: 'badge'; text: string }
+  | { kind: 'section'; text: string }
+  | { kind: 'bullet'; bullet: BriefBullet };
+
+// Brief markdown shape (see src/truebrief/llm/prompts.py build_briefer_prompt):
+//   📋 TrueBrief | Topic | Date        <- dropped, the page header already says this
+//   **📌 Bottom line:** ...
+//   🆕 NEW STORIES (N)  /  📈 UPDATES (N)
+//   ━━━━━━━                            <- dropped, we draw a real border instead
+//   **Section Title**
+//   • Bullet text. → Sources: [domain.com](url), [other.com](url)
+export function parseBrief(md: string): BriefBlock[] {
+  const out: BriefBlock[] = [];
+  for (const raw of md.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('📋') || /^[━─-]{3,}$/.test(line)) continue;
+
+    const lede = line.match(/^\*\*📌\s*Bottom line:?\*\*\s*(.+)$/i);
+    if (lede) { out.push({ kind: 'lede', text: lede[1].trim() }); continue; }
+
+    if (/^(🆕|📈|⚠️)/.test(line)) { out.push({ kind: 'badge', text: line }); continue; }
+
+    if (/^\*\*.+\*\*$/.test(line)) {
+      out.push({ kind: 'section', text: line.replace(/^\*\*|\*\*$/g, '').trim() });
+      continue;
+    }
+
+    if (/^[•\-*]\s+/.test(line)) {
+      const body = line.replace(/^[•\-*]\s+/, '');
+      const [textPart, srcPart] = body.split(/\s*→\s*Sources:\s*/i);
+      const sources: { domain: string; url: string }[] = [];
+      if (srcPart) {
+        for (const m of srcPart.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g)) {
+          sources.push({ domain: m[1], url: m[2] });
+        }
+      }
+      out.push({ kind: 'bullet', bullet: { text: textPart.trim(), sources } });
+    }
+  }
+  return out;
+}
+
+function BriefPanel({ topicId }: { topicId: string }) {
+  const api = useApi();
+  const [open, setOpen] = useState(true);
+  const { data } = useQuery<BriefRow[]>({
+    queryKey: ['topic-briefs', topicId],
+    queryFn: async () => (await api.get(`/topics/${topicId}/briefs`)).data,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const latest = data?.[0];
+  const blocks = useMemo(() => (latest ? parseBrief(latest.content) : []), [latest]);
+  if (!latest || blocks.length === 0) return null;
+
+  return (
+    <div style={{
+      margin: '12px 22px 4px', padding: '14px 16px',
+      border: '1px solid var(--color-border-tertiary)', borderRadius: 12,
+      background: 'var(--color-background-primary)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{
+          fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: 'var(--color-text-secondary)',
+        }}>
+          Latest brief
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
+            {timeAgo(latest.delivered_at)}
+          </span>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            style={{
+              fontSize: 11, color: 'var(--color-text-secondary)', background: 'none',
+              border: '0.5px solid var(--color-border-secondary)', borderRadius: 6,
+              padding: '1px 7px', cursor: 'pointer',
+            }}
+          >
+            {open ? 'Hide' : 'Show'}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          {blocks.map((b, i) => {
+            if (b.kind === 'lede') {
+              return (
+                <p key={i} style={{
+                  fontSize: 14, lineHeight: 1.6, color: 'var(--color-text-primary)',
+                  margin: '0 0 12px', fontWeight: 500,
+                }}>
+                  {b.text}
+                </p>
+              );
+            }
+            if (b.kind === 'badge') {
+              return (
+                <div key={i} style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                  color: 'var(--color-text-secondary)',
+                  margin: '14px 0 8px', paddingTop: 10,
+                  borderTop: '0.5px solid var(--color-border-tertiary)',
+                }}>
+                  {b.text}
+                </div>
+              );
+            }
+            if (b.kind === 'section') {
+              return (
+                <div key={i} style={{
+                  fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-primary)',
+                  margin: '10px 0 5px',
+                }}>
+                  {b.text}
+                </div>
+              );
+            }
+            return (
+              <div key={i} style={{ display: 'flex', gap: 7, margin: '0 0 7px' }}>
+                <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}>•</span>
+                <div>
+                  <span style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text-primary)' }}>
+                    {b.bullet.text}
+                  </span>
+                  {b.bullet.sources.length > 0 && (
+                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 5, marginLeft: 7, verticalAlign: 'middle' }}>
+                      {b.bullet.sources.map((s, j) => (
+                        <SourceChip key={j} domain={s.domain} url={s.url} />
+                      ))}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── History view ─────────────────────────────────────────────────────────────
 
 interface HistoryFact {
@@ -211,13 +366,16 @@ function HistoryView({ topicId }: { topicId: string }) {
 
 // ── Scan progress bar ──────────────────────────────────────────────────────
 
+// V5 stages (pipeline/v5_runner.py): one grounded Gemini search, then extraction,
+// then memory/dedup, then the brief. The old V4 wording ("Collecting articles…",
+// "Reading sources…") described the deleted scrape/harvest chain and no longer
+// matches anything the backend does.
 const SCAN_STEPS = [
   'Searching the web…',
-  'Collecting articles…',
-  'Reading sources…',
-  'Filtering relevant content…',
-  'Analyzing what matters…',
-  'Connecting the dots…',
+  'Reading what changed…',
+  'Extracting the facts…',
+  'Checking against what you already know…',
+  'Filtering out repeats…',
   'Writing your brief…',
   'Almost done…',
 ];
@@ -395,7 +553,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     setScanTaskId(null);
     qc.invalidateQueries({ queryKey: ['topic', id] });
     qc.invalidateQueries({ queryKey: ['topic-history', id] });
-    qc.invalidateQueries({ queryKey: ['topic-story', id] });
+    qc.invalidateQueries({ queryKey: ['topic-briefs', id] });
     qc.invalidateQueries({ queryKey: ['feed'] });
     qc.invalidateQueries({ queryKey: ['topics'] });
   }, [qc, id]);
@@ -574,9 +732,11 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      {/* Content — raw alpha + context timeline. Story mode removed for V5 (never
-          proven better than the plain feed; reintroduce post-production only if proven). */}
+      {/* Content — synthesized brief (what the benchmark scored) over the full
+          alpha + context timeline. Story mode removed for V5 (never proven better
+          than the plain feed; reintroduce post-production only if proven). */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
+        <BriefPanel topicId={id} />
         <HistoryView topicId={id} />
       </div>
     </div>
