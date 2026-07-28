@@ -804,8 +804,10 @@ For each fact extract:
    0.7 = clearly relevant, 0.4 = minor/supporting, 0.1 = tangential.
 9. "event_class": EXACTLY ONE of "state_change" (durable topic-level status flip: ceasefire
    signed, treaty agreed, leadership change) | "escalation" (new aggressive/deteriorating act)
-   | "casualty" (individual(s) killed/wounded/detained — never the lede over a state_change)
-   | "development" (discrete new fact, no status flip) | "incremental" (minor follow-up)
+   | "casualty" (individual(s) newly killed, wounded, captured, or detained — something bad
+   happening TO them; never the lede over a state_change) | "development" (discrete new fact,
+   no status flip — including a person being RELEASED, freed, or exchanged: that reverses a
+   casualty, it is not one) | "incremental" (minor follow-up)
    | "tally" (a cumulative running count/total — never the lede) | "routine" (scheduling/logistics).
 10. "citation_indices": list of integers from the SOURCE LEGEND above — the bracketed
    number(s) attached to the passage this fact was drawn from. Copy them exactly; do not
