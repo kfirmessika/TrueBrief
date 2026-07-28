@@ -3,10 +3,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Check, Loader2, ArrowRight, RefreshCw } from 'lucide-react';
-import type { AxiosInstance } from 'axios';
 import { SourceChip } from '@/components/SourceChip';
+import { parseBrief } from '@/app/(app)/topics/[id]/page';
+
+interface BriefRow { id: string; content: string; delivered_at: string }
 
 interface FeedFact {
   text: string;
@@ -63,8 +65,10 @@ function AlphaRow({ fact }: { fact: FeedFact }) {
   );
 }
 
-// The flip card. Front = unseen alphas + sources (instant). Back = cheap-LLM summary
-// (fetched in the background; auto-flips when ready; click flips either way).
+// The flip card. Front = unseen alphas + sources (instant). Back = the lede + top
+// bullets of the topic's latest STORED brief (Briefer already ran this scan — zero
+// extra LLM cost, and it's the same well-synthesized output the benchmark scored
+// well, not a cheap re-summary of the same facts on a worse model).
 //
 // Uses scaleX squeeze animation instead of 3D rotateY because the ancestor layout
 // container has overflow:auto, which the CSS spec requires to flatten preserve-3d.
@@ -72,69 +76,41 @@ function AlphaRow({ fact }: { fact: FeedFact }) {
 function TopicFlipCard({
   topic,
   onNavigate,
-  api,
-  delay = 0,
 }: {
   topic: FeedTopic;
   onNavigate: () => void;
-  api: AxiosInstance;
-  delay?: number;
 }) {
-  const [summary, setSummary] = useState<string | null>(null);
-  const [state, setState] = useState<'idle' | 'loading' | 'done' | 'failed'>('idle');
+  const api = useApi();
   const [showBack, setShowBack] = useState(false);
   // 'out': squeezing to invisible; 'in': expanding back; 'idle': at rest
   const [phase, setPhase] = useState<'idle' | 'out' | 'in'>('idle');
   const nextFace = useRef(false);       // which face to show after the squeeze
   const autoFlipped = useRef(false);    // guard: fire auto-flip only once
-  const shouldAutoFlip = useRef(false); // only true for 2+ fact cards (not single-fact shortcut)
 
-  const fetchSummary = useRef<() => void>(() => {});
+  const { data: briefs, isLoading: briefLoading, isError: briefFailed, refetch } = useQuery<BriefRow[]>({
+    queryKey: ['topic-briefs', topic.topic_id],
+    queryFn: async () => (await api.get(`/topics/${topic.topic_id}/briefs`)).data,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
 
-  // Fetch the summary once per topic (or on retry).
+  const latest = briefs?.[0];
+  const blocks = useMemo(() => (latest ? parseBrief(latest.content) : []), [latest]);
+  const lede = blocks.find((b) => b.kind === 'lede');
+  const bullets = blocks.filter((b) => b.kind === 'bullet').slice(0, 4);
+
+  const state: 'loading' | 'done' | 'failed' =
+    briefLoading ? 'loading' : (briefFailed || blocks.length === 0) ? 'failed' : 'done';
+
+  // Auto-flip to the brief once it's loaded (skip the single-fact shortcut card —
+  // the front face already IS the whole story at 1 fact).
   useEffect(() => {
-    const texts = topic.facts.map((f) => f.text).filter(Boolean);
-    if (texts.length === 0) { setState('failed'); return; }
-    if (texts.length === 1) {
-      // One alpha — summary IS the alpha; no LLM call, no auto-flip.
-      setSummary(texts[0]);
-      setState('done');
-      return;
-    }
-
-    let cancelled = false;
-
-    const doFetch = () => {
-      setState('loading');
-      shouldAutoFlip.current = true;
-      api
-        .post(`/topics/${topic.topic_id}/summary`, { facts: texts.slice(0, 40) }, { timeout: 25_000 })
-        .then((res) => {
-          if (cancelled) return;
-          const s = (res.data?.summary as string | null) ?? null;
-          if (s) { setSummary(s); setState('done'); }
-          else setState('failed');
-        })
-        .catch(() => { if (!cancelled) setState('failed'); });
-    };
-
-    // Expose retry without dismounting the effect.
-    fetchSummary.current = doFetch;
-
-    // Stagger concurrent card requests to avoid hitting Groq rate limits.
-    setState('loading');
-    const timer = setTimeout(doFetch, delay);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [topic.topic_id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-flip to the summary once it arrives (2+ fact cards only).
-  useEffect(() => {
-    if (state === 'done' && summary && shouldAutoFlip.current && !autoFlipped.current) {
+    if (state === 'done' && topic.facts.length >= 2 && !autoFlipped.current) {
       autoFlipped.current = true;
       nextFace.current = true;
       setPhase('out');
     }
-  }, [state, summary]);
+  }, [state, topic.facts.length]);
 
   // Orchestrate the squeeze: out → swap content at invisible midpoint → in.
   const handleTransitionEnd = (e: React.TransitionEvent<HTMLDivElement>) => {
@@ -148,12 +124,12 @@ function TopicFlipCard({
   };
 
   const flip = () => {
-    if (state !== 'done' || !summary || phase !== 'idle') return;
+    if (state !== 'done' || phase !== 'idle') return;
     nextFace.current = !showBack;
     setPhase('out');
   };
 
-  const isFlipReady = state === 'done' && !!summary;
+  const isFlipReady = state === 'done';
 
   const OpenTopicBtn = (
     <button
@@ -198,12 +174,12 @@ function TopicFlipCard({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {state === 'loading' && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
-                <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> summarising…
+                <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> loading brief…
               </span>
             )}
             {state === 'failed' && topic.facts.length >= 2 && (
               <button
-                onClick={(e) => { e.stopPropagation(); fetchSummary.current(); }}
+                onClick={(e) => { e.stopPropagation(); refetch(); }}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 3,
                   fontSize: 10.5, color: 'var(--color-text-tertiary)',
@@ -216,7 +192,7 @@ function TopicFlipCard({
             )}
             {isFlipReady && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
-                <RefreshCw size={10} /> {showBack ? 'alphas' : 'summary'}
+                <RefreshCw size={10} /> {showBack ? 'alphas' : 'brief'}
               </span>
             )}
             <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{topic.new_count} new</span>
@@ -236,10 +212,22 @@ function TopicFlipCard({
           </div>
         ) : (
           <div>
-            {/* pre-line: the digest form of the summary separates developments with \n bullets */}
-            <p style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--color-text-primary)', margin: '8px 0 0', whiteSpace: 'pre-line' }}>
-              {summary}
-            </p>
+            {lede && 'text' in lede && (
+              <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--color-text-primary)', margin: '8px 0 8px', fontWeight: 500 }}>
+                {lede.text}
+              </p>
+            )}
+            {bullets.map((b, i) => {
+              if (b.kind !== 'bullet') return null;
+              return (
+                <div key={i} style={{ display: 'flex', gap: 6, margin: '0 0 6px' }}>
+                  <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}>•</span>
+                  <span style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-text-secondary)' }}>
+                    {b.bullet.text}
+                  </span>
+                </div>
+              );
+            })}
             <div style={{ marginTop: 12 }}>{OpenTopicBtn}</div>
           </div>
         )}
@@ -361,13 +349,11 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!isLoading && !allQuiet && topics.map((topic, i) => (
+        {!isLoading && !allQuiet && topics.map((topic) => (
           <TopicFlipCard
             key={topic.topic_id}
             topic={topic}
             onNavigate={() => openTopic(topic.topic_id)}
-            api={api}
-            delay={i * 1000}
           />
         ))}
 
