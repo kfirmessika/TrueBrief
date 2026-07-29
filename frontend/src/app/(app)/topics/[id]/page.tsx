@@ -116,11 +116,16 @@ export function parseBrief(md: string): BriefBlock[] {
   return out;
 }
 
-function BriefPanel({ topicId }: { topicId: string }) {
+// `lastRun` is the topic's last_scan_at, which the parent's ['topic', id] query polls
+// every 60s. Including it in the query key is what makes this panel notice a
+// SERVER-SIDE scheduled scan: without it the panel never refetched while the page sat
+// open (no refetchInterval, and handleScanDone only fires for a scan you triggered
+// yourself), so the header could read "last scan 0m ago" over a 2-day-old brief.
+function BriefPanel({ topicId, lastRun }: { topicId: string; lastRun?: string | null }) {
   const api = useApi();
   const [open, setOpen] = useState(true);
   const { data } = useQuery<BriefRow[]>({
-    queryKey: ['topic-briefs', topicId],
+    queryKey: ['topic-briefs', topicId, lastRun],
     queryFn: async () => (await api.get(`/topics/${topicId}/briefs`)).data,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -301,10 +306,12 @@ function HistoryFactRow({ fact }: { fact: HistoryFact }) {
   );
 }
 
-function HistoryView({ topicId }: { topicId: string }) {
+// `lastRun` keyed for the same reason as BriefPanel — a server-side scheduled scan
+// stores new facts that this view would otherwise never pick up while the page is open.
+function HistoryView({ topicId, lastRun }: { topicId: string; lastRun?: string | null }) {
   const api = useApi();
   const { data, isLoading } = useQuery<HistoryDoc>({
-    queryKey: ['topic-history', topicId],
+    queryKey: ['topic-history', topicId, lastRun],
     queryFn: async () => (await api.get(`/topics/${topicId}/history`)).data,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -740,8 +747,8 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
           alpha + context timeline. Story mode removed for V5 (never proven better
           than the plain feed; reintroduce post-production only if proven). */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        <BriefPanel topicId={id} />
-        <HistoryView topicId={id} />
+        <BriefPanel topicId={id} lastRun={topic?.last_scan_at} />
+        <HistoryView topicId={id} lastRun={topic?.last_scan_at} />
       </div>
     </div>
   );

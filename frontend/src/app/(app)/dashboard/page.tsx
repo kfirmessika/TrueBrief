@@ -76,9 +76,11 @@ function AlphaRow({ fact }: { fact: FeedFact }) {
 function TopicFlipCard({
   topic,
   onNavigate,
+  lastRun,
 }: {
   topic: FeedTopic;
   onNavigate: () => void;
+  lastRun?: string | null;
 }) {
   const api = useApi();
   const [showBack, setShowBack] = useState(false);
@@ -88,7 +90,7 @@ function TopicFlipCard({
   const autoFlipped = useRef(false);    // guard: fire auto-flip only once
 
   const { data: briefs, isLoading: briefLoading, isError: briefFailed, refetch } = useQuery<BriefRow[]>({
-    queryKey: ['topic-briefs', topic.topic_id],
+    queryKey: ['topic-briefs', topic.topic_id, lastRun],
     queryFn: async () => (await api.get(`/topics/${topic.topic_id}/briefs`)).data,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -248,12 +250,19 @@ export default function DashboardPage() {
     refetchOnWindowFocus: false,
   });
 
-  const { data: topicList = [] } = useQuery<{ id: string; is_scanning?: boolean }[]>({
+  const { data: topicList = [] } = useQuery<{ id: string; is_scanning?: boolean; last_scan_at?: string | null }[]>({
     queryKey: ['topics'],
     queryFn: async () => (await api.get('/topics')).data,
     staleTime: 10_000,
     refetchInterval: 8_000,
   });
+
+  // topicList polls every 8s; map id -> last_scan_at so each card's brief query is keyed
+  // on it and picks up server-side scheduled scans (same fix as the topic page).
+  const lastRunById = useMemo(
+    () => Object.fromEntries(topicList.map((t) => [t.id, t.last_scan_at ?? null])),
+    [topicList],
+  );
 
   const scanningCount = topicList.filter((t) => t.is_scanning).length;
   const prevScanning = useRef(0);
@@ -354,6 +363,7 @@ export default function DashboardPage() {
             key={topic.topic_id}
             topic={topic}
             onNavigate={() => openTopic(topic.topic_id)}
+            lastRun={lastRunById[topic.topic_id]}
           />
         ))}
 
