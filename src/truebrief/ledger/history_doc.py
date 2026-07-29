@@ -35,6 +35,17 @@ logger = logging.getLogger(__name__)
 # Max facts pulled into one timeline (keeps a long-running topic's history bounded).
 _MAX_FACTS = 600
 
+# Hide pre-V5 facts from the user-facing timeline (config/settings.py V5_CUTOVER_DATE).
+# Also stops the _MAX_FACTS cap being spent on V4 rows the user can't act on.
+from config.settings import V5_CUTOVER_DATE as _CUTOVER  # noqa: E402
+
+# history_docs rows are a denormalized cache of build_history_doc(). When the build's
+# definition changes (e.g. the V5 cutover filter), previously-stored docs are stale but
+# still structurally valid, so get_history_doc would happily keep serving them. Bump this
+# on any change to what build_history_doc returns — cached docs stamped with an older
+# version are ignored and rebuilt, so the cache self-heals with no manual cleanup.
+_DOC_SCHEMA_VERSION = 2
+
 # Significance ordering within a single day — mirrors the runner's IC2 class weights
 # so the history view ranks facts the same way the brief does.
 _CLASS_WEIGHT = {
@@ -90,6 +101,7 @@ def build_history_doc(topic_id: str, db=None) -> dict:
             db.table("known_facts")
             .select(base_cols + ", contradiction_note")
             .eq("topic_id", topic_id)
+            .gte("first_seen_at", _CUTOVER)
             .order("event_date", desc=True)
             .limit(_MAX_FACTS)
             .execute()
@@ -99,6 +111,7 @@ def build_history_doc(topic_id: str, db=None) -> dict:
             db.table("known_facts")
             .select(base_cols)
             .eq("topic_id", topic_id)
+            .gte("first_seen_at", _CUTOVER)
             .order("event_date", desc=True)
             .limit(_MAX_FACTS)
             .execute()
@@ -130,6 +143,7 @@ def build_history_doc(topic_id: str, db=None) -> dict:
         timeline.append({"date": day, "facts": facts})
 
     return {
+        "schema_version": _DOC_SCHEMA_VERSION,
         "built_at":   datetime.now(timezone.utc).isoformat(),
         "fact_count": sum(len(g["facts"]) for g in timeline),
         "timeline":   timeline,
@@ -171,8 +185,13 @@ def get_history_doc(topic_id: str, db=None) -> dict:
             .limit(1)
             .execute()
         )
-        if res.data and res.data[0].get("doc", {}).get("timeline"):
-            return res.data[0]["doc"]
+        cached = res.data[0].get("doc") if res.data else None
+        if (
+            cached
+            and cached.get("timeline")
+            and cached.get("schema_version") == _DOC_SCHEMA_VERSION
+        ):
+            return cached
     except Exception:
         pass  # table missing or other issue → live build
     return build_history_doc(topic_id, db=db)

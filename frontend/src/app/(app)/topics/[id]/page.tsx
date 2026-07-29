@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, use, useState } from 'react';
 import { Clock, ScanSearch } from 'lucide-react';
 import { useScanStatus, useTriggerScan } from '@/hooks/useTopics';
 import { SourceChip } from '@/components/SourceChip';
+import { getTimezone, utcToLocal, localToUtc, fmtHM, tzShortLabel } from '@/lib/timezone';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -25,15 +26,20 @@ interface Topic {
 interface ScheduleTime { hour: number; minute: number }
 interface ScheduleResponse { times: ScheduleTime[]; is_default: boolean }
 
-function fmtScheduleTime(t: ScheduleTime): string {
-  return `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
+/** A stored UTC schedule time, rendered in the viewer's own zone. */
+function fmtScheduleTime(t: ScheduleTime, tz: string): string {
+  const l = utcToLocal(t.hour, t.minute, tz);
+  return fmtHM(l.hour, l.minute);
 }
 
-function scheduleButtonLabel(schedule: ScheduleResponse | undefined): string {
-  if (!schedule || schedule.is_default) return 'Auto';
-  if (schedule.times.length === 0) return 'Auto';
-  if (schedule.times.length <= 2) return schedule.times.map(fmtScheduleTime).join(', ');
-  return `${fmtScheduleTime(schedule.times[0])} +${schedule.times.length - 1}`;
+// The button used to read "Auto" whenever the topic was on the default schedule, which
+// was a leftover from V4's AYR adaptive scheduler and no longer describes anything:
+// V5 has no adaptive mode, the default is simply one run a day. Showing the actual
+// time is both truthful and more useful than a word that implies a feature we removed.
+function scheduleButtonLabel(schedule: ScheduleResponse | undefined, tz: string): string {
+  if (!schedule || schedule.times.length === 0) return '—';
+  if (schedule.times.length <= 2) return schedule.times.map((t) => fmtScheduleTime(t, tz)).join(', ');
+  return `${fmtScheduleTime(schedule.times[0], tz)} +${schedule.times.length - 1}`;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -121,53 +127,11 @@ export function parseBrief(md: string): BriefBlock[] {
 // SERVER-SIDE scheduled scan: without it the panel never refetched while the page sat
 // open (no refetchInterval, and handleScanDone only fires for a scan you triggered
 // yourself), so the header could read "last scan 0m ago" over a 2-day-old brief.
-function BriefPanel({ topicId, lastRun }: { topicId: string; lastRun?: string | null }) {
-  const api = useApi();
-  const [open, setOpen] = useState(true);
-  const { data } = useQuery<BriefRow[]>({
-    queryKey: ['topic-briefs', topicId, lastRun],
-    queryFn: async () => (await api.get(`/topics/${topicId}/briefs`)).data,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-  });
-
-  const latest = data?.[0];
-  const blocks = useMemo(() => (latest ? parseBrief(latest.content) : []), [latest]);
-  if (!latest || blocks.length === 0) return null;
-
+function BriefBody({ content }: { content: string }) {
+  const blocks = useMemo(() => parseBrief(content), [content]);
   return (
-    <div style={{
-      margin: '12px 22px 4px', padding: '14px 16px',
-      border: '1px solid var(--color-border-tertiary)', borderRadius: 12,
-      background: 'var(--color-background-primary)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{
-          fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-          color: 'var(--color-text-secondary)',
-        }}>
-          Latest brief
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
-            {timeAgo(latest.delivered_at)}
-          </span>
-          <button
-            onClick={() => setOpen((v) => !v)}
-            style={{
-              fontSize: 11, color: 'var(--color-text-secondary)', background: 'none',
-              border: '0.5px solid var(--color-border-secondary)', borderRadius: 6,
-              padding: '1px 7px', cursor: 'pointer',
-            }}
-          >
-            {open ? 'Hide' : 'Show'}
-          </button>
-        </div>
-      </div>
-
-      {open && (
-        <div style={{ marginTop: 10 }}>
-          {blocks.map((b, i) => {
+    <div style={{ marginTop: 10 }}>
+      {blocks.map((b, i) => {
             if (b.kind === 'lede') {
               return (
                 <p key={i} style={{
@@ -217,7 +181,111 @@ function BriefPanel({ topicId, lastRun }: { topicId: string; lastRun?: string | 
                 </div>
               </div>
             );
-          })}
+      })}
+    </div>
+  );
+}
+
+/** One collapsed past brief: date + lede preview, expands in place. */
+function PastBriefRow({ brief }: { brief: BriefRow }) {
+  const [open, setOpen] = useState(false);
+  const lede = useMemo(() => {
+    const l = parseBrief(brief.content).find((b) => b.kind === 'lede');
+    return l && 'text' in l ? l.text : '';
+  }, [brief.content]);
+
+  return (
+    <div style={{ borderTop: '0.5px solid var(--color-border-tertiary)', padding: '9px 0 2px' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex', alignItems: 'baseline', gap: 8, width: '100%', textAlign: 'left',
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+          {formatDayLabel(brief.delivered_at.slice(0, 10))} · {formatTime(brief.delivered_at)}
+        </span>
+        {!open && lede && (
+          <span style={{
+            fontSize: 12, color: 'var(--color-text-tertiary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {lede}
+          </span>
+        )}
+      </button>
+      {open && <BriefBody content={brief.content} />}
+    </div>
+  );
+}
+
+function BriefPanel({ topicId, lastRun }: { topicId: string; lastRun?: string | null }) {
+  const api = useApi();
+  const [open, setOpen] = useState(true);
+  const [showPast, setShowPast] = useState(false);
+  const { data } = useQuery<BriefRow[]>({
+    queryKey: ['topic-briefs', topicId, lastRun],
+    queryFn: async () => (await api.get(`/topics/${topicId}/briefs`)).data,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Ordered newest-first by the API, and already filtered to V5-era briefs server-side
+  // (config/settings.py V5_CUTOVER_DATE) — every scan's brief is kept, not just the last.
+  const latest = data?.[0];
+  const past = data?.slice(1) ?? [];
+  if (!latest) return null;
+
+  return (
+    <div style={{
+      margin: '12px 22px 4px', padding: '14px 16px',
+      border: '1px solid var(--color-border-tertiary)', borderRadius: 12,
+      background: 'var(--color-background-primary)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{
+          fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: 'var(--color-text-secondary)',
+        }}>
+          Latest brief
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
+            {timeAgo(latest.delivered_at)}
+          </span>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            style={{
+              fontSize: 11, color: 'var(--color-text-secondary)', background: 'none',
+              border: '0.5px solid var(--color-border-secondary)', borderRadius: 6,
+              padding: '1px 7px', cursor: 'pointer',
+            }}
+          >
+            {open ? 'Hide' : 'Show'}
+          </button>
+        </div>
+      </div>
+
+      {open && <BriefBody content={latest.content} />}
+
+      {past.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => setShowPast((v) => !v)}
+            style={{
+              fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)',
+              background: 'none', border: 'none', padding: '6px 0 0', cursor: 'pointer',
+              borderTop: '0.5px solid var(--color-border-tertiary)', width: '100%', textAlign: 'left',
+            }}
+          >
+            {showPast ? 'Hide' : 'Show'} {past.length} earlier brief{past.length === 1 ? '' : 's'}
+          </button>
+          {showPast && (
+            <div style={{ marginTop: 4 }}>
+              {past.map((b) => <PastBriefRow key={b.id} brief={b} />)}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -471,6 +539,18 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
 
   const [scanError, setScanError] = useState<string | null>(null);
   const [showFreqPicker, setShowFreqPicker] = useState(false);
+  // Re-render when the zone changes in Settings (same tab fires 'tb-timezone-change';
+  // another tab fires the native 'storage' event).
+  const [tz, setTz] = useState(getTimezone);
+  useEffect(() => {
+    const sync = () => setTz(getTimezone());
+    window.addEventListener('tb-timezone-change', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('tb-timezone-change', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
   const [newTimeInput, setNewTimeInput] = useState('09:00');
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const freqRef = useRef<HTMLDivElement>(null);
@@ -509,11 +589,13 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     },
   });
 
+  // The user types a time in their own zone; the API stores UTC.
   const addScheduleTime = () => {
     const [hStr, mStr] = newTimeInput.split(':');
-    const hour = parseInt(hStr, 10);
-    const minute = parseInt(mStr, 10);
-    if (Number.isNaN(hour) || Number.isNaN(minute)) return;
+    const localHour = parseInt(hStr, 10);
+    const localMinute = parseInt(mStr, 10);
+    if (Number.isNaN(localHour) || Number.isNaN(localMinute)) return;
+    const { hour, minute } = localToUtc(localHour, localMinute, tz);
     const current = schedule && !schedule.is_default ? schedule.times : [];
     if (current.some(t => t.hour === hour && t.minute === minute)) return;
     updateSchedule([...current, { hour, minute }].sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute)));
@@ -658,7 +740,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                   opacity: isUpdatingFreq ? 0.5 : 1,
                 }}
               >
-                {scheduleButtonLabel(schedule)}
+                {scheduleButtonLabel(schedule, tz)}
                 <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ marginLeft: 1 }}>
                   <path d="M1 2.5L4 5.5L7 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
@@ -672,11 +754,12 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                   minWidth: 240, padding: 10,
                 }}>
                   <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-tertiary)', margin: '0 0 8px' }}>
-                    Scheduled run times (UTC)
+                    Scheduled run times · {tzShortLabel(tz)}
                   </p>
                   {schedule?.is_default ? (
                     <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>
-                      Auto — once a day at {schedule.times[0] ? fmtScheduleTime(schedule.times[0]) : '09:00'}.
+                      Default — once a day at{' '}
+                      {schedule.times[0] ? fmtScheduleTime(schedule.times[0], tz) : fmtScheduleTime({ hour: 9, minute: 0 }, tz)}.
                       Add a time below to set your own schedule.
                     </p>
                   ) : (
@@ -691,7 +774,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
                             padding: '3px 6px 3px 8px', borderRadius: 12,
                           }}
                         >
-                          {fmtScheduleTime(t)}
+                          {fmtScheduleTime(t, tz)}
                           <button
                             onClick={() => removeScheduleTime(t)}
                             disabled={isUpdatingFreq}

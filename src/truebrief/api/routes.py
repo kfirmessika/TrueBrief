@@ -571,7 +571,17 @@ def list_topic_briefs(topic_id: str, user: User = Depends(get_current_user)):
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
-    res = db.table("briefs").select("*").eq("topic_id", topic_id).order("delivered_at", desc=True).execute()
+    # V5 only — pre-cutover briefs came from the frozen V4 pipeline and are hidden
+    # from the UI (config/settings.py V5_CUTOVER_DATE). Rows stay in the DB.
+    from config.settings import V5_CUTOVER_DATE
+    res = (
+        db.table("briefs")
+        .select("*")
+        .eq("topic_id", topic_id)
+        .gte("delivered_at", V5_CUTOVER_DATE)
+        .order("delivered_at", desc=True)
+        .execute()
+    )
     return res.data
 
 

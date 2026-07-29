@@ -4,21 +4,18 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApi } from '@/lib/useApi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, ScanLine, ChevronDown } from 'lucide-react';
+import { ArrowUp } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
-
-type PanelId = 'coverage' | null;
 
 // V5 (docs/core/architecture_v5.md §7): scan cadence is set via manual alarm-clock
 // times on the topic page after creation, not at creation time — a new topic starts
 // with the default (once/day) schedule automatically.
-
-const COVERAGE_OPTIONS = [
-  { label: 'Quick',    badge: 'Free',        style: 'free' },
-  { label: 'Standard', badge: 'Recommended', style: 'rec',  tooltip: 'Scans RSS feeds and Tavily. Strong coverage for most topics.' },
-  { label: 'Thorough', badge: 'Pro',         style: 'pro',  tooltip: 'Adds Brave Search and Exa — wider net including PDFs and less-indexed sources.' },
-];
+//
+// The Quick/Standard/Thorough "coverage" picker that used to sit in the action bar was
+// removed here: its value was never sent to the API (pure decoration), and its options
+// described V4's source layers — "Scans RSS feeds and Tavily", "Adds Brave Search and
+// Exa" — none of which exist in V5, where collection is a single Gemini Search call.
 
 const STATIC_PILLS = [
   { label: 'Tech & AI',   fill: 'AI regulation' },
@@ -28,76 +25,7 @@ const STATIC_PILLS = [
   { label: 'Startups',    fill: 'startup funding' },
 ];
 
-const BADGE: Record<string, React.CSSProperties> = {
-  rec:   { background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-tertiary)', color: 'var(--color-text-tertiary)' },
-  free:  { background: 'var(--color-background-success)', color: 'var(--color-text-success)' },
-  pro:   { background: 'var(--color-background-info)', color: 'var(--color-text-info)' },
-  power: { background: '#FEF3C7', color: '#92400E' },
-  dim:   { background: 'var(--color-background-secondary)', color: 'var(--color-text-tertiary)', border: '0.5px solid var(--color-border-tertiary)' },
-};
-
 interface SharedTopic { id: string; name: string; subscriber_count: number; }
-
-// ── Dropdown panel ─────────────────────────────────────────────────────────
-
-type FrequencyOption = { label: string; badge: string; style: string; tooltip?: string; disabled?: boolean };
-
-function DropdownPanel({
-  options, selected, onSelect,
-}: {
-  options: FrequencyOption[];
-  selected: string;
-  onSelect: (l: string) => void;
-}) {
-  const [tip, setTip] = useState<string | null>(null);
-  return (
-    <div style={{
-      width: '100%', maxWidth: 420, marginTop: 6,
-      borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-secondary)',
-      borderRadius: 12, background: 'var(--color-background-primary)', overflow: 'hidden',
-    }}>
-      {options.map((opt, i) => {
-        const isDisabled = opt.disabled === true;
-        const isSelected = selected === opt.label;
-        return (
-          <div
-            key={opt.label}
-            onClick={() => { if (!isDisabled) onSelect(opt.label); }}
-            style={{
-              padding: '10px 14px',
-              cursor: isDisabled ? 'not-allowed' : 'pointer',
-              borderBottom: i < options.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none',
-              background: isSelected ? 'var(--color-background-secondary)' : 'transparent',
-              opacity: isDisabled ? 0.45 : 1,
-            }}
-            onMouseEnter={e => { if (!isDisabled) (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-secondary)'; }}
-            onMouseLeave={e => { if (!isDisabled) (e.currentTarget as HTMLDivElement).style.background = isSelected ? 'var(--color-background-secondary)' : 'transparent'; }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: isDisabled ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)' }}>{opt.label}</span>
-                {opt.tooltip && !isDisabled && (
-                  <span
-                    onClick={e => { e.stopPropagation(); setTip(tip === opt.label ? null : opt.label); }}
-                    style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'help', userSelect: 'none' }}
-                  >ⓘ</span>
-                )}
-              </div>
-              <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, flexShrink: 0, ...BADGE[opt.style] }}>
-                {opt.badge}
-              </span>
-            </div>
-            {tip === opt.label && opt.tooltip && (
-              <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--color-text-secondary)', background: 'var(--color-background-tertiary)', borderRadius: 6, padding: '5px 8px', lineHeight: 1.5 }}>
-                {opt.tooltip}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
@@ -109,8 +37,6 @@ export default function NewTopicPage() {
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [coverage, setCoverage] = useState('Standard');
-  const [openPanel, setOpenPanel] = useState<PanelId>(null);
   const [submitting, setSubmitting] = useState(false);
   const [nudge, setNudge] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -178,10 +104,6 @@ export default function NewTopicPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
-  const togglePanel = (p: 'coverage') => {
-    setOpenPanel(prev => prev === p ? null : p);
-  };
-
   // Pill style — split border to avoid shorthand conflict
   const pillBase: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -189,7 +111,6 @@ export default function NewTopicPage() {
     borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--color-border-secondary)',
     background: 'transparent', color: 'var(--color-text-secondary)', fontFamily: 'inherit',
   };
-  const pillActiveStyle: React.CSSProperties = { borderColor: '#0F6E56', background: '#E1F5EE', color: '#085041' };
 
   const showSearchPills = debouncedQuery.length >= 2 && sharedTopics.length > 0;
   const pills = showSearchPills
@@ -242,10 +163,6 @@ export default function NewTopicPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5,
           padding: '7px 10px', borderTop: '0.5px solid var(--color-border-tertiary)',
         }}>
-          <button type="button" onClick={() => togglePanel('coverage')}
-            style={{ ...pillBase, ...(openPanel === 'coverage' ? pillActiveStyle : {}) }}>
-            <ScanLine size={11} />{coverage}<ChevronDown size={10} />
-          </button>
           <button
             type="button"
             onClick={handleSubmit}
@@ -265,14 +182,6 @@ export default function NewTopicPage() {
           </button>
         </div>
       </div>
-
-      {/* Dropdowns */}
-      {openPanel === 'coverage' && (
-        <div style={{ width: '100%', maxWidth: 420 }}>
-          <DropdownPanel options={COVERAGE_OPTIONS} selected={coverage}
-            onSelect={l => { setCoverage(l); setOpenPanel(null); }} />
-        </div>
-      )}
 
       {/* Error / nudge */}
       {error && <p style={{ fontSize: 12, color: '#B91C1C', textAlign: 'center', marginTop: 10, maxWidth: 420 }}>{error}</p>}

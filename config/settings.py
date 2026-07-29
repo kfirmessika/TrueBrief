@@ -248,6 +248,21 @@ RSS_FEEDS_PATH = _PROJECT_ROOT / "config" / "rss_feeds.yaml"
 
 
 # ---------------------------------------------------------------------------
+# V5 cutover
+# ---------------------------------------------------------------------------
+# The Gemini Search collector went live in production on 2026-07-22 (commit 8e5b9ae).
+# Everything stored before that came from the V4 collect/harvest/scrape pipeline, which
+# is frozen and no longer runs (docs/core/V4_ARCHIVE.md). Verified against real data:
+# on the "iran war" topic, all 774 facts up to 2026-07-20 have zero Gemini grounding
+# URLs, and every fact from 2026-07-25 on has them — a clean break with no overlap.
+#
+# User-facing history views filter to this boundary so the UI shows the current
+# system's output only. The V4 rows stay in the database untouched; this hides them,
+# it does not delete them.
+V5_CUTOVER_DATE = "2026-07-22"
+
+
+# ---------------------------------------------------------------------------
 # Arbiter Thresholds
 # ---------------------------------------------------------------------------
 SIMILARITY_THRESHOLD_DUPLICATE = 0.90   # Phase 1 baseline (still used by tests)

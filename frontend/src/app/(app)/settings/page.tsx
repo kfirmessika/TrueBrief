@@ -3,9 +3,10 @@
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { ApiKey, ApiKeyUsage } from '@/lib/api';
 import { useTier } from '@/hooks/useTier';
+import { getTimezone, setTimezone, listTimezones, tzShortLabel } from '@/lib/timezone';
 
 interface UserStats {
   total_briefs: number;
@@ -35,6 +36,51 @@ const primaryBtn: React.CSSProperties = {
 };
 
 // ── Billing section ──────────────────────────────────────────────────────────
+
+// Scan schedules are stored and run in UTC; this only controls how times are shown and
+// entered on the topic page. Defaults to whatever zone the browser reports, so it is
+// already correct for most people without ever opening this setting — the picker is for
+// the case where the browser is wrong (travel, a VPS, a shared machine).
+function TimezoneSection() {
+  const [tz, setTz] = useState(getTimezone);
+  const zones = useMemo(() => listTimezones(), []);
+  const [saved, setSaved] = useState(false);
+
+  const change = (next: string) => {
+    setTz(next);
+    setTimezone(next);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  return (
+    <div style={card}>
+      <div style={{ ...row, borderBottom: 'none', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <span style={label}>Time zone</span>
+          <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '2px 0 0' }}>
+            Scan times are shown and entered in this zone ({tzShortLabel(tz)}).
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {saved && <span style={{ fontSize: 11, color: 'var(--tb-green)' }}>Saved</span>}
+          <select
+            value={tz}
+            onChange={(e) => change(e.target.value)}
+            style={{
+              fontSize: 12, padding: '4px 8px', borderRadius: 6, maxWidth: 220,
+              border: '0.5px solid var(--color-border-secondary)',
+              background: 'var(--color-background-primary)',
+              color: 'var(--color-text-primary)',
+            }}
+          >
+            {zones.map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function BillingSection() {
   const api = useApi();
@@ -357,6 +403,9 @@ export default function SettingsPage() {
           <span style={value}>{stats ? `${stats.time_saved_minutes} min` : '—'}</span>
         </div>
       </div>
+
+      {/* Preferences */}
+      <TimezoneSection />
 
       {/* Billing */}
       <BillingSection />
