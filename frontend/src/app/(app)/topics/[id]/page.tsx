@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, use, useState } from 'react';
 import { Clock, ScanSearch } from 'lucide-react';
 import { useScanStatus, useTriggerScan } from '@/hooks/useTopics';
 import { SourceChip } from '@/components/SourceChip';
-import { getTimezone, utcToLocal, localToUtc, fmtHM, tzShortLabel } from '@/lib/timezone';
+import { getTimezone, utcToLocal, localToUtc, fmtHM, tzShortLabel, type ScheduleTime } from '@/lib/timezone';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,6 @@ interface Topic {
 // Replaces the old Auto/Slow/Medium/Fast/Ultra-Fast interval picker: the user sets
 // specific daily run times (UTC) instead of a polling interval AYR used to manage.
 
-interface ScheduleTime { hour: number; minute: number }
 interface ScheduleResponse { times: ScheduleTime[]; is_default: boolean }
 
 /** A stored UTC schedule time, rendered in the viewer's own zone. */

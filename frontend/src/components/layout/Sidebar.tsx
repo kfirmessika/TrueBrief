@@ -2,11 +2,11 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useClerk } from '@clerk/nextjs';
 import { useApi } from '@/lib/useApi';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2,
+  Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2, LogOut, CreditCard,
 } from 'lucide-react';
 
 interface Topic {
@@ -35,12 +35,25 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useUser();
+  const { signOut } = useClerk();
   const api = useApi();
 
   const queryClient = useQueryClient();
   const [hoveredTopic, setHoveredTopic] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Long staleTime: this is fetched on every page (Sidebar is in the app shell), so
+  // it's kept cheap and just needs to be right eventually, not live. is_admin only
+  // controls whether the Admin LINK is shown — /admin/* is independently gated
+  // server-side, so a stale "false" here is a UX inconvenience, never a security gap.
+  const { data: stats } = useQuery<{ is_admin?: boolean }>({
+    queryKey: ['user-stats'],
+    queryFn: async () => (await api.get('/users/me/stats')).data,
+    staleTime: 10 * 60_000,
+  });
 
   const { data: topics = [] } = useQuery<Topic[]>({
     queryKey: ['topics'],
@@ -89,6 +102,9 @@ export default function Sidebar() {
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpenMenu(null);
+      }
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) {
+        setShowAccountMenu(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -275,15 +291,20 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div style={{ marginTop: 'auto', borderTop: '0.5px solid var(--color-border-tertiary)', padding: 6 }}>
-        <div
-          onClick={() => router.push('/admin')}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: pathname === '/admin' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)', background: pathname === '/admin' ? 'var(--color-background-tertiary)' : 'transparent' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = pathname === '/admin' ? 'var(--color-background-tertiary)' : 'transparent'; }}
-        >
-          <BarChart2 size={14} />
-          Admin
-        </div>
+        {/* Only shown to admins (server confirms independently — this just hides a link
+            that would otherwise 403 for everyone else). Direct navigation to /admin
+            still works for a founder even if this flag is ever stale. */}
+        {stats?.is_admin && (
+          <div
+            onClick={() => router.push('/admin')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: pathname === '/admin' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)', background: pathname === '/admin' ? 'var(--color-background-tertiary)' : 'transparent' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = pathname === '/admin' ? 'var(--color-background-tertiary)' : 'transparent'; }}
+          >
+            <BarChart2 size={14} />
+            Admin
+          </div>
+        )}
         <div
           onClick={() => router.push('/settings')}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)' }}
@@ -293,16 +314,61 @@ export default function Sidebar() {
           <Settings size={14} />
           Settings
         </div>
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'default', fontSize: 12, color: 'var(--color-text-secondary)' }}
-        >
-          <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--tb-green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>
-            {initials}
+
+        {/* Account — click opens a minimal popover (billing shortcut + sign out).
+            Settings already covers everything else, one row up; not duplicated here. */}
+        <div ref={accountMenuRef} style={{ position: 'relative' }}>
+          <div
+            onClick={() => setShowAccountMenu(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)', background: showAccountMenu ? 'var(--color-background-tertiary)' : 'transparent' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = showAccountMenu ? 'var(--color-background-tertiary)' : 'transparent'; }}
+          >
+            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--tb-green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>
+              {initials}
+            </div>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{displayName}</span>
+            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--color-background-info)', color: 'var(--color-text-info)', flexShrink: 0 }}>
+              Free
+            </span>
           </div>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{displayName}</span>
-          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--color-background-info)', color: 'var(--color-text-info)', flexShrink: 0 }}>
-            Free
-          </span>
+
+          {showAccountMenu && (
+            <div style={{
+              position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 4, zIndex: 50,
+              background: 'var(--color-background-primary)',
+              border: '0.5px solid var(--color-border-secondary)',
+              borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              padding: 4, overflow: 'hidden',
+            }}>
+              <button
+                onClick={() => { setShowAccountMenu(false); router.push('/settings'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  padding: '7px 8px', borderRadius: 6, border: 'none', background: 'none',
+                  cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'left', fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+              >
+                <CreditCard size={13} />
+                Billing
+              </button>
+              <button
+                onClick={() => { setShowAccountMenu(false); signOut(); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  padding: '7px 8px', borderRadius: 6, border: 'none', background: 'none',
+                  cursor: 'pointer', fontSize: 12, color: 'var(--tb-coral-dot)', textAlign: 'left', fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+              >
+                <LogOut size={13} />
+                Log out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

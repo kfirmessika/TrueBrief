@@ -4,13 +4,16 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApi } from '@/lib/useApi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, Clock } from 'lucide-react';
+import { getTimezone, localToUtc, utcToLocal, fmtHM, tzShortLabel, type ScheduleTime } from '@/lib/timezone';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-// V5 (docs/core/architecture_v5.md §7): scan cadence is set via manual alarm-clock
-// times on the topic page after creation, not at creation time — a new topic starts
-// with the default (once/day) schedule automatically.
+// V5 (docs/core/architecture_v5.md §7): scan cadence is manual alarm-clock times.
+// Times can now be set HERE at creation (stored as local component state, converted
+// to UTC and PUT to the topic right after it's created — there's no topic id to attach
+// a schedule to before that POST resolves) or left as the default and changed later
+// from the topic page, which has the server-backed version of this same picker.
 //
 // The Quick/Standard/Thorough "coverage" picker that used to sit in the action bar was
 // removed here: its value was never sent to the API (pure decoration), and its options
@@ -41,6 +44,43 @@ export default function NewTopicPage() {
   const [nudge, setNudge] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shellFocused, setShellFocused] = useState(false);
+  // Schedule (UTC pairs). Empty = leave the default (once/day) — same server meaning
+  // as an empty times[] on the topic-page picker.
+  const [customTimes, setCustomTimes] = useState<ScheduleTime[]>([]);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [newTimeInput, setNewTimeInput] = useState('09:00');
+  const scheduleRef = useRef<HTMLDivElement>(null);
+  const tz = getTimezone();
+
+  useEffect(() => {
+    if (!showSchedule) return;
+    const onClick = (e: MouseEvent) => {
+      if (scheduleRef.current && !scheduleRef.current.contains(e.target as Node)) setShowSchedule(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [showSchedule]);
+
+  const addCustomTime = () => {
+    const [hStr, mStr] = newTimeInput.split(':');
+    const localHour = parseInt(hStr, 10);
+    const localMinute = parseInt(mStr, 10);
+    if (Number.isNaN(localHour) || Number.isNaN(localMinute)) return;
+    const utc = localToUtc(localHour, localMinute, tz);
+    if (customTimes.some(t => t.hour === utc.hour && t.minute === utc.minute)) return;
+    setCustomTimes([...customTimes, utc].sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute)));
+  };
+
+  const removeCustomTime = (t: ScheduleTime) => {
+    setCustomTimes(customTimes.filter(x => !(x.hour === t.hour && x.minute === t.minute)));
+  };
+
+  const localTimes = customTimes.map(t => utcToLocal(t.hour, t.minute, tz));
+  const scheduleLabel = localTimes.length === 0
+    ? 'Default (daily)'
+    : localTimes.length <= 2
+      ? localTimes.map(l => fmtHM(l.hour, l.minute)).join(', ')
+      : `${localTimes.length} times/day`;
 
   // Debounce the query for search
   useEffect(() => {
@@ -77,6 +117,17 @@ export default function NewTopicPage() {
     setNudge(false);
     try {
       const res = await api.post('/topics', { raw_query: q });
+      // Custom times set before submit -> apply now. No topic id exists until this
+      // POST resolves, so this can't happen any earlier; an empty list here just
+      // means "leave the default (once/day)" and nothing needs to be sent.
+      if (customTimes.length > 0) {
+        try {
+          await api.put(`/topics/${res.data.id}/schedule`, { times: customTimes });
+        } catch {
+          // Topic creation already succeeded — a failed schedule PUT shouldn't block
+          // navigation. The topic page's own picker (server-backed) covers retrying.
+        }
+      }
       await qc.invalidateQueries({ queryKey: ['topics'] });
       // Store the first scan task_id so the topic page can show the progress bar
       if (res.data.scan_task_id) {
@@ -163,6 +214,82 @@ export default function NewTopicPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5,
           padding: '7px 10px', borderTop: '0.5px solid var(--color-border-tertiary)',
         }}>
+          <div ref={scheduleRef} style={{ position: 'relative', marginRight: 'auto' }}>
+            <button
+              type="button"
+              onClick={() => setShowSchedule(v => !v)}
+              style={{ ...pillBase, ...(showSchedule || customTimes.length > 0 ? { borderColor: '#0F6E56', background: '#E1F5EE', color: '#085041' } : {}) }}
+            >
+              <Clock size={11} />{scheduleLabel}
+            </button>
+            {showSchedule && (
+              <div style={{
+                position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, zIndex: 50,
+                background: 'var(--color-background-primary)',
+                border: '0.5px solid var(--color-border-secondary)',
+                borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                minWidth: 240, padding: 10,
+              }}>
+                <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-tertiary)', margin: '0 0 8px' }}>
+                  Scheduled run times · {tzShortLabel(tz)}
+                </p>
+                {customTimes.length === 0 ? (
+                  <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>
+                    Default — once a day at {(() => { const l = utcToLocal(9, 0, tz); return fmtHM(l.hour, l.minute); })()}.
+                    Add a time below to set your own schedule.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                    {localTimes.map((l, i) => (
+                      <span
+                        key={`${customTimes[i].hour}:${customTimes[i].minute}`}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)',
+                          background: 'var(--color-background-secondary)',
+                          padding: '3px 6px 3px 8px', borderRadius: 12,
+                        }}
+                      >
+                        {fmtHM(l.hour, l.minute)}
+                        <button
+                          type="button"
+                          onClick={() => removeCustomTime(customTimes[i])}
+                          title="Remove this time"
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)', fontSize: 13, lineHeight: 1, padding: 0, display: 'flex' }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="time"
+                    value={newTimeInput}
+                    onChange={(e) => setNewTimeInput(e.target.value)}
+                    style={{
+                      fontSize: 12, padding: '4px 6px', borderRadius: 6,
+                      border: '0.5px solid var(--color-border-secondary)',
+                      background: 'var(--color-background-primary)',
+                      color: 'var(--color-text-primary)', flex: 1,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomTime}
+                    style={{
+                      fontSize: 12, fontWeight: 500, color: 'var(--tb-green)',
+                      background: 'none', border: '0.5px solid var(--tb-green)',
+                      borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={handleSubmit}

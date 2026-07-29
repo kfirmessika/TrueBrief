@@ -50,6 +50,31 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   );
 }
 
+// Raw pipeline_run.exit_status / llm_call_log.stage values, for a founder-facing label
+// instead of the internal snake_case name. Anything not listed here still renders —
+// this is cosmetic, not a whitelist.
+const STAGE_LABELS: Record<string, string> = {
+  gemini_search: 'Search (Gemini)',
+  gemini_extract: 'Extraction',
+  arbiter: 'Dedup / Judge',
+  briefer: 'Brief writing',
+  signal_scorer: 'Signal scoring',
+  query_builder: 'Query building',
+  harvester: 'Harvesting (V4)',
+  story_stitch: 'Story stitching',
+  story_summarizer: 'Story summary',
+  dashboard_summary: 'Dashboard summary',
+  state_of_play: 'State of play',
+};
+const STATUS_LABELS: Record<string, string> = {
+  success: 'Success', running: 'Running', error: 'Error',
+  no_update: 'No new facts', failure: 'Failure',
+};
+const STATUS_COLOR: Record<string, string> = {
+  success: 'var(--tb-green-dark)', running: 'var(--tb-amber)',
+  error: '#DC2626', failure: '#DC2626', no_update: 'var(--color-text-tertiary)',
+};
+
 function StatusBadge({ status }: { status: string | null }) {
   const s = (status ?? 'unknown').toLowerCase();
   const colors: Record<string, { bg: string; color: string }> = {
@@ -158,34 +183,68 @@ export default function AdminPage() {
         <StatCard label="Total cost" value={`$${t.total_cost_usd.toFixed(4)}`} sub="cumulative LLM spend" />
         <StatCard label="Total tokens" value={t.total_tokens.toLocaleString()} />
         <StatCard label="Avg duration" value={`${t.avg_duration_s}s`} sub="per pipeline run" />
-        <StatCard
-          label="Run status"
-          value={Object.entries(data!.runs_by_status).map(([k, v]) => `${k}: ${v}`).join(' / ') || '—'}
-        />
       </div>
 
-      {/* Cost by stage */}
-      {Object.keys(data!.cost_by_stage).length > 0 && (
+      {/* Run status — was one crammed "k: v / k: v" string in a stat tile; a real
+          breakdown reads in a glance instead of requiring the tile be parsed. */}
+      {Object.keys(data!.runs_by_status).length > 0 && (
         <section style={{ marginBottom: 28 }}>
           <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
-            LLM Cost by Stage
+            Run Status <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12 }}>(last {t.pipeline_runs})</span>
           </h2>
-          <div style={{ background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-secondary)', borderRadius: 10, overflow: 'hidden' }}>
-            {Object.entries(data!.cost_by_stage).map(([stage, cost], i) => (
-              <div key={stage} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 16px',
-                borderTop: i > 0 ? '0.5px solid var(--color-border-tertiary)' : 'none',
-              }}>
-                <span style={{ fontSize: 13, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>{stage}</span>
-                <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
-                  ${cost.toFixed(6)}
-                </span>
-              </div>
-            ))}
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            {Object.entries(data!.runs_by_status)
+              .sort((a, b) => b[1] - a[1])
+              .map(([status, count]) => (
+                <div key={status} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                  <span style={{ fontSize: 20, fontWeight: 600, color: STATUS_COLOR[status] ?? 'var(--color-text-primary)' }}>
+                    {count}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    {STATUS_LABELS[status] ?? status}
+                  </span>
+                </div>
+              ))}
           </div>
         </section>
       )}
+
+      {/* Cost by stage — non-zero stages only; a $0.000000 row next to real spend reads
+          as broken tracking, not "this stage happens to be free" (which is what it
+          usually means: an embedding model, or a stage that hasn't run in this window). */}
+      {(() => {
+        const priced = Object.entries(data!.cost_by_stage)
+          .filter(([, cost]) => cost > 0)
+          .sort((a, b) => b[1] - a[1]);
+        const freeCount = Object.keys(data!.cost_by_stage).length - priced.length;
+        if (priced.length === 0) return null;
+        return (
+          <section style={{ marginBottom: 28 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
+              LLM Cost by Stage
+            </h2>
+            <div style={{ background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-secondary)', borderRadius: 10, overflow: 'hidden' }}>
+              {priced.map(([stage, cost], i) => (
+                <div key={stage} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 16px',
+                  borderTop: i > 0 ? '0.5px solid var(--color-border-tertiary)' : 'none',
+                }}>
+                  <span style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>{STAGE_LABELS[stage] ?? stage}</span>
+                  <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+                    ${cost.toFixed(4)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {freeCount > 0 && (
+              <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '6px 0 0' }}>
+                +{freeCount} other stage{freeCount === 1 ? '' : 's'} at $0 (unused in this window, or a free embedding call)
+              </p>
+            )}
+          </section>
+        );
+      })()}
 
       {/* Recent runs */}
       <section>

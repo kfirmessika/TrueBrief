@@ -683,15 +683,22 @@ class UserStatsResponse(BaseModel):
     total_briefs: int
     articles_scanned: int
     time_saved_minutes: int
+    # Lets the sidebar decide whether to show the Admin link at all, instead of showing
+    # it to every user and letting non-admins hit a 403 on click. Piggybacks on this
+    # endpoint (already fetched by Settings) rather than adding a new one just for a
+    # boolean. /admin/* itself is still independently gated server-side by _is_admin —
+    # this field only controls whether the LINK is shown, never access on its own.
+    is_admin: bool = False
 
 @router.get("/users/me/stats", response_model=UserStatsResponse)
 def get_user_stats(user: User = Depends(get_current_user)):
     """Return aggregate stats for the current user: briefs delivered, articles scanned, time saved."""
     db = get_supabase()
+    is_admin_user = _is_admin(user)
 
     subs = db.table("topic_subscriptions").select("topic_id").eq("user_id", user.id).execute()
     if not subs.data:
-        return {"total_briefs": 0, "articles_scanned": 0, "time_saved_minutes": 0}
+        return {"total_briefs": 0, "articles_scanned": 0, "time_saved_minutes": 0, "is_admin": is_admin_user}
 
     topic_ids = [s["topic_id"] for s in subs.data]
 
@@ -718,6 +725,7 @@ def get_user_stats(user: User = Depends(get_current_user)):
         "total_briefs": total_briefs,
         "articles_scanned": articles_scanned,
         "time_saved_minutes": time_saved,
+        "is_admin": is_admin_user,
     }
 
 
@@ -1514,20 +1522,22 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
     cost_by_stage: dict = {}
     total_tokens = 0
 
+    # Uses the llm_cost_by_stage RPC (migration 027) rather than a raw unbounded select
+    # on llm_call_log. That table has 11,000+ rows; PostgREST silently caps an unordered,
+    # unlimited select at 1000, so a hand-summed total here was reading only an arbitrary
+    # slice of the table (verified live 2026-07-29: it landed on rows from before the
+    # 2026-07-22 pricing fix, so the dashboard read exactly $0.0000 despite real spend
+    # existing). days_back=3650 (~10y) so this stays a true cumulative total, not a
+    # rolling window — this dashboard has always shown all-time spend.
     try:
-        cost_res = (
-            db.table("llm_call_log")
-            .select("stage, cost_usd, input_tokens, output_tokens")
-            .execute()
-        )
+        cost_res = db.rpc("llm_cost_by_stage", {"days_back": 3650}).execute()
         for row in (cost_res.data or []):
-            c = row.get("cost_usd") or 0.0
+            c = float(row.get("total_cost_usd") or 0.0)
             total_cost_usd += c
-            stage = row.get("stage", "unknown")
-            cost_by_stage[stage] = cost_by_stage.get(stage, 0.0) + c
-            total_tokens += (row.get("input_tokens") or 0) + (row.get("output_tokens") or 0)
+            cost_by_stage[row.get("stage", "unknown")] = c
+            total_tokens += int(row.get("total_input_tokens") or 0) + int(row.get("total_output_tokens") or 0)
     except Exception:
-        pass  # table may not exist yet
+        pass  # RPC may not exist yet (pre-migration-027 environments)
 
     # ── Global counts ─────────────────────────────────────────────────────────
     total_topics = 0

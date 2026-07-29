@@ -5,6 +5,9 @@
 
 const STORAGE_KEY = 'tb_timezone';
 
+/** A daily run time, always stored/transmitted as UTC hour/minute. */
+export interface ScheduleTime { hour: number; minute: number }
+
 /** The user's chosen zone, or the browser's own if they've never picked one. */
 export function getTimezone(): string {
   if (typeof window !== 'undefined') {
