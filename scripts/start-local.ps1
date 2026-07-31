@@ -36,13 +36,20 @@ if (Test-Path $REDIS) {
 Start-Sleep -Seconds 2
 
 # [2] FastAPI  (prod: uvicorn truebrief.api.server:app --host 0.0.0.0 --port $PORT)
+# OPENBLAS_NUM_THREADS/OMP_NUM_THREADS=1: without these, numpy/OpenBLAS's threading
+# backend spawns its own worker pool as real child python.exe processes on Windows
+# (every arbiter fact-judge does a cosine-similarity op, so this fires constantly).
+# stop-local.ps1 only ever killed the parent PID, so those workers were orphaned on
+# every restart — found 2026-07-31 as 5+ accumulated zombie `--multiprocessing-fork`
+# processes eating ~1.6GB. Setting these prevents OpenBLAS from spawning the pool at
+# all, so there's nothing left to orphan.
 Write-Host "[2/5] Starting FastAPI on http://localhost:8000 ..." -ForegroundColor Yellow
-Start-Process -FilePath "cmd.exe" -ArgumentList '/k', "title TrueBrief-API && cd /d `"$ROOT`" && set PYTHONPATH=$SRC && `"$PYTHON`" -m uvicorn truebrief.api.server:app --host 0.0.0.0 --port 8000 --reload" -WindowStyle Normal
+Start-Process -FilePath "cmd.exe" -ArgumentList '/k', "title TrueBrief-API && cd /d `"$ROOT`" && set PYTHONPATH=$SRC && set OPENBLAS_NUM_THREADS=1 && set OMP_NUM_THREADS=1 && `"$PYTHON`" -m uvicorn truebrief.api.server:app --host 0.0.0.0 --port 8000 --reload" -WindowStyle Normal
 Start-Sleep -Seconds 3
 
 # [3] Celery Worker  (prod: PYTHONPATH=/app/src celery -A truebrief.tasks.celery_app worker --loglevel=info -c 2)
 Write-Host "[3/5] Starting Celery worker ..." -ForegroundColor Yellow
-Start-Process -FilePath "cmd.exe" -ArgumentList '/k', "title TrueBrief-Worker && cd /d `"$ROOT`" && set PYTHONPATH=$SRC && `"$PYTHON`" -m celery -A truebrief.tasks.celery_app worker --loglevel=info -P solo" -WindowStyle Normal
+Start-Process -FilePath "cmd.exe" -ArgumentList '/k', "title TrueBrief-Worker && cd /d `"$ROOT`" && set PYTHONPATH=$SRC && set OPENBLAS_NUM_THREADS=1 && set OMP_NUM_THREADS=1 && `"$PYTHON`" -m celery -A truebrief.tasks.celery_app worker --loglevel=info -P solo" -WindowStyle Normal
 Start-Sleep -Seconds 2
 
 # [4] Celery Beat  (prod: PYTHONPATH=/app/src celery -A truebrief.tasks.celery_app beat --loglevel=info)

@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Model used when BOTH Gemini keys are quota-exhausted and a call falls back to Groq.
     # 70b class: strong enough for harvester/arbiter-grade work in emergencies.
     GROQ_FALLBACK_MODEL: str = "llama-3.3-70b-versatile"
+    # Cheaper fallback for steps that don't need 70b-grade judgment (briefer is markdown
+    # synthesis from already-extracted facts, not open-ended reasoning). llm/client.py
+    # picks this over GROQ_FALLBACK_MODEL for steps in GROQ_FALLBACK_CHEAP_STEPS.
+    # $0.05/$0.08 per 1M vs 70b's $0.59/$0.79 — was previously landing on 70b for every
+    # step on quota-exhaustion, including briefer, at ~10x the necessary cost.
+    GROQ_FALLBACK_CHEAP_MODEL: str = "llama-3.1-8b-instant"
 
     # --- Collector ---
     TAVILY_API_KEY: str = ""
@@ -196,7 +202,7 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     "arbiter":        {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
 
     # Briefer: Writes the final markdown report. High reasoning needed.
-    "briefer":        {"provider": "gemini", "model": "gemini-2.0-flash"},
+    "briefer":        {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Garbage Filter: Trivial classification, low tokens.
     "garbage_filter": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
@@ -209,8 +215,7 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
 
     # State of Play (IC7): synthesizes the topic-level status block from stored facts.
     # High reasoning (must rank threads + assign statuses), strict JSON output.
-    # Uses Flash 2.0 (not Lite) because this is the user-facing narrative output.
-    "state_of_play":  {"provider": "gemini", "model": "gemini-2.0-flash"},
+    "state_of_play":  {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Dashboard summary (V4-3): 2-3 sentence executive summary of the most recent facts.
     # Routes to Groq (llama-3.1-8b-instant) when GROQ_API_KEY is set; falls back to Gemini.

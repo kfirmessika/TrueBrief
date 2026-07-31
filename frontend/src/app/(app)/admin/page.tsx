@@ -17,6 +17,8 @@ interface AdminMetrics {
   };
   runs_by_status: Record<string, number>;
   cost_by_stage: Record<string, number>;
+  benchmark_cost_usd: number;
+  benchmark_cost_by_stage: Record<string, number>;
   recent_runs: Array<{
     id: string;
     topic_id: string | null;
@@ -180,7 +182,7 @@ export default function AdminPage() {
         <StatCard label="Briefs" value={t.briefs} />
         <StatCard label="Facts" value={t.facts} />
         <StatCard label="Pipeline runs" value={t.pipeline_runs} />
-        <StatCard label="Total cost" value={`$${t.total_cost_usd.toFixed(4)}`} sub="cumulative LLM spend" />
+        <StatCard label="Total cost" value={`$${t.total_cost_usd.toFixed(4)}`} sub="V5 production spend" />
         <StatCard label="Total tokens" value={t.total_tokens.toLocaleString()} />
         <StatCard label="Avg duration" value={`${t.avg_duration_s}s`} sub="per pipeline run" />
       </div>
@@ -245,6 +247,41 @@ export default function AdminPage() {
           </section>
         );
       })()}
+
+      {/* Benchmark spend — scripts/quality_benchmark.py runs V4's PipelineRunner (harvester,
+          query_builder, signal_scorer, ...) on throwaway topics for the A/B comparison, and
+          logs to the same llm_call_log table as production. Kept separate and collapsed by
+          default so it never reads as V5 production cost. */}
+      {data!.benchmark_cost_usd > 0 && (
+        <details style={{ marginBottom: 28 }}>
+          <summary style={{
+            fontSize: 13, color: 'var(--color-text-tertiary)', cursor: 'pointer',
+            userSelect: 'none',
+          }}>
+            Benchmark spend (V4, not production): ${data!.benchmark_cost_usd.toFixed(4)}
+          </summary>
+          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '8px 0' }}>
+            From scripts/quality_benchmark.py's V4-vs-V5 comparison runs on throwaway topics —
+            not part of the live V5 pipeline.
+          </p>
+          <div style={{ background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-secondary)', borderRadius: 10, overflow: 'hidden' }}>
+            {Object.entries(data!.benchmark_cost_by_stage)
+              .sort((a, b) => b[1] - a[1])
+              .map(([stage, cost], i) => (
+                <div key={stage} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 16px',
+                  borderTop: i > 0 ? '0.5px solid var(--color-border-tertiary)' : 'none',
+                }}>
+                  <span style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>{STAGE_LABELS[stage] ?? stage}</span>
+                  <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+                    ${cost.toFixed(4)}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </details>
+      )}
 
       {/* Recent runs */}
       <section>

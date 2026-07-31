@@ -26,6 +26,12 @@ GEMINI_PRO_OUTPUT_PER_TOKEN = 0.000_005_000   # $5.00 per 1M tokens
 GEMINI_25_FLASH_LITE_INPUT_PER_TOKEN = 0.000_000_100   # $0.10 per 1M tokens
 GEMINI_25_FLASH_LITE_OUTPUT_PER_TOKEN = 0.000_000_400  # $0.40 per 1M tokens
 
+# Gemini 3.5 Flash Lite — briefer/state_of_play. Verified 2026-07-30 (ai.google.dev
+# /gemini-api/docs/pricing, standard tier). Do not swap this for an older name from
+# training data — always confirm the current model ID against this same page first.
+GEMINI_35_FLASH_LITE_INPUT_PER_TOKEN = 0.000_000_300   # $0.30 per 1M tokens
+GEMINI_35_FLASH_LITE_OUTPUT_PER_TOKEN = 0.000_002_500  # $2.50 per 1M tokens
+
 # text-embedding-004 / gemini-embedding-2 — free tier at this scale
 GEMINI_EMBEDDING_PER_TOKEN = 0.0
 
@@ -58,6 +64,7 @@ _INPUT_RATES: dict[str, float] = {
     "llama-3.1-8b-instant": GROQ_LLAMA8B_INPUT_PER_TOKEN,
     "llama-3.3-70b-versatile": GROQ_LLAMA70B_INPUT_PER_TOKEN,
     "gemini-2.5-flash-lite": GEMINI_25_FLASH_LITE_INPUT_PER_TOKEN,
+    "gemini-3.5-flash-lite": GEMINI_35_FLASH_LITE_INPUT_PER_TOKEN,
 }
 
 _OUTPUT_RATES: dict[str, float] = {
@@ -73,6 +80,7 @@ _OUTPUT_RATES: dict[str, float] = {
     "llama-3.1-8b-instant": GROQ_LLAMA8B_OUTPUT_PER_TOKEN,
     "llama-3.3-70b-versatile": GROQ_LLAMA70B_OUTPUT_PER_TOKEN,
     "gemini-2.5-flash-lite": GEMINI_25_FLASH_LITE_OUTPUT_PER_TOKEN,
+    "gemini-3.5-flash-lite": GEMINI_35_FLASH_LITE_OUTPUT_PER_TOKEN,
 }
 
 # V4 steps that we bill at Groq rates regardless of the model actually serving them.

@@ -1518,8 +1518,20 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
     ]
 
     # ── LLM costs ────────────────────────────────────────────────────────────
+    # V5 production (GeminiSearchRunner, pipeline/v5_runner.py) only ever calls these
+    # stages. Anything else (harvester, query_builder, signal_scorer, story_stitch, ...)
+    # is V4's PipelineRunner, which production never runs — it only fires from
+    # scripts/quality_benchmark.py's A/B comparison arm, on throwaway topics. Both write
+    # to the same llm_call_log table, so without this split the benchmark's cost silently
+    # dominates the "production spend" total and misreads as live cost.
+    V5_STAGES = {
+        "gemini_search", "gemini_extract", "arbiter", "briefer",
+        "dashboard_summary", "state_of_play",
+    }
     total_cost_usd = 0.0
     cost_by_stage: dict = {}
+    benchmark_cost_usd = 0.0
+    benchmark_cost_by_stage: dict = {}
     total_tokens = 0
 
     # Uses the llm_cost_by_stage RPC (migration 027) rather than a raw unbounded select
@@ -1533,9 +1545,14 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
         cost_res = db.rpc("llm_cost_by_stage", {"days_back": 3650}).execute()
         for row in (cost_res.data or []):
             c = float(row.get("total_cost_usd") or 0.0)
-            total_cost_usd += c
-            cost_by_stage[row.get("stage", "unknown")] = c
-            total_tokens += int(row.get("total_input_tokens") or 0) + int(row.get("total_output_tokens") or 0)
+            stage = row.get("stage", "unknown")
+            if stage in V5_STAGES:
+                total_cost_usd += c
+                cost_by_stage[stage] = c
+                total_tokens += int(row.get("total_input_tokens") or 0) + int(row.get("total_output_tokens") or 0)
+            else:
+                benchmark_cost_usd += c
+                benchmark_cost_by_stage[stage] = c
     except Exception:
         pass  # RPC may not exist yet (pre-migration-027 environments)
 
@@ -1564,6 +1581,11 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
         "cost_by_stage": {
             k: round(v, 6)
             for k, v in sorted(cost_by_stage.items(), key=lambda x: -x[1])
+        },
+        "benchmark_cost_usd": round(benchmark_cost_usd, 4),
+        "benchmark_cost_by_stage": {
+            k: round(v, 6)
+            for k, v in sorted(benchmark_cost_by_stage.items(), key=lambda x: -x[1])
         },
         "recent_runs": recent_runs,
     }

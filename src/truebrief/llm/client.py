@@ -46,6 +46,12 @@ pipeline_run_id_var: contextvars.ContextVar[Optional[str]] = contextvars.Context
     "pipeline_run_id", default=None
 )
 
+# Steps that fall back to GROQ_FALLBACK_CHEAP_MODEL (llama-3.1-8b-instant) instead of
+# GROQ_FALLBACK_MODEL (llama-3.3-70b-versatile) on quota exhaustion. briefer writes
+# markdown from already-extracted facts — no open-ended judgment call like
+# signal_scorer's topic-fit gate (which validated the 70b requirement 2026-07-07).
+_GROQ_FALLBACK_CHEAP_STEPS: frozenset[str] = frozenset({"briefer"})
+
 
 class LLMError(Exception):
     """Raised when an LLM call fails after all retries."""

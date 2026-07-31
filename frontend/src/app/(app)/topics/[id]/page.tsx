@@ -291,152 +291,9 @@ function BriefPanel({ topicId, lastRun }: { topicId: string; lastRun?: string | 
   );
 }
 
-// ── History view ─────────────────────────────────────────────────────────────
-
-interface HistoryFact {
-  id?: string | null;
-  text: string;
-  context: string | null;
-  event_class: string | null;
-  event_date: string | null;
-  first_seen_at: string | null;
-  source_domain: string | null;
-  source_url: string | null;
-  verified_count: number;
-  contradiction_note: string | null;
-}
-interface HistoryGroup { date: string; facts: HistoryFact[]; }
-interface HistoryDoc { built_at?: string; fact_count?: number; timeline: HistoryGroup[]; }
-
-// Only high-signal classes get a chip; routine/tally/incremental stay quiet.
-const CLASS_CHIP: Record<string, { label: string; color: string; bg: string }> = {
-  state_change: { label: 'Milestone', color: '#1A7A52', bg: '#E6F5EE' },
-  escalation:   { label: 'Escalation', color: '#B42318', bg: '#FBEAE8' },
-};
-
-function HistoryFactRow({ fact }: { fact: HistoryFact }) {
-  const chip = fact.event_class ? CLASS_CHIP[fact.event_class] : undefined;
-  return (
-    <div style={{ position: 'relative', paddingLeft: 22, paddingBottom: 16 }}>
-      {/* timeline marker */}
-      <span style={{
-        position: 'absolute', left: 0, top: 5, width: 9, height: 9, borderRadius: '50%',
-        background: chip ? chip.color : 'var(--color-border-secondary)',
-        boxShadow: chip ? `0 0 0 3px ${chip.bg}` : 'none',
-      }} />
-      <p style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--color-text-primary)', margin: 0 }}>
-        {fact.text}
-      </p>
-      {fact.context && (
-        <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--color-text-tertiary)', margin: '3px 0 0' }}>
-          {fact.context}
-        </p>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-        {chip && (
-          <span style={{
-            fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 20,
-            background: chip.bg, color: chip.color,
-          }}>
-            {chip.label}
-          </span>
-        )}
-        {(fact.source_domain || fact.source_url) && (
-          <SourceChip domain={fact.source_domain} url={fact.source_url} />
-        )}
-        {fact.verified_count > 1 && (
-          <span
-            title={`Confirmed by ${fact.verified_count} independent sources (only the primary source link is stored)`}
-            style={{
-              fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-tertiary)',
-              background: 'var(--color-background-tertiary)', borderRadius: 5, padding: '1px 6px',
-            }}
-          >
-            ✓ {fact.verified_count} sources
-          </span>
-        )}
-        {fact.first_seen_at && (
-          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', opacity: 0.7 }}>
-            {formatTime(fact.first_seen_at)}
-          </span>
-        )}
-        {fact.contradiction_note && (
-          <span title={`Disputed — ${fact.contradiction_note}`} style={{
-            fontSize: 10.5, fontWeight: 600, color: '#B45309',
-            background: '#FBF1E6', border: '1px solid #F3D9B8', borderRadius: 5, padding: '1px 6px', cursor: 'help',
-          }}>
-            ⚠️ Disputed
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// `lastRun` keyed for the same reason as BriefPanel — a server-side scheduled scan
-// stores new facts that this view would otherwise never pick up while the page is open.
-function HistoryView({ topicId, lastRun }: { topicId: string; lastRun?: string | null }) {
-  const api = useApi();
-  const { data, isLoading } = useQuery<HistoryDoc>({
-    queryKey: ['topic-history', topicId, lastRun],
-    queryFn: async () => (await api.get(`/topics/${topicId}/history`)).data,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-  });
-
-  const timeline = data?.timeline ?? [];
-
-  if (isLoading) {
-    return (
-      <div style={{ padding: '24px 22px' }}>
-        {[1, 2, 3].map((i) => (
-          <div key={i} style={{ marginBottom: 14, paddingLeft: 22 }}>
-            <div style={{ height: 12, width: '85%', background: 'var(--color-background-tertiary)', borderRadius: 4, marginBottom: 6 }} />
-            <div style={{ height: 11, width: '60%', background: 'var(--color-background-tertiary)', borderRadius: 4 }} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (timeline.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', paddingTop: 80 }}>
-        <p style={{ fontSize: 14, color: 'var(--color-text-tertiary)', margin: 0 }}>
-          No history yet. Run a scan to start the timeline.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: '8px 22px 48px' }}>
-      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '4px 0 6px' }}>
-        {(() => { const c = data?.fact_count ?? 0; return c >= 600 ? `${c}+` : c; })()} facts · newest first
-      </div>
-      {timeline.map((group) => (
-        <div key={group.date} style={{ marginBottom: 8 }}>
-          <div style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-            color: 'var(--color-text-secondary)', margin: '6px 0 10px',
-          }}>
-            {formatDayLabel(group.date)}
-          </div>
-          {/* vertical timeline rail */}
-          <div style={{ position: 'relative' }}>
-            <div style={{
-              position: 'absolute', left: 4, top: 4, bottom: 8, width: 1,
-              background: 'var(--color-border-tertiary)',
-            }} />
-            {group.facts.map((f, i) => (
-              <HistoryFactRow fact={f} key={f.id ?? i} />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+// Raw per-fact timeline (HistoryView/HistoryFactRow) removed 2026-07-30 — user
+// feedback: it looked bad next to the brief and duplicated the same facts less
+// readably. BriefPanel above is now the entire content area.
 
 // ── Scan progress bar ──────────────────────────────────────────────────────
 
@@ -825,12 +682,13 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      {/* Content — synthesized brief (what the benchmark scored) over the full
-          alpha + context timeline. Story mode removed for V5 (never proven better
-          than the plain feed; reintroduce post-production only if proven). */}
+      {/* Content — the synthesized brief only (what the benchmark scored). The raw
+          fact-by-fact timeline was removed 2026-07-30 — user feedback: it "looks
+          bad" next to the brief and duplicates the same information less readably.
+          Story mode removed for V5 (never proven better than the plain feed;
+          reintroduce post-production only if proven). */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <BriefPanel topicId={id} lastRun={topic?.last_scan_at} />
-        <HistoryView topicId={id} lastRun={topic?.last_scan_at} />
       </div>
     </div>
   );
