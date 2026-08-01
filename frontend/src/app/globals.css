@@ -202,3 +202,76 @@ body {
   background-color: var(--color-brand-subtle);
   color: var(--color-brand-light);
 }
+
+/* ============================================================
+   App shell — responsive + native (Capacitor) support
+   Desktop (>=768px): [ Sidebar | main ]
+   Mobile  (<768px):  [ main / BottomTabBar ]
+   Switched in CSS, never in JS, so SSR and hydration agree.
+   ============================================================ */
+
+.tb-app-shell {
+  display: flex;
+  flex-direction: row;
+  height: 100dvh;              /* dvh: survives mobile URL bar + keyboard */
+  overflow: hidden;
+  background: var(--color-background-primary);
+}
+
+.tb-app-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;   /* kills the rubber-band "this is a webpage" tell */
+}
+
+.tb-sidebar-wrap { display: flex; min-height: 0; }
+
+.tb-mobile-only { display: none; }
+
+@media (max-width: 767px) {
+  .tb-app-shell     { flex-direction: column; }
+  .tb-sidebar-wrap  { display: none; }
+  .tb-desktop-only  { display: none !important; }
+  .tb-mobile-only   { display: flex; }
+}
+
+/* Bottom tab bar clears the iOS home indicator / Android gesture bar. */
+.tb-bottom-tabs {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Native feel: no tap delay, no long-press callout, no text-select on chrome. */
+@media (max-width: 767px) {
+  button, a, [role='button'] { touch-action: manipulation; }
+  .tb-bottom-tabs, .tb-bottom-tabs * {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Loading skeletons — replaces blank-white "still loading a site" moments. */
+.tb-skeleton {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--color-background-tertiary) 25%,
+    var(--color-border-tertiary) 37%,
+    var(--color-background-tertiary) 63%
+  );
+  background-size: 400% 100%;
+  animation: tb-shimmer 1.4s ease infinite;
+}
+
+@keyframes tb-shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-skeleton { animation: none; }
+}

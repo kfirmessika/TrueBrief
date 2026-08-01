@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import Providers from "./providers";
 import PwaRegister from "@/components/PwaRegister";
+import NativeShell from "@/components/native/NativeShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,6 +33,11 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#4B52E2",
+  initialScale: 1,
+  width: "device-width",
+  // Lets the layout paint under the notch / gesture bar; the safe-area insets
+  // in globals.css then reclaim that space where it actually matters.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -48,6 +54,7 @@ export default function RootLayout({
       >
         <body className="h-full bg-[var(--color-background-primary)] text-[var(--color-text-primary)]">
           <PwaRegister />
+          <NativeShell />
           <Providers>
             {children}
           </Providers>
