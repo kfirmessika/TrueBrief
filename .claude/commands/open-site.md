@@ -1,8 +1,8 @@
 ---
-description: Start the frontend dev server (if not already running) and give the localhost link to open TrueBrief on your PC.
+description: Give the live TrueBrief URL (Railway production) to open on this PC. For local dev, use the run-truebrief-locally skill instead.
 argument-hint: (none)
 ---
 
-Start the frontend dev server via `preview_start` with `{name: "frontend"}` (config: `.claude/launch.json`, port 3000; reuses the server if already running).
+Tell the user the live production URL: **https://frontend-production-aa11.up.railway.app**
 
-Once started, tell the user the exact URL to open in their own browser: `http://localhost:3000`. Do not navigate the Browser pane for them — this command is for opening the site in the user's own browser window, not for Claude to preview it.
+Do not start any dev server, do not navigate the Browser pane. This command exists purely to hand back the link for the user to open in their own browser. If the user actually wants to run the app locally on this machine (not just view the live site), tell them to use the `run-truebrief-locally` skill instead.

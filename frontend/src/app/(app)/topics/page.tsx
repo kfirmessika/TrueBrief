@@ -9,7 +9,7 @@
  */
 
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { ChevronRight, Plus } from 'lucide-react';
 
@@ -64,6 +64,12 @@ export default function TopicsPage() {
     // skeleton as if it were a first-ever load. 30min covers realistic
     // between-tab-switches gaps without holding stale data forever.
     gcTime: 30 * 60_000,
+    // Belt-and-suspenders on top of gcTime: whatever the exact trigger is
+    // (cache eviction, a Clerk token-refresh re-render, a flaky mobile
+    // network causing a background refetch to reset query status), never
+    // drop back to a skeleton once real data has loaded once — keep
+    // rendering the last known-good list instead.
+    placeholderData: keepPreviousData,
   });
 
   return (
