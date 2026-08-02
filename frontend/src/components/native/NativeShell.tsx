@@ -11,6 +11,7 @@
  *  - white flash on cold start        → splash held until React mounts, then hidden
  *  - status bar clashing with the UI  → dark style, app-colored, not overlaying
  *  - hardware Back quitting the app   → walks in-app history first, exits only at root
+ *  - Google sign-in stuck in Chrome   → truebrief://oauth-callback forwarded back in-webview
  */
 
 import { useEffect } from 'react';
@@ -52,6 +53,24 @@ export default function NativeShell() {
         cleanups.push(() => { void handle.remove(); });
       } catch {
         /* fall through to default OS behaviour */
+      }
+
+      // Google OAuth completion: Android hands the browser's final redirect
+      // (truebrief://oauth-callback?<Clerk ticket>) to this activity. Forward
+      // the query string into an in-webview navigation to /sso-callback so
+      // Clerk.js completes the exchange using the APP's own cookie jar, not
+      // whatever browser context Google's login ran in.
+      try {
+        const { App } = await import('@capacitor/app');
+        const handle = await App.addListener('appUrlOpen', ({ url }) => {
+          const parsed = new URL(url);
+          if (parsed.protocol === 'truebrief:' && parsed.hostname === 'oauth-callback') {
+            window.location.href = `/sso-callback${parsed.search}`;
+          }
+        });
+        cleanups.push(() => { void handle.remove(); });
+      } catch {
+        /* if this fails, Google sign-in falls back to being stuck in the browser */
       }
 
       // Splash last: only drop it once the shell above is actually configured.

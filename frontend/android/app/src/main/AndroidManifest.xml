@@ -22,6 +22,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--
+                Google OAuth completion. Google blocks embedded webviews, so
+                sign-in with Google has to leave the app's webview and finish
+                in the system browser. Clerk's redirect-based OAuth doesn't
+                depend on cookies to hand the session back — it uses a
+                one-time ticket embedded in the redirect URL itself — so
+                pointing that redirect at this custom scheme lets Android
+                route the browser's final hop straight back into this
+                activity (singleTask above reuses the running instance
+                instead of spawning a new one). NativeShell's appUrlOpen
+                listener then forwards the ticket into an in-webview
+                navigation to /sso-callback, where Clerk.js completes the
+                exchange using its own cookie jar — the app's, not the
+                browser's.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="truebrief" android:host="oauth-callback" />
+            </intent-filter>
+
         </activity>
 
         <provider
