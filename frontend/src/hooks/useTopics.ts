@@ -16,6 +16,11 @@ export function useTopics() {
       const { data } = await api.get<Topic[]>('/topics');
       return data;
     },
+    // Default gcTime (5min) evicts the cache once every observer (Sidebar,
+    // the mobile Topics tab) has unmounted for that long — switching mobile
+    // tabs away and back later then re-shows a loading skeleton as if this
+    // were a first-ever load. 30min covers realistic between-visits gaps.
+    gcTime: 30 * 60_000,
   });
 }
 

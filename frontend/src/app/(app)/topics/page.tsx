@@ -59,6 +59,11 @@ export default function TopicsPage() {
     queryFn: async () => (await api.get('/topics')).data,
     staleTime: 10_000,
     refetchInterval: 8_000,
+    // Default gcTime (5min) evicts the cache once this screen is unmounted
+    // (switching tabs) for that long — coming back then re-shows the
+    // skeleton as if it were a first-ever load. 30min covers realistic
+    // between-tab-switches gaps without holding stale data forever.
+    gcTime: 30 * 60_000,
   });
 
   return (
