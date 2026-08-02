@@ -8,10 +8,11 @@ export default function Page() {
   // sign-up bounces to the system browser with no way back into the app.
   // Hide it there and keep it on web, where it works normally.
   //
-  // Clerk's <SignUp> mounts its internal widget once and does not react to
-  // `appearance` changing afterwards, so we must not render it until we know
-  // whether we're native — otherwise it mounts once with Google visible and
-  // never re-checks. Blank pane for one tick instead of a flash of the wrong UI.
+  // See sign-in/page.tsx for the two real bugs this fix went through:
+  // (1) appearance must be set before first mount (Clerk doesn't react to it
+  // changing later), (2) a className loses the cascade fight against Clerk's
+  // own injected CSS — a style object wins because it goes through Clerk's
+  // own styling engine instead.
   const isNativeApp = useIsNativeApp();
   if (isNativeApp === null) return <div className="min-h-screen bg-slate-50" />;
 
@@ -20,8 +21,8 @@ export default function Page() {
       <SignUp
         appearance={isNativeApp ? {
           elements: {
-            socialButtonsRoot: 'hidden',
-            dividerRow: 'hidden',
+            socialButtonsRoot: { display: 'none' },
+            dividerRow: { display: 'none' },
           },
         } : undefined}
       />

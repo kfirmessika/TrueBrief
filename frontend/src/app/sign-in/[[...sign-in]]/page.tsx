@@ -12,6 +12,13 @@ export default function Page() {
   // `appearance` changing afterwards, so we must not render it until we know
   // whether we're native — otherwise it mounts once with Google visible and
   // never re-checks. Blank pane for one tick instead of a flash of the wrong UI.
+  //
+  // A className ('hidden') here loses the cascade fight against Clerk's own
+  // injected CSS (Tailwind's plain `.hidden{display:none}` has no more
+  // specificity than Clerk's `.cl-socialButtonsRoot{display:flex}` — verified
+  // live in a running app: the class WAS applied, computed display was still
+  // `flex`). A style object goes through Clerk's own styling engine instead
+  // and actually wins.
   const isNativeApp = useIsNativeApp();
   if (isNativeApp === null) return <div className="min-h-screen bg-slate-50" />;
 
@@ -20,8 +27,8 @@ export default function Page() {
       <SignIn
         appearance={isNativeApp ? {
           elements: {
-            socialButtonsRoot: 'hidden',
-            dividerRow: 'hidden',
+            socialButtonsRoot: { display: 'none' },
+            dividerRow: { display: 'none' },
           },
         } : undefined}
       />
