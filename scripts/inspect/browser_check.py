@@ -4,11 +4,14 @@ TrueBrief Browser Inspector
 Uses Playwright to walk the live frontend and verify page rendering,
 console errors, and network failures for unauthenticated flows.
 
-Note on Clerk dev-instance auth:
-  Dashboard / topic-detail pages require a Clerk "dev browser" session that
-  involves a redirect through accounts.dev. This cannot be automated in headless
-  Playwright. Use `python scripts/inspect/api_check.py` for authenticated
-  endpoint verification.
+Note on Supabase Auth:
+  Dashboard / topic-detail pages require a signed-in session, and TrueBrief's
+  only sign-in paths are a Google OAuth redirect (interactive consent) or an
+  emailed magic link (signInWithOtp) — see AuthCard.tsx. Neither can be driven
+  headlessly in Playwright without a real inbox or a saved storage_state, so
+  those pages aren't automated here. Use `python scripts/inspect/api_check.py`
+  for authenticated endpoint verification (it mints a session directly via the
+  GoTrue admin API, bypassing the UI entirely).
 
 Usage:
     python scripts/inspect/browser_check.py
@@ -35,7 +38,6 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 FRONTEND_URL = "https://frontend-production-c9fa.up.railway.app"
 API_URL = "https://api-production-0bd2.up.railway.app"
-CLERK_SECRET_KEY = os.environ.get("CLERK_SECRET_KEY", "")
 SCREENSHOTS_DIR = Path(__file__).parent / "screenshots"
 
 ANSI_GREEN = "\033[92m"
@@ -45,8 +47,11 @@ ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
 ANSI_DIM = "\033[2m"
 
-# Noise URLs to suppress from the network failures report
-_NOISE_URLS = ("accounts.dev", "sentry.io", "clerk.accounts.dev", "_rsc=")
+# Noise URLs to suppress from the network failures report — Sentry's beacon and
+# Next.js RSC prefetch aborts are expected background noise unrelated to real
+# bugs. The Supabase project host itself is NOT filtered: a failed request
+# there is a real auth/API problem, not noise.
+_NOISE_URLS = ("sentry.io", "_rsc=")
 
 
 async def run_browser(headed: bool = False, screenshots: bool = True):
@@ -92,10 +97,9 @@ async def run_browser(headed: bool = False, screenshots: bool = True):
         import sys as _sys
         _sys.path.insert(0, str(Path(__file__).parent))
         import httpx as _httpx
-        from api_check import get_founder_user, get_jwt
-        _u = get_founder_user()
-        _jwt = get_jwt(_u["user_id"])
-        _h = {"Authorization": f"Bearer {_jwt}"}
+        from api_check import get_founder_access_token
+        _token = get_founder_access_token()
+        _h = {"Authorization": f"Bearer {_token}"}
         _topics = _httpx.get(f"{API_URL}/api/v1/topics", headers=_h, timeout=10)
         _topic_list = _topics.json() if _topics.status_code == 200 else []
         if _topic_list:
@@ -152,10 +156,11 @@ async def run_browser(headed: bool = False, screenshots: bool = True):
             await page.goto(f"{FRONTEND_URL}/sign-in", wait_until="networkidle", timeout=30000)
             content = await page.content()
             assert len(content) > 200, "Sign-in page is empty"
-            # Should have Clerk sign-in UI elements
-            has_clerk = await page.query_selector("[data-clerk-component], .cl-rootBox, input[name='identifier'], input[type='email']")
-            # Even if Clerk widget isn't visible, the page should not be blank
-            return "has_clerk_ui" if has_clerk else "page_loaded"
+            # Should have the custom AuthCard UI (frontend/src/components/auth/AuthCard.tsx):
+            # an email input for the magic-link form, or the "Continue with Google" button.
+            has_auth_card = await page.query_selector("input[type='email'], button:has-text('Continue with Google')")
+            # Even if the selector match is brittle to a future redesign, the page should not be blank.
+            return "has_auth_card_ui" if has_auth_card else "page_loaded"
 
         await check("Sign-in page renders", check_signin)
         await screenshot(page, "02_signin")
@@ -191,12 +196,13 @@ async def run_browser(headed: bool = False, screenshots: bool = True):
 
         # ── Authenticated pages: note the limitation ──
         print("\n── Authenticated Pages ──")
-        print(f"  {ANSI_YELLOW}[NOTE]{ANSI_RESET} {ANSI_DIM}Dashboard / topic-detail require Clerk dev-browser auth{ANSI_RESET}")
-        print(f"  {ANSI_DIM}       which cannot be automated in headless Playwright.{ANSI_RESET}")
+        print(f"  {ANSI_YELLOW}[NOTE]{ANSI_RESET} {ANSI_DIM}Dashboard / topic-detail require a real signed-in session{ANSI_RESET}")
+        print(f"  {ANSI_DIM}       (Google OAuth consent or an emailed magic link) that this{ANSI_RESET}")
+        print(f"  {ANSI_DIM}       headless browser has no way to establish.{ANSI_RESET}")
         print(f"  {ANSI_DIM}       Run `python scripts/inspect/api_check.py` for API verification.{ANSI_RESET}")
 
-        skip("Dashboard UI", "Clerk dev-instance requires accounts.dev browser flow")
-        skip("Topic detail UI", "Clerk dev-instance requires accounts.dev browser flow")
+        skip("Dashboard UI", "no signed-in session — Google OAuth / magic-link sign-in can't be automated headlessly")
+        skip("Topic detail UI", "no signed-in session — Google OAuth / magic-link sign-in can't be automated headlessly")
 
         # Quick sanity: do these URLs at least 302 to sign-in (not 500)?
         async def check_dashboard_redirect():
@@ -215,7 +221,7 @@ async def run_browser(headed: bool = False, screenshots: bool = True):
 
     if console_errors:
         js_errors = [e for e in console_errors if e["type"] == "error"
-                     and not any(n in e.get("text", "") for n in ("accounts.dev", "clerk_db_jwt", "Sentry"))]
+                     and not any(n in e.get("text", "") for n in ("Sentry",))]
         if js_errors:
             print(f"\n{ANSI_RED}{ANSI_BOLD}Console Errors ({len(js_errors)}){ANSI_RESET}")
             seen = set()

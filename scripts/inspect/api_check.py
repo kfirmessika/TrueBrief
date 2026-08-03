@@ -2,7 +2,9 @@
 TrueBrief API Inspector
 -----------------------
 Hits every known API endpoint against the live Railway deployment.
-Generates a Clerk JWT automatically via the Backend API — no manual login.
+Mints a real Supabase access token for the founder's account automatically
+via the GoTrue admin API (generate_link + verify) — no manual login, no
+browser.
 
 Usage:
     python scripts/inspect/api_check.py
@@ -23,8 +25,9 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 API_URL = "https://api-production-0bd2.up.railway.app"
 FRONTEND_URL = "https://frontend-production-c9fa.up.railway.app"
-CLERK_SECRET_KEY = os.environ["CLERK_SECRET_KEY"]
-CLERK_API = "https://api.clerk.com/v1"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")  # service-role/secret key — required for the GoTrue admin API
+FOUNDER_EMAIL = os.environ.get("FOUNDER_EMAIL", "")
 AUTH_CACHE = Path(__file__).parent / ".auth_cache.json"
 
 ANSI_GREEN = "\033[92m"
@@ -38,36 +41,56 @@ FAIL = "[FAIL]"
 WARN = "[WARN]"
 
 
-def get_founder_user() -> dict:
-    """Get the founder's Clerk user (only user in dev instance)."""
-    headers = {"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
-    r = httpx.get(f"{CLERK_API}/users?limit=1", headers=headers, timeout=10)
-    r.raise_for_status()
-    users = r.json()
-    if not users:
-        raise RuntimeError("No users found in Clerk — have you signed up at least once?")
-    u = users[0]
-    email = u["email_addresses"][0]["email_address"] if u.get("email_addresses") else "unknown"
-    return {"user_id": u["id"], "email": email}
+def _require(value: str, var_name: str, purpose: str) -> str:
+    if not value:
+        raise RuntimeError(f"Missing required env var {var_name} (needed for: {purpose})")
+    return value
 
 
-def get_jwt(user_id: str) -> str:
-    """Get a fresh JWT from the user's active Clerk session."""
-    headers = {"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
-    r = httpx.get(
-        f"{CLERK_API}/sessions?user_id={user_id}&status=active&limit=1",
-        headers=headers, timeout=10,
+def get_founder_access_token() -> str:
+    """
+    Mint a real Supabase access token for the founder's account, headlessly —
+    no browser, no manual login. Uses the GoTrue admin API:
+
+      1. POST /auth/v1/admin/generate_link (type=magiclink), authenticated with
+         the service-role/secret key -> returns a `hashed_token` for an
+         existing user looked up by email (does not create one).
+      2. POST /auth/v1/verify with that hashed_token -> returns a real session
+         (access_token, refresh_token, ...), exactly as if the founder had
+         clicked the emailed magic link.
+
+    Requires the founder to have already signed up once via the app (so the
+    email resolves to an existing auth.users row).
+    """
+    url = _require(SUPABASE_URL, "SUPABASE_URL", "the Supabase project URL to mint a token against")
+    key = _require(SUPABASE_KEY, "SUPABASE_KEY", "the Supabase service-role/secret key needed to call the GoTrue admin API")
+    email = _require(FOUNDER_EMAIL, "FOUNDER_EMAIL", "the founder's account email to mint a session for")
+
+    admin_headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    link_r = httpx.post(
+        f"{url}/auth/v1/admin/generate_link",
+        headers=admin_headers,
+        json={"type": "magiclink", "email": email},
+        timeout=10,
     )
-    r.raise_for_status()
-    sessions = r.json()
-    if not sessions:
-        raise RuntimeError(
-            "No active Clerk session found. Open the app in your browser and sign in once first."
-        )
-    session_id = sessions[0]["id"]
-    jwt_r = httpx.post(f"{CLERK_API}/sessions/{session_id}/tokens", headers=headers, json={"expires_in_seconds": 300}, timeout=10)
-    jwt_r.raise_for_status()
-    return jwt_r.json()["jwt"]
+    link_r.raise_for_status()
+    link_data = link_r.json()
+    hashed_token = link_data.get("hashed_token")
+    if not hashed_token:
+        raise RuntimeError(f"generate_link response had no hashed_token (keys: {list(link_data.keys())})")
+
+    verify_r = httpx.post(
+        f"{url}/auth/v1/verify",
+        headers={"apikey": key, "Content-Type": "application/json"},
+        json={"type": "magiclink", "token_hash": hashed_token},
+        timeout=10,
+    )
+    verify_r.raise_for_status()
+    session = verify_r.json()
+    access_token = session.get("access_token")
+    if not access_token:
+        raise RuntimeError(f"verify response had no access_token (keys: {list(session.keys())})")
+    return access_token
 
 
 def status_color(code: int) -> str:
@@ -100,11 +123,10 @@ def run(verbose: bool = False):
     print(f"{ANSI_DIM}Time:   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{ANSI_RESET}\n")
 
     # Auth
-    print("Authenticating via Clerk Backend API...")
+    print("Authenticating via Supabase GoTrue admin API...")
     try:
-        user = get_founder_user()
-        token = get_jwt(user["user_id"])
-        print(f"  {ANSI_GREEN}{OK}{ANSI_RESET} JWT acquired for {user['email']}\n")
+        token = get_founder_access_token()
+        print(f"  {ANSI_GREEN}{OK}{ANSI_RESET} Access token acquired for {FOUNDER_EMAIL}\n")
     except Exception as e:
         print(f"  {ANSI_RED}{FAIL} Auth failed: {e}{ANSI_RESET}")
         print("  Continuing with unauthenticated checks only.\n")

@@ -39,10 +39,9 @@ async def main():
     # ── Fetch real IDs via API ────────────────────────────────────────────────
     topic_id = brief_id = None
     try:
-        from api_check import get_founder_user, get_jwt
-        u   = get_founder_user()
-        jwt = get_jwt(u["user_id"])
-        hdr = {"Authorization": f"Bearer {jwt}"}
+        from api_check import get_founder_access_token
+        token = get_founder_access_token()
+        hdr = {"Authorization": f"Bearer {token}"}
         topics = _httpx.get(f"{API_URL}/api/v1/topics", headers=hdr, timeout=10).json()
         for topic in (topics if isinstance(topics, list) else []):
             b = _httpx.get(f"{API_URL}/api/v1/topics/{topic['id']}/briefs", headers=hdr, timeout=10).json()
@@ -85,7 +84,7 @@ async def main():
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
             viewport={"width": 1440, "height": 900},
-            # Disable webdriver flag so Clerk doesn't block it
+            # Disable webdriver flag to avoid generic bot-detection scripts
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
         )
         await context.add_init_script(
