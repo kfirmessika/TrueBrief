@@ -8,6 +8,7 @@
  * Renders on desktop too (harmless, and gives a wider overview than the rail).
  */
 
+import { useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
@@ -53,10 +54,15 @@ function SkeletonRow() {
 export default function TopicsPage() {
   const router = useRouter();
   const api = useApi();
+  const mountedAt = useRef(Date.now()).current;
+  const fetchCount = useRef(0);
 
-  const { data: topics, isLoading } = useQuery<Topic[]>({
+  const { data: topics, isLoading, isFetching, dataUpdatedAt, status } = useQuery<Topic[]>({
     queryKey: ['topics'],
-    queryFn: async () => (await api.get('/topics')).data,
+    queryFn: async () => {
+      fetchCount.current += 1;
+      return (await api.get('/topics')).data;
+    },
     staleTime: 10_000,
     refetchInterval: 8_000,
     // Default gcTime (5min) evicts the cache once this screen is unmounted
@@ -86,6 +92,10 @@ export default function TopicsPage() {
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--color-text-primary)' }}>
           Topics
         </h1>
+        {/* TEMP debug badge — remove once the flashing cause is confirmed. */}
+        <span style={{ fontSize: 9, color: 'red', fontFamily: 'monospace' }}>
+          st:{status} f:{isFetching ? 1 : 0} n:{fetchCount.current} age:{Math.round((Date.now() - dataUpdatedAt) / 1000)}s mount:{Math.round((Date.now() - mountedAt) / 1000)}s
+        </span>
         {!!topics?.length && (
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {topics.length} tracked
