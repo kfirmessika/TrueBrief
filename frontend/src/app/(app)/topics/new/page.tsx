@@ -30,6 +30,64 @@ const STATIC_PILLS = [
 
 interface SharedTopic { id: string; name: string; subscriber_count: number; }
 
+// Shape of an axios error, narrowed by hand so we don't pull axios types into a page.
+interface ApiErrorShape {
+  response?: {
+    status?: number;
+    data?: { detail?: unknown };
+    headers?: Record<string, unknown>;
+  };
+}
+
+/** "90" -> "about 2 minutes" (rounded up), for the 429 retry-after hint. */
+function formatWait(seconds: number): string {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} seconds`;
+  const mins = Math.ceil(seconds / 60);
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'}`;
+  const hrs = Math.ceil(mins / 60);
+  return `${hrs} hour${hrs === 1 ? '' : 's'}`;
+}
+
+/**
+ * Turn a failed POST /topics into an honest message.
+ *
+ * This used to be a single "Failed to create topic. Are you signed in?" for every
+ * non-402 failure, which sent us chasing a phantom auth bug while the real cause was
+ * a CORS preflight rejection (no `err.response` at all). Never collapse distinct
+ * failures into one guess again.
+ */
+function describeCreateError(err: unknown): { message: string; status: number | null } {
+  const res = (err as ApiErrorShape)?.response;
+
+  // No response object at all -> the request never completed: network down, DNS,
+  // or a CORS preflight the browser refused to hand back to JS.
+  if (!res) {
+    return { message: "Couldn't reach TrueBrief. Check your connection and try again.", status: null };
+  }
+
+  const status = res.status;
+  const detail = typeof res.data?.detail === 'string' ? res.data.detail : null;
+
+  let msg: string;
+  if (status === 401 || status === 403) {
+    msg = 'Your session expired. Please sign in again.';
+  } else if (status === 429) {
+    const raw = res.headers?.['retry-after'] ?? res.headers?.['Retry-After'];
+    const secs = raw == null ? NaN : parseInt(String(raw), 10);
+    msg = Number.isFinite(secs) && secs > 0
+      ? `Too many topics created in the last hour. Try again in about ${formatWait(secs)}.`
+      : 'Too many topics created in the last hour. Try again shortly.';
+  } else if (status === 400) {
+    msg = detail || "That topic couldn't be created. Try rewording it.";
+  } else if (typeof status === 'number' && status >= 500) {
+    msg = "TrueBrief's server had a problem creating this topic. Try again in a moment.";
+  } else {
+    msg = detail || 'Failed to create topic.';
+  }
+
+  return { message: msg, status: typeof status === 'number' ? status : null };
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function NewTopicPage() {
@@ -43,6 +101,7 @@ export default function NewTopicPage() {
   const [submitting, setSubmitting] = useState(false);
   const [nudge, setNudge] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [shellFocused, setShellFocused] = useState(false);
   // Schedule (UTC pairs). Empty = leave the default (once/day) — same server meaning
   // as an empty times[] on the topic-page picker.
@@ -114,6 +173,7 @@ export default function NewTopicPage() {
     if (!q || submitting) return;
     setSubmitting(true);
     setError(null);
+    setErrorStatus(null);
     setNudge(false);
     try {
       const res = await api.post('/topics', { raw_query: q });
@@ -135,9 +195,15 @@ export default function NewTopicPage() {
       }
       router.push(`/topics/${res.data.id}`);
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 402) setNudge(true);
-      else setError('Failed to create topic. Are you signed in?');
+      console.error('POST /topics failed', err);
+      const status = (err as ApiErrorShape)?.response?.status;
+      if (status === 402) {
+        setNudge(true);
+      } else {
+        const { message, status: code } = describeCreateError(err);
+        setError(message);
+        setErrorStatus(code);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -311,7 +377,16 @@ export default function NewTopicPage() {
       </div>
 
       {/* Error / nudge */}
-      {error && <p style={{ fontSize: 12, color: '#B91C1C', textAlign: 'center', marginTop: 10, maxWidth: 420 }}>{error}</p>}
+      {error && (
+        <p style={{ fontSize: 12, color: '#B91C1C', textAlign: 'center', marginTop: 10, maxWidth: 420 }}>
+          {error}
+          {errorStatus !== null && (
+            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 5 }}>
+              (HTTP {errorStatus})
+            </span>
+          )}
+        </p>
+      )}
       {nudge && (
         <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'center', marginTop: 10, maxWidth: 420 }}>
           Private topics need Pro. Follow a shared topic below (free), or{' '}

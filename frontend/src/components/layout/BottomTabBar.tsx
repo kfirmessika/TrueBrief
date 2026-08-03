@@ -31,7 +31,9 @@ export default function BottomTabBar() {
     <nav
       className="tb-mobile-only tb-bottom-tabs"
       style={{
-        display: 'flex',
+        // NO `display` here on purpose: an inline style beats the stylesheet,
+        // so setting display:flex made .tb-mobile-only { display:none } a no-op
+        // and the bar showed on desktop too. globals.css owns visibility.
         borderTop: '0.5px solid var(--color-border-tertiary)',
         background: 'var(--color-background-secondary)',
         flexShrink: 0,
