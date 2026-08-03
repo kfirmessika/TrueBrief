@@ -17,7 +17,15 @@ import { createClient } from '@/lib/supabase/server';
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
-  const origin = request.nextUrl.origin;
+
+  // Behind Railway's reverse proxy, request.nextUrl.origin reflects the
+  // container's internal bind address (localhost:8080), not the public
+  // domain the browser actually used. Derive it from the forwarded headers
+  // instead -- the same pattern Supabase's own docs use for this exact
+  // load-balancer situation.
+  const forwardedHost = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') ?? 'https';
+  const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : request.nextUrl.origin;
 
   if (!code) {
     return NextResponse.redirect(`${origin}/sign-in?error=Missing authorization code.`);
