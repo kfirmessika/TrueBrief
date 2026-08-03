@@ -20,6 +20,26 @@ import { createClient } from '@/lib/supabase/client';
 import { useIsNativeApp } from '@/hooks/useIsNativeApp';
 import NativeGoogleButton from '@/components/native/NativeGoogleButton';
 
+/**
+ * Where Supabase sends the browser after Google/magic-link auth.
+ *
+ * NEXT_PUBLIC_SITE_URL wins when set, so the deployed domain can change
+ * (or move to a custom domain) without a code change — just update the env
+ * var and the Supabase redirect allowlist. Falls back to the current origin
+ * so local dev on localhost:3000 works with no config at all.
+ *
+ * Whatever this resolves to MUST also be listed in
+ * Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs,
+ * or Supabase silently drops the redirect and falls back to the Site URL.
+ *
+ * Native (Capacitor) does NOT use this — it needs the truebrief:// custom
+ * scheme instead. See NativeGoogleButton.
+ */
+function callbackUrl(): string {
+  const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') || window.location.origin;
+  return `${base}/sso-callback`;
+}
+
 const googleButtonStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
   width: '100%', padding: '10px 16px',
@@ -56,7 +76,7 @@ export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/sso-callback`,
+        redirectTo: callbackUrl(),
       },
     });
     if (oauthError) {
@@ -75,7 +95,7 @@ export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${window.location.origin}/sso-callback`,
+        emailRedirectTo: callbackUrl(),
       },
     });
     if (otpError) {
