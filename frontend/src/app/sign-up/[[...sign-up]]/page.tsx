@@ -17,12 +17,13 @@ export default function Page() {
         </div>
       )}
       <SignUp
-        appearance={isNativeApp ? {
-          elements: {
+        appearance={{
+          elements: isNativeApp ? {
             socialButtonsRoot: { display: 'none' },
             dividerRow: { display: 'none' },
-          },
-        } : undefined}
+          } : undefined,
+          options: { unsafe_disableDevelopmentModeWarnings: true },
+        }}
       />
     </div>
   );

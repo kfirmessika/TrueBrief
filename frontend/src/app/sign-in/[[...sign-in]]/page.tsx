@@ -33,12 +33,17 @@ export default function Page() {
         </div>
       )}
       <SignIn
-        appearance={isNativeApp ? {
-          elements: {
+        appearance={{
+          elements: isNativeApp ? {
             socialButtonsRoot: { display: 'none' },
             dividerRow: { display: 'none' },
-          },
-        } : undefined}
+          } : undefined,
+          // Real accuracy note, not just cosmetic: this instance is on a
+          // Clerk dev/test key (strict rate limits). Hiding this per user's
+          // explicit repeated request — the tradeoff is a rate-limit error
+          // could now surface with no visible warning beforehand.
+          options: { unsafe_disableDevelopmentModeWarnings: true },
+        }}
       />
     </div>
   );

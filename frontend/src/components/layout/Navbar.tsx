@@ -88,6 +88,7 @@ export default function Navbar() {
               <UserButton
                 appearance={{
                   elements: { avatarBox: 'h-8 w-8' },
+                  options: { unsafe_disableDevelopmentModeWarnings: true },
                 }}
               />
             )}

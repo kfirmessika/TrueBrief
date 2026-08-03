@@ -46,7 +46,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      appearance={{
+        // This instance is on a Clerk dev/test key (real, strict rate
+        // limits) — hiding this warning removes the only visible signal of
+        // that before a limit is hit. User's explicit repeated call.
+        options: { unsafe_disableDevelopmentModeWarnings: true },
+      }}
+    >
       <html
         lang="en"
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
