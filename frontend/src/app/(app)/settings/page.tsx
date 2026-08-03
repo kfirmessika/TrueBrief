@@ -1,8 +1,10 @@
 'use client';
 
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useSession } from '@/app/providers';
+import { createClient } from '@/lib/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
+import { useRouter } from 'next/navigation';
 import { useState, useMemo } from 'react';
 import type { ApiKey, ApiKeyUsage } from '@/lib/api';
 import { useTier } from '@/hooks/useTier';
@@ -333,8 +335,14 @@ function ApiKeysSection() {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const { user } = useSession();
+  const router = useRouter();
+  // Created inside the handler, not via useMemo — createClient() must never
+  // run during SSR/static prerendering.
+  const signOut = async () => {
+    await createClient().auth.signOut();
+    router.push('/sign-in');
+  };
   const api = useApi();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { data: billing } = useTier();
@@ -350,13 +358,17 @@ export default function SettingsPage() {
     onSuccess: () => signOut(),
   });
 
-  const displayName = user?.firstName
-    ? `${user.firstName} ${user.lastName ?? ''}`.trim()
-    : user?.emailAddresses?.[0]?.emailAddress ?? '';
-  const email = user?.emailAddresses?.[0]?.emailAddress ?? '';
-  const initials = user?.firstName && user?.lastName
-    ? `${user.firstName[0]}${user.lastName[0]}`
-    : (user?.firstName?.[0] ?? email[0]?.toUpperCase() ?? '?');
+  // Google OAuth populates user_metadata.full_name / .name; email-OTP users have neither.
+  const fullName: string =
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) ||
+    '';
+  const email = user?.email ?? '';
+  const displayName = fullName || email;
+  const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+  const initials = nameParts.length >= 2
+    ? `${nameParts[0][0]}${nameParts[1][0]}`
+    : nameParts[0]?.[0]?.toUpperCase() ?? email[0]?.toUpperCase() ?? '?';
 
   const tier = billing?.tier ?? 'free';
 

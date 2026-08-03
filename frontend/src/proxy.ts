@@ -1,17 +1,9 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { type NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/proxy';
 
-const isProtectedRoute = createRouteMatcher([
-  '/dashboard(.*)',
-  '/topics(.*)',
-  '/onboarding(.*)',
-  '/settings(.*)',
-]);
-
-export default clerkMiddleware(async (auth, req) => {
-  if (isProtectedRoute(req)) {
-    await auth.protect();
-  }
-});
+export default async function proxy(request: NextRequest) {
+  return await updateSession(request);
+}
 
 export const config = {
   matcher: ['/((?!.*\\..*|_next).*)', '/', '/(api|trpc)(.*)'],

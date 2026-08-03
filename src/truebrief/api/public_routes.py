@@ -2,10 +2,10 @@
 Public Developer API — api/public_routes.py
 
 The API product: programmatic access to a user's monitored topics and their
-verified fact stream. Authenticated by API key (NOT Clerk) — pass the key as
+verified fact stream. Authenticated by API key (NOT Supabase Auth) — pass the key as
 `Authorization: Bearer tb_live_...` or `X-API-Key: tb_live_...`.
 
-Mounted under /v1 (the Clerk-authed app API lives under /api/v1 — different
+Mounted under /v1 (the Supabase-Auth-authed app API lives under /api/v1 — different
 audience, different auth, deliberately separate prefix).
 
 Every data endpoint meters usage and enforces the tier's daily quota.

@@ -91,11 +91,8 @@ $sharedVars = @{
     TAVILY_API_KEY         = $env["TAVILY_API_KEY"]
     BRAVE_API_KEY          = $env["BRAVE_API_KEY"]
     EXA_API_KEY            = $env["EXA_API_KEY"]
-    CLERK_PUBLISHABLE_KEY  = $env["CLERK_PUBLISHABLE_KEY"]
-    CLERK_SECRET_KEY       = $env["CLERK_SECRET_KEY"]
-    CLERK_JWKS_URL         = $env["CLERK_JWKS_URL"]
-    CLERK_ISSUER           = $env["CLERK_ISSUER"]
-    CLERK_AUDIENCE         = $env["CLERK_AUDIENCE"]
+    # Supabase Auth: SUPABASE_JWKS_URL / SUPABASE_ISSUER derive automatically from
+    # SUPABASE_URL (config/settings.py) — no separate auth env vars needed here.
     PADDLE_API_KEY         = $env["PADDLE_API_KEY"]
     PADDLE_WEBHOOK_SECRET  = $env["PADDLE_WEBHOOK_SECRET"]
     PADDLE_PRICE_PRO       = $env["PADDLE_PRICE_PRO"]

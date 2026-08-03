@@ -1,22 +1,20 @@
 'use client';
 
 import axios, { AxiosInstance } from 'axios';
-import { useAuth } from '@clerk/nextjs';
 import { useMemo } from 'react';
+import { createClient } from './supabase/client';
 
 const _raw = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 const API_BASE_URL = _raw.endsWith('/api/v1') ? _raw : `${_raw.replace(/\/$/, '')}/api/v1`;
 
 /**
  * Hook to get an Axios instance that automatically includes
- * the Clerk JWT in the Authorization header.
- * 
+ * the Supabase access token in the Authorization header.
+ *
  * Use this in Client Components for data mutations and
  * client-side fetching via React Query.
  */
 export function useApi(): AxiosInstance {
-  const { getToken } = useAuth();
-
   return useMemo(() => {
     const instance = axios.create({
       baseURL: API_BASE_URL,
@@ -27,7 +25,9 @@ export function useApi(): AxiosInstance {
 
     instance.interceptors.request.use(async (config) => {
       try {
-        const token = await getToken();
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -38,5 +38,5 @@ export function useApi(): AxiosInstance {
     });
 
     return instance;
-  }, [getToken]);
+  }, []);
 }

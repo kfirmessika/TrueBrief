@@ -56,12 +56,11 @@ class Settings(BaseSettings):
     PADDLE_PRICE_PRO: str = ""      # Price ID from Paddle dashboard (e.g. pri_xxx)
     PADDLE_PRICE_POWER: str = ""    # Price ID from Paddle dashboard
 
-    # --- Clerk ---
-    CLERK_PUBLISHABLE_KEY: str = ""
-    CLERK_SECRET_KEY: str = ""
-    CLERK_JWKS_URL: str = ""
-    CLERK_ISSUER: str = ""
-    CLERK_AUDIENCE: str = ""
+    # --- Supabase Auth ---
+    # Derived from SUPABASE_URL by default (see below); overridable via env var for
+    # non-standard setups (e.g. a custom auth domain).
+    SUPABASE_JWKS_URL: str = ""
+    SUPABASE_ISSUER: str = ""
 
     # --- App ---
     LOG_LEVEL: str = "INFO"
@@ -177,6 +176,13 @@ class Settings(BaseSettings):
 
 # Singleton - import this everywhere
 settings = Settings()
+
+# Derive Supabase Auth JWKS/issuer URLs from SUPABASE_URL when not explicitly overridden
+# via env var. Keeps deployment config to a single SUPABASE_URL for the common case.
+if not settings.SUPABASE_JWKS_URL and settings.SUPABASE_URL:
+    settings.SUPABASE_JWKS_URL = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+if not settings.SUPABASE_ISSUER and settings.SUPABASE_URL:
+    settings.SUPABASE_ISSUER = f"{settings.SUPABASE_URL}/auth/v1"
 
 
 # ---------------------------------------------------------------------------

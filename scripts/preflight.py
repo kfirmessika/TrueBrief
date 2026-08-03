@@ -10,7 +10,7 @@ Run it before a soft/public launch (and ideally in CI before deploy):
     PREFLIGHT_BASE_URL=https://... python scripts/preflight.py
 
 What it checks (hard = blocks launch, soft = warning only):
-  [hard] Required secrets present     — GOOGLE_API_KEY, SUPABASE_URL/KEY, CLERK_SECRET_KEY, REDIS_URL
+  [hard] Required secrets present     — GOOGLE_API_KEY, SUPABASE_URL/KEY, REDIS_URL
   [hard] LLM model config sane        — every pipeline step has a model, none left on a *-preview build
   [hard] Supabase reachable           — can read a core table
   [hard] Migration 012 applied        — pipeline_trace table + prompt/response cols on llm_call_log
@@ -65,7 +65,7 @@ def check_secrets() -> None:
     # Celery worker read them, and works on Railway where they're real env vars.
     _load_dotenv()
 
-    required = ["GOOGLE_API_KEY", "SUPABASE_URL", "SUPABASE_KEY", "CLERK_SECRET_KEY", "REDIS_URL"]
+    required = ["GOOGLE_API_KEY", "SUPABASE_URL", "SUPABASE_KEY", "REDIS_URL"]
     missing = [k for k in required if not os.getenv(k)]
     if missing:
         record("Required secrets present", FAIL, f"missing: {', '.join(missing)}")

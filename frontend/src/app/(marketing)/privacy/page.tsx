@@ -21,7 +21,7 @@ export default function PrivacyPage() {
         <Section title="What we collect">
           <p>
             <strong className="text-[var(--color-text)]">Account data</strong> — your name and
-            email, handled by our authentication provider (Clerk).
+            email, handled by our authentication provider (Supabase Auth).
           </p>
           <p>
             <strong className="text-[var(--color-text)]">Product data</strong> — the topics you
@@ -60,8 +60,8 @@ export default function PrivacyPage() {
 
         <Section title="Where it lives">
           <p>
-            Data is stored with our infrastructure providers: Supabase (database), Railway
-            (application hosting), Clerk (authentication), and Paddle (billing). Each processes
+            Data is stored with our infrastructure providers: Supabase (database and
+            authentication), Railway (application hosting), and Paddle (billing). Each processes
             data under their own security and compliance programs.
           </p>
         </Section>

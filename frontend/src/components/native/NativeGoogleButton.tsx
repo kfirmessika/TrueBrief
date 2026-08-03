@@ -1,46 +1,59 @@
 'use client';
 
 /**
- * Native-app-only "Continue with Google" — replaces Clerk's built-in button
- * (hidden on native, see sign-in/sign-up pages) with one that redirects to
- * truebrief://oauth-callback instead of an https /sso-callback route.
+ * Native-app-only "Continue with Google" — opens Supabase's OAuth URL in an
+ * in-app Custom Tab (via @capacitor/browser) instead of full external
+ * Chrome, then relies on the truebrief://oauth-callback custom scheme to
+ * hand control back to this app.
  *
- * Why a custom scheme: Google refuses to run inside an embedded webview, so
- * this hop necessarily leaves the app (Capacitor auto-launches it externally
- * since accounts.google.com isn't in allowNavigation). Once Google approves,
- * Clerk's backend does the token exchange server-side and needs somewhere to
- * send the browser to complete the ticket exchange — pointing that at a
- * normal https URL would run it in whatever external browser context the OS
- * opened, with no way to get the resulting session back into the app.
- * Pointing it at our own custom scheme instead makes Android hand that
- * redirect straight back to this app (see AndroidManifest's intent-filter),
- * where NativeShell's appUrlOpen listener forwards it into an in-webview
- * navigation to /sso-callback — completing the exchange in the app's own
- * cookie jar via Clerk's one-time ticket, not a shared-cookie hack.
+ * Why not just call signInWithOAuth() and let it redirect normally: Google
+ * refuses to run inside an embedded Capacitor webview, so the OAuth hop
+ * necessarily has to leave the webview. `skipBrowserRedirect: true` stops
+ * the Supabase SDK from doing that navigation itself (which would just be
+ * `window.location.href = url`, landing us in the webview again) — instead
+ * it hands back the authorization URL as data, and we open THAT ourselves
+ * with `Browser.open()`, which runs it in a Chrome Custom Tab rather than
+ * dumping the user into a separate full-browser app.
  *
- * API shape verified against the installed @clerk/shared type defs directly
- * (SignInFutureSSOParams / SignInSignalValue) rather than docs, which
- * describe an older, differently-shaped authenticateWithRedirect() API this
- * package version doesn't expose:
- *   - redirectCallbackUrl: where the actual ticket exchange happens — must
- *     be the custom scheme.
- *   - redirectUrl: the in-app destination AFTER that exchange completes.
+ * Once Google approves, Supabase redirects the Custom Tab to `redirectTo`
+ * (truebrief://oauth-callback?code=...). Android's intent-filter
+ * (AndroidManifest.xml) hands that custom-scheme URL straight back to this
+ * app's activity, where NativeShell's `appUrlOpen` listener closes the
+ * Custom Tab and forwards the URL into an in-webview navigation to
+ * /sso-callback. That page calls exchangeCodeForSession(code) in the SAME
+ * webview instance that started the flow, so the PKCE code_verifier
+ * Supabase stashed in this webview's storage when `start()` ran below is
+ * still there to complete the exchange — no shared-cookie hack needed.
+ *
+ * IMPORTANT: truebrief://oauth-callback must be added to the Supabase
+ * Dashboard's Authentication -> URL Configuration -> Redirect URLs
+ * allowlist, or Supabase silently rejects the redirect and the callback is
+ * dropped. This exact class of bug (unlisted redirect URL) is what broke
+ * the Clerk version of this same native flow.
  */
 
-import { useSignIn, useSignUp } from '@clerk/nextjs';
+import { createClient } from '@/lib/supabase/client';
 
 export default function NativeGoogleButton({ mode }: { mode: 'sign-in' | 'sign-up' }) {
-  const { signIn } = useSignIn();
-  const { signUp } = useSignUp();
+  void mode; // Supabase OAuth doesn't distinguish sign-in vs sign-up — same call either way.
 
   const start = async () => {
-    const params = {
-      strategy: 'oauth_google' as const,
-      redirectCallbackUrl: 'truebrief://oauth-callback',
-      redirectUrl: '/dashboard',
-    };
-    if (mode === 'sign-in') await signIn.sso(params);
-    else await signUp.sso(params);
+    const supabase = createClient();
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: 'truebrief://oauth-callback',
+        skipBrowserRedirect: true,
+      },
+    });
+
+    if (error || !data?.url) {
+      console.error('Failed to start Google sign-in', error);
+      return;
+    }
+
+    const { Browser } = await import('@capacitor/browser');
+    await Browser.open({ url: data.url });
   };
 
   return (

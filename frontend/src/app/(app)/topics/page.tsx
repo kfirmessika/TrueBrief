@@ -67,7 +67,7 @@ export default function TopicsPage() {
     // between-tab-switches gaps without holding stale data forever.
     gcTime: 30 * 60_000,
     // Belt-and-suspenders on top of gcTime: whatever the exact trigger is
-    // (cache eviction, a Clerk token-refresh re-render, a flaky mobile
+    // (cache eviction, a Supabase token-refresh re-render, a flaky mobile
     // network causing a background refetch to reset query status), never
     // drop back to a skeleton once real data has loaded once — keep
     // rendering the last known-good list instead.

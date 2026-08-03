@@ -1465,7 +1465,7 @@ def _is_admin(user: User) -> bool:
 def get_admin_metrics(user: User = Depends(get_current_user)):
     """
     Pipeline health dashboard for admins.
-    Protected by ADMIN_USER_IDS env var (comma-separated Clerk user IDs).
+    Protected by ADMIN_USER_IDS env var (comma-separated Supabase auth user IDs).
     If the env var is not set, any authenticated user can access (dev mode).
     """
     if not _is_admin(user):

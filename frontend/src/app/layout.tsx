@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import Providers from "./providers";
 import PwaRegister from "@/components/PwaRegister";
@@ -46,27 +45,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      appearance={{
-        // This instance is on a Clerk dev/test key (real, strict rate
-        // limits) — hiding this warning removes the only visible signal of
-        // that before a limit is hit. User's explicit repeated call.
-        options: { unsafe_disableDevelopmentModeWarnings: true },
-      }}
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <html
-        lang="en"
-        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-        suppressHydrationWarning
-      >
-        <body className="h-full bg-[var(--color-background-primary)] text-[var(--color-text-primary)]">
-          <PwaRegister />
-          <NativeShell />
-          <Providers>
-            {children}
-          </Providers>
-        </body>
-      </html>
-    </ClerkProvider>
+      <body className="h-full bg-[var(--color-background-primary)] text-[var(--color-text-primary)]">
+        <PwaRegister />
+        <NativeShell />
+        <Providers>
+          {children}
+        </Providers>
+      </body>
+    </html>
   );
 }

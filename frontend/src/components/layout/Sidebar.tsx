@@ -2,7 +2,8 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useSession } from '@/app/providers';
+import { createClient } from '@/lib/supabase/client';
 import { useApi } from '@/lib/useApi';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
@@ -34,8 +35,14 @@ function StatusDot({ topic }: { topic: Topic }) {
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const { user } = useSession();
+  // Created inside the handler, not via useMemo — createClient() must never
+  // run during SSR/static prerendering (this component is inside the (app)
+  // layout, so it renders on the server for every page in that group).
+  const signOut = useCallback(async () => {
+    await createClient().auth.signOut();
+    router.push('/sign-in');
+  }, [router]);
   const api = useApi();
 
   const queryClient = useQueryClient();
@@ -117,12 +124,17 @@ export default function Sidebar() {
     ? pathname.split('/topics/')[1]?.split('/')[0]
     : null;
 
-  const initials = user?.firstName && user?.lastName
-    ? `${user.firstName[0]}${user.lastName[0]}`
-    : user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? '?';
-  const displayName = user?.firstName
-    ? `${user.firstName} ${user.lastName ?? ''}`.trim()
-    : user?.emailAddresses?.[0]?.emailAddress ?? '';
+  // Google OAuth populates user_metadata.full_name / .name; email-OTP users have neither.
+  const fullName: string =
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) ||
+    '';
+  const email = user?.email ?? '';
+  const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+  const initials = nameParts.length >= 2
+    ? `${nameParts[0][0]}${nameParts[1][0]}`
+    : nameParts[0]?.[0]?.toUpperCase() ?? email[0]?.toUpperCase() ?? '?';
+  const displayName = fullName || email;
 
   const navItem = (label: string): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -355,7 +367,7 @@ export default function Sidebar() {
                 Billing
               </button>
               <button
-                onClick={() => { setShowAccountMenu(false); signOut(); }}
+                onClick={() => { setShowAccountMenu(false); void signOut(); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%',
                   padding: '7px 8px', borderRadius: 6, border: 'none', background: 'none',

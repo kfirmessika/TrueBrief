@@ -67,7 +67,7 @@ app.include_router(router, prefix="/api/v1")
 app.include_router(billing_router, prefix="/api/v1/billing")
 app.include_router(digest_router, prefix="/api/v1")
 app.include_router(push_router, prefix="/api/v1")
-app.include_router(apikeys_router, prefix="/api/v1")   # key management (Clerk-authed)
+app.include_router(apikeys_router, prefix="/api/v1")   # key management (Supabase-Auth-authed)
 app.include_router(public_router, prefix="/v1")        # developer API (API-key-authed)
 
 @app.get("/health")

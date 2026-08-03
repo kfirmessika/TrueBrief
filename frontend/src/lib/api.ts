@@ -80,13 +80,13 @@ export const statsApi = {
   getStats: () => api.get<UserStats>('/users/me/stats'),
 };
 
-import { auth } from "@clerk/nextjs/server";
+import { createClient } from "./supabase/server";
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
-  const { getToken } = await auth();
-  const token = await getToken();
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
   const headers = new Headers(init.headers);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (session?.access_token) headers.set("Authorization", `Bearer ${session.access_token}`);
   headers.set("Content-Type", "application/json");
   return fetch(`${API_BASE_URL}${path}`, { ...init, headers });
 }

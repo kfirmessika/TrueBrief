@@ -67,7 +67,7 @@ def client():
 
 
 def _override_user():
-    fake = User(id="user-1", clerk_id="clerk-user-1", email="test@example.com")
+    fake = User(id="user-1", auth_uid="auth-user-1", email="test@example.com")
     app.dependency_overrides[get_current_user] = lambda: fake
     app.dependency_overrides[get_optional_user] = lambda: fake
 

@@ -91,7 +91,7 @@ def _override_user(user_id: str | None = None) -> User:
     """Inject a fixed authenticated user for both required + optional deps."""
     fake = User(
         id=user_id or str(uuid4()),
-        clerk_id="clerk_tier_test",
+        auth_uid="auth_tier_test",
         email="tier@test.com",
     )
     app.dependency_overrides[get_current_user] = lambda: fake

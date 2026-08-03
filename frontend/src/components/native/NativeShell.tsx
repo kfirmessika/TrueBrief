@@ -56,15 +56,18 @@ export default function NativeShell() {
       }
 
       // Google OAuth completion: Android hands the browser's final redirect
-      // (truebrief://oauth-callback?<Clerk ticket>) to this activity. Forward
-      // the query string into an in-webview navigation to /sso-callback so
-      // Clerk.js completes the exchange using the APP's own cookie jar, not
-      // whatever browser context Google's login ran in.
+      // (truebrief://oauth-callback?code=...) to this activity. Close the
+      // Custom Tab NativeGoogleButton opened, then forward the query string
+      // into an in-webview navigation to /sso-callback so
+      // exchangeCodeForSession() completes using this webview's own PKCE
+      // verifier (stored when the flow started), not whatever browser
+      // context Google's login ran in.
       try {
         const { App } = await import('@capacitor/app');
         const handle = await App.addListener('appUrlOpen', ({ url }) => {
           const parsed = new URL(url);
           if (parsed.protocol === 'truebrief:' && parsed.hostname === 'oauth-callback') {
+            import('@capacitor/browser').then(({ Browser }) => Browser.close()).catch(() => {});
             window.location.href = `/sso-callback${parsed.search}`;
           }
         });

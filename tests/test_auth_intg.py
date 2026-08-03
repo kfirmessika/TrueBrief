@@ -6,10 +6,10 @@ Drives the FastAPI app with TestClient end-to-end. Two strategies:
   1. For the *successful* auth path, override `get_current_user` /
      `get_optional_user` via `app.dependency_overrides`. This is the canonical
      FastAPI integration-test pattern and avoids fragile patches against the
-     lazy `verify_clerk_jwt` import.
+     lazy `verify_supabase_jwt` import.
 
   2. For the *failure* paths (missing/invalid bearer), patch
-     `truebrief.auth.dependencies.verify_clerk_jwt` directly so the real
+     `truebrief.auth.dependencies.verify_supabase_jwt` directly so the real
      dependency runs and we exercise the actual 401 logic.
 
 Mirrors the integration smoke checklist in
@@ -42,7 +42,7 @@ def _make_db(*, tier: str = "free", topic_count: int = 0,
              last_scan_at=None, topic_id="11111111-1111-1111-1111-111111111111",
              users_existing: bool = True,
              user_uuid: str = "22222222-2222-2222-2222-222222222222",
-             clerk_id: str = "clerk_test_1",
+             auth_uid: str = "auth_test_1",
              topic_exists: bool = True):
     """Mirror of the helper in test_tier_enforcement_intg.py, plus users table."""
     db = MagicMock()
@@ -79,10 +79,11 @@ def _make_db(*, tier: str = "free", topic_count: int = 0,
     users_chain = MagicMock()
     if users_existing:
         users_chain.select.return_value.eq.return_value.execute.return_value = _exec_result(
-            data=[{"id": user_uuid, "clerk_id": clerk_id, "email": "a@b.com"}]
+            data=[{"id": user_uuid, "auth_uid": auth_uid, "email": "a@b.com"}]
         )
     else:
         users_chain.select.return_value.eq.return_value.execute.return_value = _exec_result(data=[])
+    users_chain.select.return_value.eq.return_value.is_.return_value.execute.return_value = _exec_result(data=[])
     users_chain.insert.return_value.execute.return_value = _exec_result(data=[{}])
     users_chain.update.return_value.eq.return_value.execute.return_value = _exec_result(data=[{}])
 
@@ -114,10 +115,10 @@ def client():
 
 
 def _override_user(user_id: str = "22222222-2222-2222-2222-222222222222",
-                   clerk_id: str = "clerk_test_1",
+                   auth_uid: str = "auth_test_1",
                    email: str = "a@b.com") -> User:
     """Replace get_current_user / get_optional_user with a fixed User."""
-    fake = User(id=user_id, clerk_id=clerk_id, email=email)
+    fake = User(id=user_id, auth_uid=auth_uid, email=email)
     app.dependency_overrides[get_current_user] = lambda: fake
     app.dependency_overrides[get_optional_user] = lambda: fake
     return fake
@@ -134,7 +135,7 @@ class TestUnauthenticated:
         assert r.status_code == 401
         assert "Missing Bearer token" in r.json()["detail"]
 
-    @patch("truebrief.auth.dependencies.verify_clerk_jwt")
+    @patch("truebrief.auth.dependencies.verify_supabase_jwt")
     def test_post_topics_with_invalid_token_returns_401(self, mock_verify, client):
         mock_verify.side_effect = jwt.JWTError("Invalid signature")
         r = client.post(
@@ -171,10 +172,10 @@ class TestAuthenticatedTopicCreation:
 
         assert r.status_code == 200
         # The topics.insert payload must be keyed off the resolved internal UUID,
-        # NOT off any client-supplied identifier or the Clerk sub claim.
+        # NOT off any client-supplied identifier or the Supabase auth sub claim.
         topics_insert_call = db.table("topics").insert.call_args
         assert topics_insert_call.args[0]["user_id"] == user.id
-        assert "clerk_test_1" not in str(topics_insert_call)
+        assert "auth_test_1" not in str(topics_insert_call)
 
     def test_tier_enforcement_still_fires_on_authenticated_path(self, client):
         """3.5 enforcement must still fire after migration to Depends-based auth."""
@@ -202,17 +203,17 @@ class TestAuthenticatedTopicCreation:
 
 class TestUserBootstrap:
     """
-    These tests do NOT use dependency_overrides. They patch verify_clerk_jwt and
+    These tests do NOT use dependency_overrides. They patch verify_supabase_jwt and
     user_repo's Supabase getter so the real get_current_user → get_or_create_user
     path runs end-to-end. Asserts the side-effects in the DB mock.
     """
 
-    @patch("truebrief.auth.dependencies.verify_clerk_jwt")
+    @patch("truebrief.auth.dependencies.verify_supabase_jwt")
     @patch("truebrief.auth.user_repo.get_supabase")
     def test_first_login_creates_users_row_and_user_subscriptions_row(
         self, mock_user_db, mock_verify, client
     ):
-        mock_verify.return_value = {"sub": "clerk_new", "email": "new@b.com"}
+        mock_verify.return_value = {"sub": "auth_new", "email": "new@b.com"}
         repo_db = _make_db(users_existing=False)
         mock_user_db.return_value = repo_db
 
@@ -225,7 +226,7 @@ class TestUserBootstrap:
         # users.insert called once
         repo_db.table("users").insert.assert_called_once()
         users_insert_payload = repo_db.table("users").insert.call_args.args[0]
-        assert users_insert_payload["clerk_id"] == "clerk_new"
+        assert users_insert_payload["auth_uid"] == "auth_new"
         assert users_insert_payload["email"] == "new@b.com"
         # user_subscriptions.insert called with tier='free'
         repo_db.table("user_subscriptions").insert.assert_called_once()
@@ -233,11 +234,11 @@ class TestUserBootstrap:
         assert sub_payload["tier"] == "free"
         assert sub_payload["status"] == "active"
 
-    @patch("truebrief.auth.dependencies.verify_clerk_jwt")
+    @patch("truebrief.auth.dependencies.verify_supabase_jwt")
     @patch("truebrief.auth.user_repo.get_supabase")
     def test_returning_user_skips_inserts(self, mock_user_db, mock_verify, client):
-        mock_verify.return_value = {"sub": "clerk_existing", "email": "old@b.com"}
-        repo_db = _make_db(users_existing=True, clerk_id="clerk_existing")
+        mock_verify.return_value = {"sub": "auth_existing", "email": "old@b.com"}
+        repo_db = _make_db(users_existing=True, auth_uid="auth_existing")
         mock_user_db.return_value = repo_db
 
         routes_db = _make_db(tier="free", topic_count=0)

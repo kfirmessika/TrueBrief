@@ -7,13 +7,25 @@ beforeAll(() => server.listen());
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
-// Mock Clerk hooks globally for tests
-vi.mock('@clerk/nextjs', () => ({
-  useAuth: () => ({
-    getToken: vi.fn(() => Promise.resolve('mock-token')),
-    userId: 'user_123',
+// Mock Supabase auth globally for tests
+const mockSession = {
+  access_token: 'mock-token',
+  user: { id: 'user_123', email: 'test@example.com', user_metadata: {} },
+};
+
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    auth: {
+      getSession: vi.fn(() => Promise.resolve({ data: { session: mockSession } })),
+      onAuthStateChange: vi.fn(() => ({
+        data: { subscription: { unsubscribe: vi.fn() } },
+      })),
+      signOut: vi.fn(() => Promise.resolve({ error: null })),
+      signInWithOAuth: vi.fn(() => Promise.resolve({ data: { url: null }, error: null })),
+      signInWithOtp: vi.fn(() => Promise.resolve({ error: null })),
+      exchangeCodeForSession: vi.fn(() => Promise.resolve({ error: null })),
+    },
   }),
-  ClerkProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 // Mock Next.js navigation

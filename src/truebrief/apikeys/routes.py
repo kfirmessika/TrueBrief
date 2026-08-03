@@ -1,7 +1,7 @@
 """
 API Key Management Routes — apikeys/routes.py
 
-Clerk-authenticated endpoints for the settings UI. Creating a key requires a
+Supabase-Auth-authenticated endpoints for the settings UI. Creating a key requires a
 paid tier (the free tier has api_calls_per_day=0, so a key would be useless
 and confusing). The full key is returned exactly once, at creation.
 

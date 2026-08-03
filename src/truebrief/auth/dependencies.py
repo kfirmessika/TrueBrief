@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import Header, HTTPException
 from jose import jwt
 
-from truebrief.auth.clerk import verify_clerk_jwt
+from truebrief.auth.supabase_auth import verify_supabase_jwt
 from truebrief.auth.models import User
 from truebrief.auth.user_repo import get_or_create_user
 
@@ -17,12 +17,12 @@ def get_current_user_logic(authorization: Optional[str]) -> User:
     if not token:
         raise HTTPException(status_code=401, detail="Missing Bearer token")
     try:
-        payload = verify_clerk_jwt(token)
+        payload = verify_supabase_jwt(token)
     except jwt.JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
     return get_or_create_user(
-        clerk_id=payload["sub"],
+        auth_uid=payload["sub"],
         email=payload.get("email", ""),
     )
 

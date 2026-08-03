@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Menu, X, Zap, Sun, Moon, Monitor } from 'lucide-react';
+import { Menu, X, Zap, Sun, Moon, Monitor, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from 'next-themes';
-import { useUser, UserButton } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
+import { useSession } from '@/app/providers';
+import { createClient } from '@/lib/supabase/client';
 
 const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -33,7 +35,16 @@ function ThemeToggle() {
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { isSignedIn, isLoaded } = useUser();
+  const router = useRouter();
+  const { session, loading } = useSession();
+  const isSignedIn = !!session;
+  const isLoaded = !loading;
+
+  const handleSignOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push('/');
+  };
 
   return (
     <nav className="border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 backdrop-blur-md sticky top-0 z-50 transition-colors">
@@ -85,12 +96,14 @@ export default function Navbar() {
             )}
 
             {isLoaded && isSignedIn && (
-              <UserButton
-                appearance={{
-                  elements: { avatarBox: 'h-8 w-8' },
-                  options: { unsafe_disableDevelopmentModeWarnings: true },
-                }}
-              />
+              <button
+                onClick={handleSignOut}
+                aria-label="Sign out"
+                title="Sign out"
+                className="p-2 rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-surface-overlay)] hover:text-[var(--color-text)] transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             )}
 
             {/* Hamburger — mobile only */}
