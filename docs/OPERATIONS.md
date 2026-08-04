@@ -4,7 +4,7 @@
 
 | Service | URL |
 |---|---|
-| **Frontend (UI)** | https://frontend-production-c9fa.up.railway.app |
+| **Frontend (UI)** | https://truebrief.up.railway.app |
 | **API** | https://api-production-0bd2.up.railway.app |
 | **API health check** | https://api-production-0bd2.up.railway.app/health |
 | **Railway dashboard** | https://railway.com/project/fde2d977-05d6-4e51-af1c-a783d1985fe9 |

@@ -12,10 +12,16 @@ ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 # AuthCard.callbackUrl). Leave unset and the app uses window.location.origin,
 # which is correct for any single-domain deployment.
 ARG NEXT_PUBLIC_SITE_URL
+# Google OAuth client ID (public, safe to embed -- it's visible in every OAuth
+# request anyway). Used by AuthCard's Google Identity Services sign-in. Must
+# have https://<this domain> added to Authorized JavaScript origins in
+# Google Cloud Console, or GIS silently fails to initialize.
+ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
 RUN npm run build
 

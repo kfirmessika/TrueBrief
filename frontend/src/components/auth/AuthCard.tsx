@@ -7,18 +7,53 @@
  * shell chrome, not a generic reusable widget.
  *
  * Two auth paths:
- *  - Google OAuth: web calls signInWithOAuth() directly (Supabase redirects
- *    the browser to /sso-callback itself); native renders NativeGoogleButton
- *    instead, which opens an in-app Custom Tab — see that file for why.
+ *  - Google: web uses Google Identity Services (signInWithIdToken), NOT the
+ *    signInWithOAuth() redirect flow. The redirect flow bounces the browser
+ *    through Supabase's own hosted callback domain, so Google's account
+ *    picker literally reads "Continue to <project-ref>.supabase.co" instead
+ *    of "TrueBrief" -- that's Google warning the user where they're about to
+ *    be sent, and it's inherent to using Supabase's *shared* auth domain, not
+ *    a config mistake (a real fix needs Supabase Custom Domains, a paid
+ *    add-on, plus a domain we own -- not worth it for one transitional
+ *    screen). GIS runs as a client-side popup against our own origin instead,
+ *    so that screen never appears. Native still uses NativeGoogleButton's
+ *    Custom Tab + signInWithOAuth, because GIS's popup doesn't work inside a
+ *    Capacitor webview -- native shows the supabase.co screen until it gets
+ *    a native Google Sign-In SDK integration (separate, bigger task).
  *  - Email: signInWithOtp() sends a magic link (shouldCreateUser defaults to
  *    true, so this single flow covers both sign-in and sign-up — no
  *    password to manage).
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useIsNativeApp } from '@/hooks/useIsNativeApp';
 import NativeGoogleButton from '@/components/native/NativeGoogleButton';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize(config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+            nonce: string;
+            use_fedcm_for_prompt?: boolean;
+          }): void;
+          renderButton(parent: HTMLElement, options: Record<string, string | number>): void;
+        };
+      };
+    };
+  }
+}
+
+/** SHA-256 hex digest, per Supabase's documented GIS nonce-hashing recipe. */
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 /**
  * Where Supabase sends the browser after Google/magic-link auth.
@@ -40,51 +75,74 @@ function callbackUrl(): string {
   return `${base}/sso-callback`;
 }
 
-const googleButtonStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-  width: '100%', padding: '10px 16px',
-  border: '1px solid #d1d5db', borderRadius: 8,
-  background: '#fff', color: '#1f2937',
-  fontFamily: 'inherit', fontSize: 14, fontWeight: 500, cursor: 'pointer',
-};
-
-function GoogleIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z" />
-      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z" />
-      <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z" />
-      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z" />
-    </svg>
-  );
-}
-
 export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const isNativeApp = useIsNativeApp();
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState('');
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+  const rawNonceRef = useRef<string>('');
 
   const title = mode === 'sign-in' ? 'Sign in to TrueBrief' : 'Create your account';
   const subtitle = mode === 'sign-in'
     ? 'Welcome back — get only the delta, never the same news twice.'
     : 'Track a topic once. Only see what actually changed since last time.';
 
-  const handleGoogle = async () => {
-    setError('');
-    const supabase = createClient();
-    const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: callbackUrl(),
-      },
-    });
-    if (oauthError) {
-      setError(oauthError.message);
-      return;
+  useEffect(() => {
+    if (isNativeApp) return; // native uses NativeGoogleButton's Custom Tab flow instead
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (!clientId) return;
+
+    let cancelled = false;
+
+    const setup = async () => {
+      const rawNonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+      const hashedNonce = await sha256Hex(rawNonce);
+      if (cancelled) return;
+      rawNonceRef.current = rawNonce;
+
+      const handleCredentialResponse = async (response: { credential: string }) => {
+        setError('');
+        const supabase = createClient();
+        const { error: idTokenError } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: response.credential,
+          nonce: rawNonceRef.current,
+        });
+        if (idTokenError) {
+          setError(idTokenError.message);
+          return;
+        }
+        router.replace('/dashboard');
+      };
+
+      window.google?.accounts.id.initialize({
+        client_id: clientId,
+        callback: handleCredentialResponse,
+        nonce: hashedNonce,
+        use_fedcm_for_prompt: true,
+      });
+      if (googleButtonRef.current) {
+        window.google?.accounts.id.renderButton(googleButtonRef.current, {
+          type: 'standard', theme: 'outline', size: 'large', text: 'continue_with',
+          shape: 'rectangular', logo_alignment: 'left', width: 332,
+        });
+      }
+    };
+
+    if (window.google) {
+      setup();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.onload = () => { if (!cancelled) setup(); };
+      document.head.appendChild(script);
     }
-    if (data?.url) window.location.href = data.url;
-  };
+
+    return () => { cancelled = true; };
+  }, [isNativeApp, router]);
 
   const handleEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,10 +200,7 @@ export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         {isNativeApp ? (
           <NativeGoogleButton mode={mode} />
         ) : (
-          <button type="button" onClick={handleGoogle} style={googleButtonStyle}>
-            <GoogleIcon />
-            Continue with Google
-          </button>
+          <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 40 }} />
         )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>

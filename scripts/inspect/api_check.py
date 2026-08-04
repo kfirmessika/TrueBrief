@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 API_URL = "https://api-production-0bd2.up.railway.app"
-FRONTEND_URL = "https://frontend-production-c9fa.up.railway.app"
+FRONTEND_URL = "https://truebrief.up.railway.app"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")  # service-role/secret key — required for the GoTrue admin API
 FOUNDER_EMAIL = os.environ.get("FOUNDER_EMAIL", "")
