@@ -6,6 +6,8 @@ import { useApi } from '@/lib/useApi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, Clock } from 'lucide-react';
 import { getTimezone, localToUtc, utcToLocal, fmtHM, tzShortLabel, type ScheduleTime } from '@/lib/timezone';
+import { useSession } from '@/app/providers';
+import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -94,6 +96,7 @@ export default function NewTopicPage() {
   const router = useRouter();
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useSession();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [query, setQuery] = useState('');
@@ -164,7 +167,7 @@ export default function NewTopicPage() {
       const r = await api.get(`/shared-topics?q=${encodeURIComponent(debouncedQuery)}`);
       return r.data;
     },
-    enabled: debouncedQuery.length >= 2,
+    enabled: debouncedQuery.length >= 2 && !!session,
     staleTime: 10_000,
   });
 
@@ -233,6 +236,17 @@ export default function NewTopicPage() {
   const pills = showSearchPills
     ? sharedTopics.map(t => ({ label: t.name, fill: t.name, isShared: true }))
     : STATIC_PILLS.map(p => ({ ...p, isShared: false }));
+
+  if (!session) {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px 44px' }}>
+        <p style={{ fontSize: 22, fontWeight: 500, color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: 24, margin: '0 0 24px' }}>
+          What&apos;s worth your attention?
+        </p>
+        <SignInPrompt message="Sign in to start tracking a topic." />
+      </div>
+    );
+  }
 
   // Highlight matched portion of text
   function highlight(text: string, q: string): React.ReactNode {

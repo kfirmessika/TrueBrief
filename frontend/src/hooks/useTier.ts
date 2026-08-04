@@ -7,8 +7,11 @@ import { BillingStatus } from '@/lib/api';
 /**
  * Hook to get the current user's subscription tier and limits.
  * Cached for 5 minutes.
+ *
+ * `enabled` lets a signed-out caller (e.g. the settings page) suppress the
+ * request entirely instead of firing an API call with no session.
  */
-export function useTier() {
+export function useTier(options?: { enabled?: boolean }) {
   const api = useApi();
   return useQuery({
     queryKey: ['billing-status'],
@@ -17,5 +20,6 @@ export function useTier() {
       return data;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled: options?.enabled ?? true,
   });
 }

@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useApi } from '@/lib/useApi';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2, LogOut, CreditCard,
+  Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2, LogOut, CreditCard, LogIn,
 } from 'lucide-react';
 
 interface Topic {
@@ -35,7 +35,7 @@ function StatusDot({ topic }: { topic: Topic }) {
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useSession();
+  const { session, user } = useSession();
   // Created inside the handler, not via useMemo — createClient() must never
   // run during SSR/static prerendering (this component is inside the (app)
   // layout, so it renders on the server for every page in that group).
@@ -60,6 +60,7 @@ export default function Sidebar() {
     queryKey: ['user-stats'],
     queryFn: async () => (await api.get('/users/me/stats')).data,
     staleTime: 10 * 60_000,
+    enabled: !!session,
   });
 
   const { data: topics = [] } = useQuery<Topic[]>({
@@ -71,6 +72,7 @@ export default function Sidebar() {
     staleTime: 10_000,
     refetchInterval: 8_000,          // keep the per-topic scanning dot live
     refetchOnWindowFocus: true,
+    enabled: !!session,
   });
 
   const deleteTopic = useMutation({
@@ -297,7 +299,7 @@ export default function Sidebar() {
 
       {topics.length === 0 && (
         <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', padding: '8px 14px', fontStyle: 'italic' }}>
-          No topics yet
+          {session ? 'No topics yet' : 'Sign in to track topics'}
         </div>
       )}
 
@@ -317,71 +319,86 @@ export default function Sidebar() {
             Admin
           </div>
         )}
-        <div
-          onClick={() => router.push('/settings')}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
-        >
-          <Settings size={14} />
-          Settings
-        </div>
+        {session ? (
+          <>
+            <div
+              onClick={() => router.push('/settings')}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+            >
+              <Settings size={14} />
+              Settings
+            </div>
 
-        {/* Account — click opens a minimal popover (billing shortcut + sign out).
-            Settings already covers everything else, one row up; not duplicated here. */}
-        <div ref={accountMenuRef} style={{ position: 'relative' }}>
+            {/* Account — click opens a minimal popover (billing shortcut + sign out).
+                Settings already covers everything else, one row up; not duplicated here. */}
+            <div ref={accountMenuRef} style={{ position: 'relative' }}>
+              <div
+                onClick={() => setShowAccountMenu(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)', background: showAccountMenu ? 'var(--color-background-tertiary)' : 'transparent' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = showAccountMenu ? 'var(--color-background-tertiary)' : 'transparent'; }}
+              >
+                <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--tb-green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>
+                  {initials}
+                </div>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{displayName}</span>
+                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--color-background-info)', color: 'var(--color-text-info)', flexShrink: 0 }}>
+                  Free
+                </span>
+              </div>
+
+              {showAccountMenu && (
+                <div style={{
+                  position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 4, zIndex: 50,
+                  background: 'var(--color-background-primary)',
+                  border: '0.5px solid var(--color-border-secondary)',
+                  borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  padding: 4, overflow: 'hidden',
+                }}>
+                  <button
+                    onClick={() => { setShowAccountMenu(false); router.push('/settings'); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                      padding: '7px 8px', borderRadius: 6, border: 'none', background: 'none',
+                      cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'left', fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                  >
+                    <CreditCard size={13} />
+                    Billing
+                  </button>
+                  <button
+                    onClick={() => { setShowAccountMenu(false); void signOut(); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                      padding: '7px 8px', borderRadius: 6, border: 'none', background: 'none',
+                      cursor: 'pointer', fontSize: 12, color: 'var(--tb-coral-dot)', textAlign: 'left', fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                  >
+                    <LogOut size={13} />
+                    Log out
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          /* Signed-out affordance — replaces Settings + account popover entirely. */
           <div
-            onClick={() => setShowAccountMenu(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)', background: showAccountMenu ? 'var(--color-background-tertiary)' : 'transparent' }}
+            onClick={() => router.push('/sign-in')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 500, color: 'var(--tb-green)' }}
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-background-tertiary)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = showAccountMenu ? 'var(--color-background-tertiary)' : 'transparent'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
           >
-            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--tb-green)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>
-              {initials}
-            </div>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{displayName}</span>
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--color-background-info)', color: 'var(--color-text-info)', flexShrink: 0 }}>
-              Free
-            </span>
+            <LogIn size={14} />
+            Sign in
           </div>
-
-          {showAccountMenu && (
-            <div style={{
-              position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 4, zIndex: 50,
-              background: 'var(--color-background-primary)',
-              border: '0.5px solid var(--color-border-secondary)',
-              borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-              padding: 4, overflow: 'hidden',
-            }}>
-              <button
-                onClick={() => { setShowAccountMenu(false); router.push('/settings'); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  padding: '7px 8px', borderRadius: 6, border: 'none', background: 'none',
-                  cursor: 'pointer', fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'left', fontFamily: 'inherit',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-              >
-                <CreditCard size={13} />
-                Billing
-              </button>
-              <button
-                onClick={() => { setShowAccountMenu(false); void signOut(); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  padding: '7px 8px', borderRadius: 6, border: 'none', background: 'none',
-                  cursor: 'pointer', fontSize: 12, color: 'var(--tb-coral-dot)', textAlign: 'left', fontFamily: 'inherit',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-              >
-                <LogOut size={13} />
-                Log out
-              </button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

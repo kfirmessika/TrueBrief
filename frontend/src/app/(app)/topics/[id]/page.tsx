@@ -7,6 +7,8 @@ import { Clock, ScanSearch } from 'lucide-react';
 import { useScanStatus, useTriggerScan } from '@/hooks/useTopics';
 import { SourceChip } from '@/components/SourceChip';
 import { getTimezone, utcToLocal, localToUtc, fmtHM, tzShortLabel, type ScheduleTime } from '@/lib/timezone';
+import { useSession } from '@/app/providers';
+import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -392,6 +394,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const { id } = use(params);
   const api = useApi();
   const qc = useQueryClient();
+  const { session } = useSession();
 
   const [scanError, setScanError] = useState<string | null>(null);
   const [showFreqPicker, setShowFreqPicker] = useState(false);
@@ -427,6 +430,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     queryKey: ['topic-schedule', id],
     queryFn: async () => (await api.get(`/topics/${id}/schedule`)).data,
     staleTime: 30_000,
+    enabled: !!session,
   });
 
   const { mutate: updateSchedule, isPending: isUpdatingFreq } = useMutation({
@@ -507,12 +511,14 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     qc.invalidateQueries({ queryKey: ['topics'] });
   }, [qc, id]);
 
-  // §8 — viewing a topic advances its delta anchor
+  // §8 — viewing a topic advances its delta anchor. Signed-out visitors have
+  // nothing to mark seen and must not fire any API call.
   useEffect(() => {
+    if (!session) return;
     api.post('/feed/seen', { topic_ids: [id] })
       .then(() => qc.invalidateQueries({ queryKey: ['feed'] }))
       .catch(() => {});
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll localStorage every 500ms to catch scan tasks set by the sidebar
   useEffect(() => {
@@ -532,6 +538,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
+    enabled: !!session,
     refetchInterval: (q) => {
       const d = q.state.data as Topic | undefined;
       const localTask = typeof window !== 'undefined' && !!localStorage.getItem(`scan_task_${id}`);
@@ -539,7 +546,11 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     },
   });
 
-  const scanning = !!scanTaskId || !!topic?.is_scanning;
+  // Signed-out visitors never have an active scan, regardless of what a
+  // previously-signed-in session left in localStorage — this keeps
+  // ScanProgressBar (and its useScanStatus poll) from ever rendering.
+  const activeScanTaskId = session ? scanTaskId : null;
+  const scanning = !!activeScanTaskId || (!!session && !!topic?.is_scanning);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -551,12 +562,13 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         flexShrink: 0,
       }}>
         <p style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
-          {topic?.raw_query ?? '…'}
+          {session ? (topic?.raw_query ?? '…') : 'Sign in to view this topic'}
         </p>
+        {session && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Clock size={11} color="var(--color-text-tertiary)" />
           {scanning ? (
-            <ScanProgressBar topicId={id} taskId={scanTaskId} active={topic?.is_scanning ?? false} onDone={handleScanDone} />
+            <ScanProgressBar topicId={id} taskId={activeScanTaskId} active={topic?.is_scanning ?? false} onDone={handleScanDone} />
           ) : (
             <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
               Last scanned {timeAgo(topic?.last_scan_at ?? null)}
@@ -680,6 +692,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Content — the synthesized brief only (what the benchmark scored). The raw
@@ -688,7 +701,11 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
           Story mode removed for V5 (never proven better than the plain feed;
           reintroduce post-production only if proven). */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        <BriefPanel topicId={id} lastRun={topic?.last_scan_at} />
+        {session ? (
+          <BriefPanel topicId={id} lastRun={topic?.last_scan_at} />
+        ) : (
+          <SignInPrompt message="Sign in to see this topic's timeline." />
+        )}
       </div>
     </div>
   );

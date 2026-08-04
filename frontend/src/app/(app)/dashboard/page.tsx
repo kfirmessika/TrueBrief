@@ -7,6 +7,8 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Check, Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import { SourceChip } from '@/components/SourceChip';
 import { parseBrief } from '@/app/(app)/topics/[id]/page';
+import { useSession } from '@/app/providers';
+import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 interface BriefRow { id: string; content: string; delivered_at: string }
 
@@ -242,12 +244,14 @@ export default function DashboardPage() {
   const api = useApi();
   const router = useRouter();
   const qc = useQueryClient();
+  const { session } = useSession();
 
   const { data, isLoading } = useQuery<Feed>({
     queryKey: ['feed'],
     queryFn: async () => (await api.get('/feed')).data,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    enabled: !!session,
   });
 
   const { data: topicList = [] } = useQuery<{ id: string; is_scanning?: boolean; last_scan_at?: string | null }[]>({
@@ -255,6 +259,7 @@ export default function DashboardPage() {
     queryFn: async () => (await api.get('/topics')).data,
     staleTime: 10_000,
     refetchInterval: 8_000,
+    enabled: !!session,
   });
 
   // topicList polls every 8s; map id -> last_scan_at so each card's brief query is keyed
@@ -287,6 +292,19 @@ export default function DashboardPage() {
   const topics = data?.topics ?? [];
   const allQuiet = !isLoading && (data?.all_quiet ?? topics.length === 0);
   const quietCount = topicList.length - topics.length;
+
+  if (!session) {
+    return (
+      <div style={{ flex: 1 }}>
+        <div style={{ padding: '20px 22px 12px' }}>
+          <p style={{ fontSize: 20, fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>
+            Today
+          </p>
+        </div>
+        <SignInPrompt message="Sign in to see what's new across your tracked topics." />
+      </div>
+    );
+  }
 
   return (
     <div style={{ flex: 1 }}>

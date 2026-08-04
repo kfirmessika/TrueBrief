@@ -9,6 +9,7 @@ import { useState, useMemo } from 'react';
 import type { ApiKey, ApiKeyUsage } from '@/lib/api';
 import { useTier } from '@/hooks/useTier';
 import { getTimezone, setTimezone, listTimezones, tzShortLabel } from '@/lib/timezone';
+import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 interface UserStats {
   total_briefs: number;
@@ -335,7 +336,7 @@ function ApiKeysSection() {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { user } = useSession();
+  const { session, user } = useSession();
   const router = useRouter();
   // Created inside the handler, not via useMemo — createClient() must never
   // run during SSR/static prerendering.
@@ -345,12 +346,13 @@ export default function SettingsPage() {
   };
   const api = useApi();
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { data: billing } = useTier();
+  const { data: billing } = useTier({ enabled: !!session });
 
   const { data: stats } = useQuery<UserStats>({
     queryKey: ['user-stats'],
     queryFn: async () => (await api.get('/users/me/stats')).data,
     staleTime: 60_000,
+    enabled: !!session,
   });
 
   const deleteAccount = useMutation({
@@ -371,6 +373,17 @@ export default function SettingsPage() {
     : nameParts[0]?.[0]?.toUpperCase() ?? email[0]?.toUpperCase() ?? '?';
 
   const tier = billing?.tier ?? 'free';
+
+  if (!session) {
+    return (
+      <div style={{ flex: 1, padding: '20px 22px 40px', maxWidth: 560 }}>
+        <p style={{ fontSize: 20, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 24px' }}>
+          Settings
+        </p>
+        <SignInPrompt message="Sign in to manage your account, billing, and preferences." />
+      </div>
+    );
+  }
 
   return (
     <div style={{ flex: 1, padding: '20px 22px 40px', maxWidth: 560 }}>

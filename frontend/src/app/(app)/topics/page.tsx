@@ -12,6 +12,8 @@ import { useRouter } from 'next/navigation';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { ChevronRight, Plus } from 'lucide-react';
+import { useSession } from '@/app/providers';
+import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 interface Topic {
   id: string;
@@ -53,6 +55,7 @@ function SkeletonRow() {
 export default function TopicsPage() {
   const router = useRouter();
   const api = useApi();
+  const { session } = useSession();
 
   const { data: topics, isLoading } = useQuery<Topic[]>({
     queryKey: ['topics'],
@@ -61,6 +64,7 @@ export default function TopicsPage() {
     },
     staleTime: 10_000,
     refetchInterval: 8_000,
+    enabled: !!session,
     // Default gcTime (5min) evicts the cache once this screen is unmounted
     // (switching tabs) for that long — coming back then re-shows the
     // skeleton as if it were a first-ever load. 30min covers realistic
@@ -73,6 +77,26 @@ export default function TopicsPage() {
     // rendering the last known-good list instead.
     placeholderData: keepPreviousData,
   });
+
+  if (!session) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+        <header
+          style={{
+            position: 'sticky', top: 0, zIndex: 10,
+            background: 'var(--color-background-primary)',
+            borderBottom: '0.5px solid var(--color-border-tertiary)',
+            padding: '18px 16px 14px',
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--color-text-primary)' }}>
+            Topics
+          </h1>
+        </header>
+        <SignInPrompt message="Sign in to see and manage the topics you track." />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>

@@ -9,7 +9,8 @@
  */
 
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutGrid, Layers, Plus, Settings } from 'lucide-react';
+import { LayoutGrid, Layers, Plus, Settings, LogIn } from 'lucide-react';
+import { useSession } from '@/app/providers';
 
 const TABS = [
   { href: '/dashboard',  label: 'Today',    Icon: LayoutGrid },
@@ -21,6 +22,7 @@ const TABS = [
 export default function BottomTabBar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { session } = useSession();
 
   const isActive = (href: string) => {
     if (href === '/topics') return pathname === '/topics' || (pathname.startsWith('/topics/') && pathname !== '/topics/new');
@@ -40,12 +42,18 @@ export default function BottomTabBar() {
       }}
     >
       {TABS.map(({ href, label, Icon }) => {
-        const active = isActive(href);
+        // Signed-out visitors get a "Sign in" affordance in the account slot
+        // instead of Settings (which would just show its own sign-in prompt).
+        const isAccountTab = href === '/settings';
+        const effectiveHref = isAccountTab && !session ? '/sign-in' : href;
+        const effectiveLabel = isAccountTab && !session ? 'Sign in' : label;
+        const EffectiveIcon = isAccountTab && !session ? LogIn : Icon;
+        const active = isActive(href) || (isAccountTab && !session && pathname === '/sign-in');
         return (
           <button
             key={href}
-            onClick={() => router.push(href)}
-            aria-label={label}
+            onClick={() => router.push(effectiveHref)}
+            aria-label={effectiveLabel}
             aria-current={active ? 'page' : undefined}
             style={{
               flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
@@ -56,8 +64,8 @@ export default function BottomTabBar() {
               transition: 'color 120ms ease',
             }}
           >
-            <Icon size={21} strokeWidth={active ? 2.2 : 1.7} />
-            {label}
+            <EffectiveIcon size={21} strokeWidth={active ? 2.2 : 1.7} />
+            {effectiveLabel}
           </button>
         );
       })}

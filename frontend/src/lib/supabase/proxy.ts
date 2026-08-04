@@ -1,13 +1,15 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-// Same protected routes Clerk's middleware guarded before this migration.
-const PROTECTED_PATHS = ['/dashboard', '/topics', '/onboarding', '/settings'];
-
 /**
- * Refreshes the Supabase session cookie on every request and redirects
- * unauthenticated visitors away from protected routes. Called from
+ * Refreshes the Supabase session cookie on every request. Called from
  * `src/proxy.ts` (Next.js 16 renamed `middleware.ts` -> `proxy.ts`).
+ *
+ * Does NOT redirect unauthenticated visitors — TrueBrief behaves like
+ * ChatGPT: every route (including /dashboard, /topics, /settings) renders
+ * the same app shell for signed-out visitors, and each page component
+ * decides what to show based on `useSession()` (empty-state + sign-in
+ * prompt instead of real data/queries). See `(app)/dashboard/page.tsx` etc.
  *
  * Do not run code between `createServerClient` and `getClaims()` — a simple
  * mistake here makes it very hard to debug users being randomly logged out
@@ -40,20 +42,10 @@ export async function updateSession(request: NextRequest) {
 
   // getClaims() validates the JWT signature against the project's published
   // public keys every time — unlike getSession(), it's safe to trust in
-  // server-side code such as proxy.ts.
-  const { data } = await supabase.auth.getClaims();
-  const isAuthed = !!data?.claims;
-
-  const { pathname } = request.nextUrl;
-  const isProtected = PROTECTED_PATHS.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
-
-  if (isProtected && !isAuthed) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/sign-in';
-    return NextResponse.redirect(url);
-  }
+  // server-side code such as proxy.ts. Still called (even though its result
+  // is unused now) because it's what actually refreshes/sets the session
+  // cookie via the `setAll` callback above.
+  await supabase.auth.getClaims();
 
   // IMPORTANT: must return supabaseResponse as-is (or copy its cookies onto
   // any replacement response) — otherwise the browser and server auth state
