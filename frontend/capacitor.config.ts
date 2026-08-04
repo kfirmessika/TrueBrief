@@ -24,7 +24,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * requires it.
  */
 
-const PROD_URL = 'https://frontend-production-aa11.up.railway.app'; // ← set to the real deployed frontend URL
+const PROD_URL = 'https://truebrief.up.railway.app'; // ← set to the real deployed frontend URL
 
 const config: CapacitorConfig = {
   appId: 'com.truebrief.app',
