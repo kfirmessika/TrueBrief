@@ -41,7 +41,11 @@ export default function Sidebar() {
   // layout, so it renders on the server for every page in that group).
   const signOut = useCallback(async () => {
     await createClient().auth.signOut();
-    router.push('/sign-in');
+    // Land on the signed-out app shell, not the sign-in form. Signing out
+    // shouldn't feel like being kicked to a login wall — /dashboard renders
+    // the empty state with its own "Sign in" prompt. Providers clears the
+    // query cache (in-memory + persisted) off the auth-state change.
+    router.push('/dashboard');
   }, [router]);
   const api = useApi();
 
