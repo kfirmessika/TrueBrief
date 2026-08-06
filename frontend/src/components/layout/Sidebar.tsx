@@ -6,6 +6,7 @@ import { useSession } from '@/app/providers';
 import { createClient } from '@/lib/supabase/client';
 import { useApi } from '@/lib/useApi';
 import { useState, useRef, useEffect, useCallback } from 'react';
+import AdminPublicTopics from '@/components/layout/AdminPublicTopics';
 import {
   Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2, LogOut, CreditCard, LogIn,
 } from 'lucide-react';
@@ -306,6 +307,11 @@ export default function Sidebar() {
           {session ? 'No topics yet' : 'Sign in to track topics'}
         </div>
       )}
+
+      {/* Public topics — admin-only, visually separated from "My topics" above,
+          never interleaved with it. is_admin only hides/shows the section; every
+          mutation it makes is independently gated server-side. */}
+      {stats?.is_admin && <AdminPublicTopics />}
 
       {/* Footer */}
       <div style={{ marginTop: 'auto', borderTop: '0.5px solid var(--color-border-tertiary)', padding: 6 }}>

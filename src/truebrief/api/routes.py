@@ -76,6 +76,14 @@ def _require_founder(user: User) -> None:
     if user.email != settings.FOUNDER_EMAIL:
         raise HTTPException(status_code=403, detail="Not authorized")
 
+
+def _require_admin(user: User) -> None:
+    """Raise 403 unless the user is an admin per billing.tiers.is_admin
+    (settings.ADMIN_EMAILS). Fails CLOSED: an unset/empty allowlist admits nobody."""
+    from truebrief.billing.tiers import is_admin
+    if not is_admin(user.email):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -120,6 +128,7 @@ class TopicResponse(BaseModel):
     last_scan_at: Optional[str] = None
     scan_started_at: Optional[str] = None
     is_scanning: bool = False
+    is_public: bool = False
 
     @model_validator(mode='before')
     @classmethod
@@ -250,6 +259,127 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
             logger.warning(f"Failed to create topic subscription: {sub_err}")
 
     return topic_record
+
+
+class AdminTopicCreate(BaseModel):
+    # Same bound as TopicCreate — raw_query flows into LLM prompts/search/embeddings.
+    raw_query: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _strip_control_chars(self):
+        cleaned = "".join(
+            ch for ch in self.raw_query if ch == " " or ch == "\t" or ord(ch) >= 0x20
+        ).strip()
+        if not cleaned:
+            raise ValueError("raw_query must contain visible characters")
+        self.raw_query = cleaned
+        return self
+
+
+@router.post("/admin/public-topics", response_model=TopicResponse)
+@limiter.limit("20/hour")
+def create_public_topic(request: Request, topic: AdminTopicCreate, user: User = Depends(get_current_user)):
+    """
+    Admin-only: create (or promote) a topic and mark it is_public=true.
+    Regular users can never set is_public — this is the only path that flips it on
+    a newly-created topic. Bypasses tier topic-cap enforcement (admin).
+    """
+    _require_admin(user)
+    db = get_supabase()
+    val_uuid = user.id
+
+    normalized_query = topic.raw_query.strip().lower()
+    existing = db.table("topics").select("*").eq("raw_query", normalized_query).execute()
+    if existing.data:
+        topic_record = existing.data[0]
+        if not topic_record.get("is_public"):
+            upd = db.table("topics").update({"is_public": True}).eq("id", topic_record["id"]).execute()
+            topic_record = upd.data[0] if upd.data else {**topic_record, "is_public": True}
+        logger.info(f"Admin {user.email}: topic '{normalized_query}' already exists, marked public.")
+    else:
+        data = {
+            "raw_query": normalized_query,
+            "user_id": val_uuid,  # original-creator metadata only
+            "is_public": True,
+        }
+        try:
+            res = db.table("topics").insert(data).execute()
+            if not res.data:
+                raise HTTPException(status_code=500, detail="Database failed to return the created topic.")
+            topic_record = res.data[0]
+
+            try:
+                from truebrief.tasks.scheduler import set_next_run
+                set_next_run(topic_record["id"])
+            except Exception as sched_next_err:
+                logger.warning("Could not set initial next_run_at: %s", sched_next_err)
+
+            try:
+                _llm = LLMClient()
+                _embedding = _llm.embed(normalized_query)
+                db.table("topics").update({"topic_embedding": _embedding}).eq("id", topic_record["id"]).execute()
+            except Exception as _emb_err:
+                logger.warning("Topic embedding failed (non-fatal): %s", _emb_err)
+
+            _first_task_id = None
+            try:
+                from truebrief.tasks.pipeline_task import enqueue_pipeline
+                _task = enqueue_pipeline(
+                    topic_id=topic_record["id"],
+                    raw_query=topic_record["raw_query"],
+                )
+                _first_task_id = _task.id
+                logger.info(f"First scan enqueued for new public topic {topic_record['id']} task={_first_task_id}")
+                try:
+                    db.table("topics").update(
+                        {"scan_started_at": datetime.utcnow().isoformat()}
+                    ).eq("id", topic_record["id"]).execute()
+                except Exception:
+                    pass
+            except Exception as sched_err:
+                logger.warning(f"Could not enqueue first scan: {sched_err}")
+            topic_record = dict(topic_record)
+            topic_record["scan_task_id"] = _first_task_id
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error creating public topic: {e}")
+            raise HTTPException(status_code=400, detail="Could not create topic.")
+
+    try:
+        db.table("topic_subscriptions").insert({
+            "user_id": val_uuid,
+            "topic_id": topic_record["id"]
+        }).execute()
+    except Exception as sub_err:
+        if "duplicate key value" not in str(sub_err).lower() and "unique constraint" not in str(sub_err).lower():
+            logger.warning(f"Failed to create admin subscription to public topic: {sub_err}")
+
+    return topic_record
+
+
+class TopicVisibilityUpdate(BaseModel):
+    is_public: bool
+
+
+@router.patch("/admin/topics/{topic_id}/public", response_model=TopicResponse)
+@limiter.limit("30/hour")
+def set_topic_visibility(
+    request: Request,
+    topic_id: str,
+    body: TopicVisibilityUpdate,
+    user: User = Depends(get_current_user),
+):
+    """Admin-only: toggle an existing topic's is_public flag."""
+    _require_admin(user)
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    res = db.table("topics").select("*").eq("id", topic_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    upd = db.table("topics").update({"is_public": body.is_public}).eq("id", topic_id).execute()
+    return upd.data[0] if upd.data else {**res.data[0], "is_public": body.is_public}
 
 
 @router.get("/topics", response_model=List[TopicResponse])
@@ -959,15 +1089,45 @@ class SharedTopicResult(BaseModel):
     name: str
     subscriber_count: int
 
+
+def _with_subscriber_counts(db, topics: list[dict]) -> List[dict]:
+    """Attach a real subscriber_count (topic_subscriptions rows) to each topic dict."""
+    out = []
+    for t in topics:
+        count_res = (
+            db.table("topic_subscriptions")
+            .select("user_id", count="exact")
+            .eq("topic_id", t["id"])
+            .execute()
+        )
+        out.append({"id": t["id"], "name": t["raw_query"], "subscriber_count": count_res.count or 0})
+    return out
+
+
 @router.get("/shared-topics", response_model=List[SharedTopicResult])
-def search_shared_topics(q: str = ""):
-    """Search existing topics by name substring — used for suggestion pills on New Topic page."""
+def search_shared_topics(q: str = "", user: User = Depends(get_current_user)):
+    """Search PUBLIC topics by name substring — suggestion pills on the New Topic page.
+
+    Requires auth. Only ever returns is_public=true topics — this used to run with no
+    auth and no public/private filter, letting a signed-out caller enumerate every
+    user's private topic names via ?q=. Fixed 2026-08-06.
+    """
     db = get_supabase()
+    query = db.table("topics").select("id, raw_query").eq("is_public", True)
     if q and len(q) >= 2:
-        res = db.table("topics").select("id, raw_query").ilike("raw_query", f"%{q}%").limit(5).execute()
-    else:
-        res = db.table("topics").select("id, raw_query").limit(5).execute()
-    return [{"id": t["id"], "name": t["raw_query"], "subscriber_count": 0} for t in res.data or []]
+        query = query.ilike("raw_query", f"%{q}%")
+    res = query.limit(5).execute()
+    return _with_subscriber_counts(db, res.data or [])
+
+
+@router.get("/public-topics", response_model=List[SharedTopicResult])
+def list_public_topics():
+    """List all PUBLIC topics — no auth required. Lets a signed-out visitor browse
+    admin-curated public topics before signing in. Nothing is persisted for the caller;
+    "adding" one is a client-side/ephemeral action until they sign in (see report)."""
+    db = get_supabase()
+    res = db.table("topics").select("id, raw_query").eq("is_public", True).order("raw_query").execute()
+    return _with_subscriber_counts(db, res.data or [])
 
 
 # ---------------------------------------------------------------------------

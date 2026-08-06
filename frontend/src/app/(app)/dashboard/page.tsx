@@ -4,13 +4,103 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Check, Loader2, ArrowRight, RefreshCw } from 'lucide-react';
+import { Check, Loader2, ArrowRight, RefreshCw, Plus } from 'lucide-react';
 import { SourceChip } from '@/components/SourceChip';
 import { parseBrief } from '@/app/(app)/topics/[id]/page';
 import { useSession } from '@/app/providers';
 import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 interface BriefRow { id: string; content: string; delivered_at: string }
+
+// GET /public-topics — no auth required, admin-curated public topics only.
+interface PublicTopic { id: string; name: string; subscriber_count: number }
+
+/**
+ * Signed-out entry-page browsing surface. "Adding" a public topic here is purely
+ * client-side/ephemeral (local component state, never localStorage or the query
+ * cache) — closing the tab loses the selection, same as any unauthenticated
+ * ChatGPT-style session. This is intentional: it's the "sign in to keep this"
+ * hook, not a real subscribe action (which requires an account server-side).
+ */
+function PublicTopicBrowser() {
+  const api = useApi();
+  const [added, setAdded] = useState<Set<string>>(new Set());
+
+  const { data: topics = [], isLoading } = useQuery<PublicTopic[]>({
+    queryKey: ['public-topics'],
+    queryFn: async () => (await api.get('/public-topics')).data,
+    staleTime: 60_000,
+  });
+
+  const toggle = (id: string) => {
+    setAdded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', textAlign: 'center', padding: '8px 0' }}>
+        Loading public topics…
+      </p>
+    );
+  }
+
+  if (topics.length === 0) {
+    return (
+      <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', textAlign: 'center', padding: '8px 0' }}>
+        No public topics available yet.
+      </p>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 480, margin: '0 auto' }}>
+      {topics.map(t => {
+        const isAdded = added.has(t.id);
+        return (
+          <div
+            key={t.id}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+              padding: '10px 14px', border: '0.5px solid var(--color-border-tertiary)',
+              borderRadius: 10, marginBottom: 8, background: 'var(--color-background-primary)',
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, color: 'var(--color-text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {t.name}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                {t.subscriber_count} following
+              </div>
+            </div>
+            <button
+              onClick={() => toggle(t.id)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+                fontSize: 12, fontWeight: 500, padding: '5px 12px', borderRadius: 8, cursor: 'pointer',
+                border: isAdded ? '0.5px solid var(--tb-green-border)' : '0.5px solid var(--color-border-secondary)',
+                background: isAdded ? 'var(--tb-green-light)' : 'transparent',
+                color: isAdded ? 'var(--tb-green-dark)' : 'var(--color-text-secondary)',
+                fontFamily: 'inherit',
+              }}
+            >
+              {isAdded ? <><Check size={12} /> Added</> : <><Plus size={12} /> Add</>}
+            </button>
+          </div>
+        );
+      })}
+      {added.size > 0 && (
+        <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', margin: '4px 0 0' }}>
+          This selection is temporary — sign in to actually track a topic and get scans + briefs.
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface FeedFact {
   text: string;
@@ -296,12 +386,18 @@ export default function DashboardPage() {
   if (!session) {
     return (
       <div style={{ flex: 1 }}>
-        <div style={{ padding: '20px 22px 12px' }}>
+        <div style={{ padding: '20px 22px 4px' }}>
           <p style={{ fontSize: 20, fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>
             Today
           </p>
+          <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '4px 0 0' }}>
+            Browse what TrueBrief tracks publicly — sign in to track your own topics privately.
+          </p>
         </div>
-        <SignInPrompt message="Sign in to see what's new across your tracked topics." />
+        <div style={{ padding: '16px 22px 0' }}>
+          <PublicTopicBrowser />
+        </div>
+        <SignInPrompt message="Sign in to see what's new across your own tracked topics." />
       </div>
     );
   }
