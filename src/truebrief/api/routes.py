@@ -1344,7 +1344,9 @@ def _adaptive_window(m: int) -> tuple[int, int]:
 
 
 @router.post("/topics/{topic_id}/summary")
+@limiter.limit("60/hour")
 def get_topic_summary(
+    request: Request,
     topic_id: str,
     body: SummaryRequest,
     user: User = Depends(get_current_user),
@@ -1398,7 +1400,9 @@ def get_topic_summary(
 
 
 @router.post("/topics/{topic_id}/story")
+@limiter.limit("60/hour")
 def get_topic_story(
+    request: Request,
     topic_id: str,
     body: StoryRequest,
     user: User = Depends(get_current_user),
