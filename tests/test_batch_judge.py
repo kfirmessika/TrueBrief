@@ -20,6 +20,27 @@ from truebrief.models.alpha import Alpha, DecisionType
 FIXED_DATE = datetime(2026, 6, 1)
 
 
+# 2026-08-13: distinct alpha texts now get orthogonal (cosine=0.0) embeddings, not a
+# shared constant. Arbiter's intra-batch dedup (judge_alphas() comparing later alphas
+# against earlier same-batch NEW/UPDATE ones) treated a shared identical embedding as
+# a perfect 1.0 cosine match between EVERY pair of test alphas, which silently
+# collapsed fast-path tests expecting independent NEW/grey-zone outcomes into false
+# auto-duplicates. One-hot-per-distinct-text keeps it fully deterministic (same text
+# -> same vector always, so existing assertions still hold) and exactly orthogonal
+# for different texts (no hash-collision risk the way a randomized embedding would have).
+_EMBED_DIM = 32
+_TEXT_TO_DIM: dict[str, int] = {}
+
+
+def _embedding_for(text: str) -> list[float]:
+    if text not in _TEXT_TO_DIM:
+        assert len(_TEXT_TO_DIM) < _EMBED_DIM, "add more dims — ran out of orthogonal slots"
+        _TEXT_TO_DIM[text] = len(_TEXT_TO_DIM)
+    vec = [0.0] * _EMBED_DIM
+    vec[_TEXT_TO_DIM[text]] = 1.0
+    return vec
+
+
 def make_alpha(text: str, entities=None) -> Alpha:
     return Alpha(
         alpha_text=text,
@@ -27,7 +48,7 @@ def make_alpha(text: str, entities=None) -> Alpha:
         source_url="https://example.com/a",
         source_name="example.com",
         event_date=FIXED_DATE,
-        embedding=[0.1] * 8,  # pre-set so _ensure_embedding is a no-op
+        embedding=_embedding_for(text),  # pre-set so _ensure_embedding is a no-op
     )
 
 

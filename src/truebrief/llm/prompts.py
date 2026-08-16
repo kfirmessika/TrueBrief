@@ -706,7 +706,12 @@ GEMINI_SEARCH_SYSTEM = (
 )
 
 
-def build_gemini_search_prompt(topic_name: str, last_run_date: str, today: str) -> str:
+def build_gemini_search_prompt(
+    topic_name: str,
+    last_run_date: str,
+    today: str,
+    known_facts: list[str] | None = None,
+) -> str:
     """Construct the grounded-search prompt (call 1 of 2).
 
     Args:
@@ -714,19 +719,32 @@ def build_gemini_search_prompt(topic_name: str, last_run_date: str, today: str) 
         last_run_date: "%Y-%m-%d" of the last successful run, or "" for a first-ever run
             (in which case the window is "the last 7 days" instead of an exact range).
         today: "%Y-%m-%d" of the current date.
+        known_facts: optional list of already-known fact strings to inject into the
+            prompt so Gemini skips re-surfacing them on same-day rescans. When empty or
+            None the prompt is identical to the original (no behaviour change for normal
+            scans).
     """
     window = (
         f"from {last_run_date} to {today}"
         if last_run_date
         else f"in the last 7 days (today is {today})"
     )
-    return (
+    prompt = (
         f"Search the web for developments on '{topic_name}' {window}.\n\n"
         "List every distinct development you find, each as its own item with an explicit "
         "date. Be specific — include names, numbers, and locations. Do not include your own "
         "analysis, predictions, or significance judgments — report what happened, not what "
         "it means. If nothing new happened in this window, say so plainly."
     )
+    if known_facts:
+        known_block = "\n".join(f"- {f}" for f in known_facts)
+        prompt += (
+            f"\n\nThe following developments are already known as of the last scan — "
+            f"do not re-report them unless something about them has materially changed:\n"
+            f"{known_block}\n"
+            f"Only report what is genuinely new since the last scan."
+        )
+    return prompt
 
 
 GEMINI_EXTRACT_SYSTEM = (

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from datetime import datetime
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -73,7 +74,22 @@ class VectorStore:
             story_node_id: Optional StoryNode ID to link this fact to (Phase 3).
         """
         logger.info(f"Adding fact to ledger: {alpha.alpha_text[:50]}...")
-        
+
+        # 2026-08-13: live-DB audit found 675 known_facts rows with topic_id IS NULL
+        # (spanning 2026-06-08 to 2026-08-13 — an old, ongoing leak, not a one-off).
+        # Root cause: scripts/run_pipeline.py called PipelineRunner().run(topic) with
+        # no topic_id, so every NEW/UPDATE fact silently landed here with topic_id=None
+        # and can never be deduped again (find_similar() is always scoped by topic_id).
+        # Fail loud instead of silently inserting orphaned, unsearchable data.
+        if not alpha.topic_id:
+            raise ValueError(
+                "VectorStore.add_fact() refused to insert: alpha.topic_id is missing. "
+                "Every known_facts row must be scoped to a real topic — an orphaned row "
+                "can never be deduped (find_similar() is always topic-scoped). Pass a "
+                "real topic_id (create a throwaway topics row first if this is a "
+                "one-off script) instead of calling add_fact() without one."
+            )
+
         if not alpha.embedding:
             alpha.embedding = self.llm.embed(alpha.alpha_text)
 
@@ -304,6 +320,32 @@ class VectorStore:
         except Exception as e:
             logger.warning(f"get_seen_urls failed (non-fatal): {e}")
             return set()
+
+    def get_recent_facts(self, topic_id: str, since: datetime, limit: int = 30) -> list[str]:
+        """
+        Return alpha_text values for this topic with event_date >= since, newest first.
+
+        Used to inject "already known" context into the gemini_search prompt on same-day
+        rescans, so Gemini doesn't re-surface facts the prior scan already produced.
+        Returns a list of fact strings; empty list on failure (non-fatal).
+        """
+        if not topic_id:
+            return []
+        try:
+            since_str = since.isoformat()
+            response = (
+                self.db.table("known_facts")
+                .select("alpha_text")
+                .eq("topic_id", topic_id)
+                .gte("event_date", since_str)
+                .order("event_date", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return [row["alpha_text"] for row in response.data if row.get("alpha_text")]
+        except Exception as e:
+            logger.warning(f"get_recent_facts failed (non-fatal): {e}")
+            return []
 
     def find_similar(
         self,

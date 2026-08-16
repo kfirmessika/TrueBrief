@@ -35,6 +35,14 @@ GEMINI_35_FLASH_LITE_OUTPUT_PER_TOKEN = 0.000_002_500  # $2.50 per 1M tokens
 # text-embedding-004 / gemini-embedding-2 — free tier at this scale
 GEMINI_EMBEDDING_PER_TOKEN = 0.0
 
+# Local embeddings (EMBED_PROVIDER=local, llm/local_embedder.py) — sentence-transformers
+# running on-device, no external API call, genuinely free (not "free tier", actually $0
+# forever). llm/client.py logs these under model="local/<LOCAL_EMBED_MODEL>" so they can't
+# be confused with billed Gemini embedding usage in llm_call_log / cost-by-stage. Entry here
+# is for config/settings.py's default LOCAL_EMBED_MODEL; a custom LOCAL_EMBED_MODEL value
+# still resolves to $0 via compute_cost_usd's unknown-model fallback below.
+LOCAL_EMBEDDING_PER_TOKEN = 0.0
+
 # Groq — Llama 3.1 8B Instant. The intended V4 provider for the cheap summary/story
 # steps. We run these on Gemini flash-lite for now (free tier), but bill them at Groq
 # rates so the cost projection reflects the real target provider (see _COST_AS_GROQ_STEPS).
@@ -61,6 +69,7 @@ _INPUT_RATES: dict[str, float] = {
     "gemini-1.5-pro": GEMINI_PRO_INPUT_PER_TOKEN,
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
+    "local/BAAI/bge-base-en-v1.5": LOCAL_EMBEDDING_PER_TOKEN,
     "llama-3.1-8b-instant": GROQ_LLAMA8B_INPUT_PER_TOKEN,
     "llama-3.3-70b-versatile": GROQ_LLAMA70B_INPUT_PER_TOKEN,
     "gemini-2.5-flash-lite": GEMINI_25_FLASH_LITE_INPUT_PER_TOKEN,
@@ -77,6 +86,7 @@ _OUTPUT_RATES: dict[str, float] = {
     "gemini-1.5-pro": GEMINI_PRO_OUTPUT_PER_TOKEN,
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
+    "local/BAAI/bge-base-en-v1.5": LOCAL_EMBEDDING_PER_TOKEN,
     "llama-3.1-8b-instant": GROQ_LLAMA8B_OUTPUT_PER_TOKEN,
     "llama-3.3-70b-versatile": GROQ_LLAMA70B_OUTPUT_PER_TOKEN,
     "gemini-2.5-flash-lite": GEMINI_25_FLASH_LITE_OUTPUT_PER_TOKEN,

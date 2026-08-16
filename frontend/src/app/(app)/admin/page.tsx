@@ -5,6 +5,23 @@ import { useApi } from '@/lib/useApi';
 import Link from 'next/link';
 import { RefreshCw, AlertCircle, GitCompare } from 'lucide-react';
 
+interface QuotaAlert {
+  id: string;
+  created_at: string;
+  severity: 'yellow' | 'red';
+  step_name: string;
+  model: string;
+  key_type: 'primary' | 'backup';
+  error_detail: string | null;
+  notified: boolean;
+}
+
+interface QuotaAlertsResponse {
+  alerts: QuotaAlert[];
+  red_count: number;
+  yellow_count: number;
+}
+
 interface AdminMetrics {
   totals: {
     topics: number;
@@ -60,13 +77,12 @@ const STAGE_LABELS: Record<string, string> = {
   gemini_extract: 'Extraction',
   arbiter: 'Dedup / Judge',
   briefer: 'Brief writing',
+  embedding: 'Embedding (memory)',
   signal_scorer: 'Signal scoring',
   query_builder: 'Query building',
   harvester: 'Harvesting (V4)',
   story_stitch: 'Story stitching',
   story_summarizer: 'Story summary',
-  dashboard_summary: 'Dashboard summary',
-  state_of_play: 'State of play',
 };
 const STATUS_LABELS: Record<string, string> = {
   success: 'Success', running: 'Running', error: 'Error',
@@ -92,6 +108,98 @@ function StatusBadge({ status }: { status: string | null }) {
     }}>
       {status ?? 'unknown'}
     </span>
+  );
+}
+
+// Founder-facing labels for llm_call_log stage names / model ids, reused from the
+// STAGE_LABELS map below where the key matches; falls back to the raw string.
+function stepLabel(step: string): string {
+  return STAGE_LABELS[step] ?? step;
+}
+
+function QuotaAlertsBanner() {
+  const api = useApi();
+
+  const { data, isLoading, isError } = useQuery<QuotaAlertsResponse>({
+    queryKey: ['admin-quota-alerts'],
+    queryFn: async () => {
+      const r = await api.get('/admin/quota-alerts', { params: { hours: 48 } });
+      return r.data;
+    },
+    staleTime: 30_000,
+    retry: 0,
+    // Quota exhaustion is time-sensitive — poll so this banner stays live without a
+    // manual refresh, same rhythm as the scan-status poll elsewhere in the app.
+    refetchInterval: 60_000,
+  });
+
+  if (isLoading || isError || !data || data.alerts.length === 0) {
+    return null;
+  }
+
+  const reds = data.alerts.filter((a) => a.severity === 'red');
+  const yellows = data.alerts.filter((a) => a.severity === 'yellow');
+
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
+        Gemini Quota Alerts <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12 }}>(last 48h)</span>
+      </h2>
+
+      {reds.length > 0 && (
+        <div style={{
+          background: '#FEF2F2',
+          border: '1px solid #FCA5A5',
+          borderRadius: 10,
+          padding: '14px 16px',
+          marginBottom: yellows.length > 0 ? 10 : 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <AlertCircle size={16} color="#DC2626" />
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#991B1B' }}>
+              {reds.length} critical — calls failing/degraded
+            </span>
+          </div>
+          {reds.slice(0, 10).map((a) => (
+            <div key={a.id} style={{
+              fontSize: 12, color: '#7F1D1D', padding: '4px 0',
+              borderTop: '1px solid #FCA5A5',
+            }}>
+              <span style={{ fontFamily: 'monospace' }}>{new Date(a.created_at).toLocaleString()}</span>
+              {' — '}
+              <strong>{stepLabel(a.step_name)}</strong> / {a.model} ({a.key_type} key)
+              {a.notified ? '' : ' — push not delivered'}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {yellows.length > 0 && (
+        <div style={{
+          background: '#FFFBEB',
+          border: '1px solid #FDE68A',
+          borderRadius: 10,
+          padding: '14px 16px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <AlertCircle size={16} color="#B45309" />
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
+              {yellows.length} warning — primary key exhausted, running on backup
+            </span>
+          </div>
+          {yellows.slice(0, 10).map((a) => (
+            <div key={a.id} style={{
+              fontSize: 12, color: '#78350F', padding: '4px 0',
+              borderTop: '1px solid #FDE68A',
+            }}>
+              <span style={{ fontFamily: 'monospace' }}>{new Date(a.created_at).toLocaleString()}</span>
+              {' — '}
+              {stepLabel(a.step_name)} / {a.model}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -176,6 +284,8 @@ export default function AdminPage() {
         </div>
       </div>
 
+      <QuotaAlertsBanner />
+
       {/* Stat grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
         <StatCard label="Topics" value={t.topics} />
@@ -212,8 +322,9 @@ export default function AdminPage() {
       )}
 
       {/* Cost by stage — non-zero stages only; a $0.000000 row next to real spend reads
-          as broken tracking, not "this stage happens to be free" (which is what it
-          usually means: an embedding model, or a stage that hasn't run in this window). */}
+          as broken tracking, not "this stage happens to be free". The 4 live V5 stages
+          (search, extraction, dedup/judge, brief writing) all make priced LLM calls, but
+          arbiter legitimately shows $0 in a window with no grey-zone facts to judge. */}
       {(() => {
         const priced = Object.entries(data!.cost_by_stage)
           .filter(([, cost]) => cost > 0)
@@ -241,7 +352,7 @@ export default function AdminPage() {
             </div>
             {freeCount > 0 && (
               <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '6px 0 0' }}>
-                +{freeCount} other stage{freeCount === 1 ? '' : 's'} at $0 (unused in this window, or a free embedding call)
+                +{freeCount} other stage{freeCount === 1 ? '' : 's'} had no calls in this window
               </p>
             )}
           </section>

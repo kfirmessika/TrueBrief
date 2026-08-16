@@ -144,6 +144,7 @@ class LLMClient:
                             "Switching to GOOGLE_API_KEY_BACKUP. Reason: %s",
                             step_name, str(exc)[:200],
                         )
+                        self._flag_quota("yellow", step_name, model, "primary", exc)
                         try:
                             result, in_tok, out_tok = self._call_gemini_instrumented(
                                 model, prompt, json_mode, system_prompt, client=backup
@@ -154,6 +155,7 @@ class LLMClient:
                             return result
                         except Exception as bexc:
                             if self._is_quota_exhausted(bexc):
+                                self._flag_quota("red", step_name, model, "backup", bexc)
                                 # Last resort: both Gemini keys dead → run this call on
                                 # Groq if a key exists. Keeps the pipeline alive through
                                 # daily quota resets instead of producing empty briefs.
@@ -195,7 +197,12 @@ class LLMClient:
                                 "[LLM] Backup key failed with non-quota error (step=%s): %s",
                                 step_name, bexc,
                             )
+                            self._flag_quota("red", step_name, model, "backup", bexc)
                             exc = bexc  # fall through to normal retry with backup's error
+                    else:
+                        # No backup key configured at all — primary is quota-exhausted and
+                        # there's nothing to fall back to, so this call is already failing.
+                        self._flag_quota("red", step_name, model, "primary", exc)
 
                 if attempt < self.MAX_RETRIES:
                     wait = self._retry_wait(exc, attempt)
@@ -289,8 +296,25 @@ class LLMClient:
                         "[LLM] Primary GOOGLE_API_KEY quota exhausted (step=%s, grounded). "
                         "Switching to GOOGLE_API_KEY_BACKUP.", step_name,
                     )
-                    result = _do_call(backup)
+                    self._flag_quota("yellow", step_name, model, "primary", exc)
+                    try:
+                        result = _do_call(backup)
+                    except Exception as bexc:
+                        # Real live incident (2026-08-12): backup key permanently 404'd
+                        # ("model no longer available") right after primary hit its daily
+                        # grounding quota — this branch previously had NO handling at all,
+                        # the exception just propagated with no flag and no record.
+                        logger.error(
+                            "[LLM] Backup key ALSO failed (step=%s, grounded, model=%s): %s",
+                            step_name, model, bexc,
+                        )
+                        self._flag_quota("red", step_name, model, "backup", bexc)
+                        raise LLMError(
+                            f"Gemini grounded call failed on both primary (quota-exhausted) "
+                            f"and backup ({bexc}) for step '{step_name}'."
+                        ) from bexc
                 else:
+                    self._flag_quota("red", step_name, model, "primary", exc)
                     raise LLMError(f"Gemini quota exhausted for grounded step '{step_name}', no backup key.") from exc
             else:
                 raise
@@ -318,9 +342,23 @@ class LLMClient:
             return [0.0] * 768
 
         provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
+        t0 = time.monotonic()
         if provider == "local":
-            return self._get_local_embedder().embed(text)
-        return self._embed_gemini(text, task_type=task_type)
+            result = self._get_local_embedder().embed(text)
+            model = self._local_embed_model_label()
+        else:
+            result = self._embed_gemini(text, task_type=task_type)
+            model = "models/gemini-embedding-2"
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        self._log_call(
+            stage="embedding",
+            model=model,
+            input_tokens=self._estimate_tokens(text),
+            output_tokens=0,
+            duration_ms=duration_ms,
+            prompt=text,
+        )
+        return result
 
     def embed_batch(self, texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT") -> List[List[float]]:
         """Generate vector embeddings for a list of strings.
@@ -334,9 +372,23 @@ class LLMClient:
             return []
 
         provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
+        t0 = time.monotonic()
         if provider == "local":
-            return self._get_local_embedder().embed_batch(texts)
-        return self._embed_batch_gemini(texts, task_type=task_type)
+            result = self._get_local_embedder().embed_batch(texts)
+            model = self._local_embed_model_label()
+        else:
+            result = self._embed_batch_gemini(texts, task_type=task_type)
+            model = "models/gemini-embedding-2"
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        self._log_call(
+            stage="embedding",
+            model=model,
+            input_tokens=sum(self._estimate_tokens(t) for t in texts),
+            output_tokens=0,
+            duration_ms=duration_ms,
+            prompt="\n".join(texts),
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Gemini embedding internals (kept intact — switch back via settings)
@@ -566,6 +618,44 @@ class LLMClient:
     def _is_quota_exhausted(exc: Exception) -> bool:
         msg = str(exc)
         return "429" in msg or "RESOURCE_EXHAUSTED" in msg
+
+    @staticmethod
+    def _flag_quota(severity: str, step_name: str, model: str, key_type: str, error: Exception) -> None:
+        """Real-time quota-exhaustion alert: persist + push the founder. Never raises —
+        wrapped so a broken alert path can never affect the LLM call it's reporting on.
+        See ledger/quota_alerts.py for the full detection→persist→push design.
+        """
+        try:
+            from truebrief.ledger.quota_alerts import flag_quota_event
+            flag_quota_event(severity, step_name, model, key_type, error)
+        except Exception as exc:
+            logger.debug("[LLM] Quota alert failed (non-fatal): %s", exc)
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Rough token-count estimate for embedding calls (~4 chars/token, English).
+
+        Unlike generate_content, the Gemini Developer API's embed_content response
+        carries no usage_metadata — EmbedContentMetadata.billable_character_count is
+        Vertex-API-only, so there's no exact count available on the API path we use.
+        call()'s token counts come from real usage_metadata; this is the best available
+        proxy for embed()/embed_batch() (both providers, so volume is comparable).
+        """
+        if not text:
+            return 0
+        return max(1, len(text) // 4)
+
+    def _local_embed_model_label(self) -> str:
+        """Model label logged for EMBED_PROVIDER=local calls.
+
+        Deliberately distinct from any real Gemini model id (prefixed "local/") so
+        llm_call_log / cost-by-stage can't mistake on-device inference for billed API
+        usage — it prices at genuinely $0 (see llm/pricing.py) because no external call
+        is made, whereas "models/gemini-embedding-2" prices at whatever pricing.py says
+        Google currently charges for that endpoint.
+        """
+        model_name = getattr(self._settings, "LOCAL_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+        return f"local/{model_name}"
 
     def _get_gemini_client_backup(self) -> Optional[Any]:
         """Return a Gemini client using GOOGLE_API_KEY_BACKUP, or None if not configured."""

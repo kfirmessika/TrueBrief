@@ -46,6 +46,7 @@ desktop.ini
 data/                   # local data dumps, not committed
 *.log
 logs/
+docs/benchmarks/_data/*backup*.json   # multi-MB DB backups made during audits, not repo-sized
 
 # === Node (frontend Phase 3) ===
 node_modules/

@@ -1689,8 +1689,7 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
     # to the same llm_call_log table, so without this split the benchmark's cost silently
     # dominates the "production spend" total and misreads as live cost.
     V5_STAGES = {
-        "gemini_search", "gemini_extract", "arbiter", "briefer",
-        "dashboard_summary", "state_of_play",
+        "gemini_search", "gemini_extract", "arbiter", "briefer", "embedding",
     }
     total_cost_usd = 0.0
     cost_by_stage: dict = {}
@@ -1752,6 +1751,29 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
             for k, v in sorted(benchmark_cost_by_stage.items(), key=lambda x: -x[1])
         },
         "recent_runs": recent_runs,
+    }
+
+
+@router.get("/admin/quota-alerts")
+def get_admin_quota_alerts(hours: int = 48, user: User = Depends(get_current_user)):
+    """
+    Recent Gemini quota-exhaustion flag events (yellow = primary exhausted, on backup;
+    red = backup also failed / no backup / fell through to Groq — call is degraded or
+    failing). Persisted by truebrief.ledger.quota_alerts.flag_quota_event() at the exact
+    point llm/client.py catches a 429/RESOURCE_EXHAUSTED error. Push notifications to the
+    founder are best-effort (see `notified` per row); this endpoint is the durable record.
+    """
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    from truebrief.ledger.quota_alerts import recent_alerts
+
+    hours = min(max(hours, 1), 24 * 30)  # cap at 30 days
+    alerts = recent_alerts(hours=hours, limit=200)
+    return {
+        "alerts": alerts,
+        "red_count": sum(1 for a in alerts if a.get("severity") == "red"),
+        "yellow_count": sum(1 for a in alerts if a.get("severity") == "yellow"),
     }
 
 

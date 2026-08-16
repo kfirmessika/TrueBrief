@@ -7,7 +7,7 @@ python-dotenv>=1.0.0
 pyyaml>=6.0.0
 
 # LLM — Gemini (primary for prototype)
-google-genai>=1.0.0
+google-genai>=2.18.0
 
 # Local embeddings (no quota, no cost; replaces Gemini embed when EMBED_PROVIDER=local)
 sentence-transformers>=3.0.0

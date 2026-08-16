@@ -32,7 +32,7 @@ class GeminiSearchRunner:
     def __init__(self) -> None:
         self.vector_store = VectorStore()
         self.arbiter = Arbiter(vector_store=self.vector_store)
-        self.collector = GeminiSearchCollector()
+        self.collector = GeminiSearchCollector(vector_store=self.vector_store)
         self.briefer = Briefer()
         # Exposed for pipeline_task.py's **getattr(runner, "last_run_stats", {}) telemetry.
         self.last_run_stats: dict = {}

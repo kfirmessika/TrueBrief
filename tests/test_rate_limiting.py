@@ -56,14 +56,14 @@ class TestLimiterSetup:
         assert limiter is not None
         assert limiter._key_func is get_remote_address
 
-    def test_limiter_uses_memory_without_redis(self):
+    def test_limiter_uses_memory_without_redis(self, monkeypatch):
         """When REDIS_URL is absent the module selects memory:// storage."""
-        import os
-        # In CI / dev there is no REDIS_URL, so the module should have used memory://
-        redis_url = os.getenv("REDIS_URL", "")
+        import importlib
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        import truebrief.api.rate_limit
+        importlib.reload(truebrief.api.rate_limit)
         from truebrief.api.rate_limit import _storage_uri
-        expected = redis_url if redis_url else "memory://"
-        assert _storage_uri == expected
+        assert _storage_uri == "memory://"
 
     def test_redis_storage_uri_used_when_env_set(self):
         """A Limiter created with a Redis URI stores that URI (no live connection needed)."""

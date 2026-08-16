@@ -62,6 +62,17 @@ def _digit_runs(text: str) -> list:
     return re.findall(r"\d+", text)
 
 
+def _cosine(a: list, b: list) -> float:
+    """Cosine similarity between two equal-length float vectors, pure Python (no numpy
+    dependency here — pools are tiny, a handful of alphas per collect() batch)."""
+    if not a or not b:
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return dot / (na * nb) if na > 0 and nb > 0 else 0.0
+
+
 class Arbiter:
     """
     Pillar 4: The Judge.
@@ -122,11 +133,24 @@ class Arbiter:
         Behaviour is identical to calling :meth:`judge_alpha` per fact — the
         returned decisions are in the same order as ``alphas``. When the flag is
         off (default) each grey-zone fact is judged individually, exactly as before.
+
+        Intra-batch dedup (added 2026-08-13): ``_prepare()`` is called with a
+        ``batch_pool`` that grows as earlier alphas in THIS SAME list are decided
+        NEW/UPDATE, so a later alpha can match against an earlier one even though
+        neither is in the DB yet (writes happen after this method returns, in the
+        caller). See ``_prepare``'s ``extra_pool`` docstring for the live evidence.
         """
-        # Resolve fast-paths first; collect the grey-zone cases that need the LLM.
-        prepared: List[Tuple[Optional[AlphaDecision], List[Tuple[Alpha, float]]]] = [
-            self._prepare(alpha, topic_id) for alpha in alphas
-        ]
+        # Resolve fast-paths first, sequentially, growing the in-batch pool as we
+        # go — collect the grey-zone cases that still need the LLM after
+        # considering both the DB ledger AND this batch's own earlier facts.
+        batch_pool: List[Alpha] = []
+        prepared: List[Tuple[Optional[AlphaDecision], List[Tuple[Alpha, float]]]] = []
+        for alpha in alphas:
+            resolved, adjusted = self._prepare(alpha, topic_id, extra_pool=batch_pool)
+            prepared.append((resolved, adjusted))
+            if resolved is not None and resolved.decision in (DecisionType.NEW, DecisionType.UPDATE):
+                batch_pool.append(alpha)
+
         grey_idx = [i for i, (resolved, _) in enumerate(prepared) if resolved is None]
 
         if not grey_idx:
@@ -171,10 +195,26 @@ class Arbiter:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _prepare(
-        self, alpha: Alpha, topic_id: Optional[str]
+        self,
+        alpha: Alpha,
+        topic_id: Optional[str],
+        extra_pool: Optional[List[Alpha]] = None,
     ) -> Tuple[Optional[AlphaDecision], List[Tuple[Alpha, float]]]:
         """
         Run everything up to (but not including) the Judge LLM.
+
+        Args:
+            extra_pool: Alphas already decided NEW/UPDATE earlier in the SAME
+                judge_alphas() batch, not yet written to the DB. Diagnosed
+                2026-08-13 on live data: judge_alphas() judged the whole batch
+                against ONLY the DB-stored ledger, writes happening afterward in
+                the caller — so two near-duplicate facts extracted from the SAME
+                single collect() call never saw each other (both got zero DB
+                matches → AUTO-NEW, both stored as separate rows). Live audit:
+                134 confirmed same-topic pairs at cosine 0.75-0.96, all inserted
+                within 0.4-7.3 SECONDS of each other (same batch). Passing the
+                batch's own already-decided alphas here closes that gap by
+                treating them exactly like DB matches for every check below.
 
         Returns ``(decision, adjusted_matches)``:
           - ``decision`` is a finished AlphaDecision when a fast-path resolves it
@@ -223,8 +263,15 @@ class Arbiter:
                     [],
                 )
 
-        # Step 2 - Fetch similar facts from the Ledger
+        # Step 2 - Fetch similar facts from the Ledger, plus this batch's own
+        # already-decided NEW/UPDATE alphas (see extra_pool docstring above).
+        # Merged in BEFORE every check below (contradiction, raw-cosine auto-merge,
+        # IC3, same-day, auto-merge/grey-zone thresholding) so a same-batch
+        # near-duplicate is treated identically to a DB-stored one.
         raw_matches = self._fetch_matches(alpha, topic_id)
+        if extra_pool:
+            raw_matches = raw_matches + self._pool_matches(alpha, extra_pool)
+            raw_matches.sort(key=lambda x: x[1], reverse=True)
 
         # Step 2b — IC4 contradiction flag (V3_CONTRADICTION_FLAG). A fact that contradicts
         # an existing one (Hormuz open/closed; toll 3,912 vs 3,468) is NOT a duplicate — flag
@@ -431,6 +478,24 @@ class Arbiter:
             logger.error(f"{log_prefix} Embedding failed: {exc}")
             alpha.embedding = None
         return alpha
+
+    def _pool_matches(
+        self, alpha: Alpha, pool: List[Alpha]
+    ) -> List[Tuple[Alpha, float]]:
+        """Raw cosine similarity between `alpha` and each in-memory batch-pool alpha.
+
+        Mirrors find_similar()'s own floor (LEDGER_FETCH_THRESHOLD) so pool candidates
+        get the same relevance bar as DB-fetched ones instead of flooding the
+        contradiction/IC3 checks with noise.
+        """
+        matches: List[Tuple[Alpha, float]] = []
+        for cand in pool:
+            if cand is alpha or cand.id == alpha.id or not cand.embedding or not alpha.embedding:
+                continue
+            score = _cosine(alpha.embedding, cand.embedding)
+            if score >= LEDGER_FETCH_THRESHOLD:
+                matches.append((cand, score))
+        return matches
 
     def _fetch_matches(
         self, alpha: Alpha, topic_id: Optional[str]

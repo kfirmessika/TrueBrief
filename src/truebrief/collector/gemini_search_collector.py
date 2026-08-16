@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from dateutil.parser import parse as parse_date
 
@@ -28,6 +28,9 @@ from truebrief.llm.prompts import (
     build_gemini_search_prompt,
 )
 from truebrief.models.alpha import Alpha
+
+if TYPE_CHECKING:
+    from truebrief.ledger.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +90,13 @@ def _build_source_legend(chunks: list) -> tuple:
 class GeminiSearchCollector:
     """V5's main collection pipeline. Replaces Collector + QueryBuilder + Harvester."""
 
-    def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
+    def __init__(
+        self,
+        llm_client: Optional[LLMClient] = None,
+        vector_store: Optional["VectorStore"] = None,
+    ) -> None:
         self.llm = llm_client or LLMClient()
+        self.vector_store = vector_store  # None → same-day dedup injection is skipped
 
     def collect(
         self,
@@ -101,12 +109,34 @@ class GeminiSearchCollector:
         `last_run_date=None` means a first-ever run — searches the last 7 days instead
         of an exact range. Returns Alpha objects ready for the arbiter; empty list on
         "nothing new" or any parse failure (never raises for a bad LLM response).
+
+        When `last_run_date` falls on the same calendar day as today and a `vector_store`
+        is available, injects already-known facts into the search prompt so Gemini skips
+        re-surfacing facts the prior same-day scan already produced.
         """
         today = datetime.now()
         today_str = today.strftime("%Y-%m-%d")
         last_run_str = last_run_date.strftime("%Y-%m-%d") if last_run_date else ""
 
-        search_prompt = build_gemini_search_prompt(topic_name, last_run_str, today_str)
+        # Same-day rescan: pull already-stored facts and inject into the search prompt
+        # so Gemini doesn't re-surface them. Skipped when no vector_store is wired or
+        # when topic_id is unknown (can't scope the query) or on a first-ever run.
+        known_facts: List[str] = []
+        if (
+            last_run_date is not None
+            and last_run_date.date() == today.date()
+            and self.vector_store is not None
+            and topic_id is not None
+        ):
+            since = datetime(today.year, today.month, today.day)
+            known_facts = self.vector_store.get_recent_facts(topic_id, since=since, limit=30)
+            if known_facts:
+                logger.info(
+                    "[gemini_search] same-day rescan for '%s': injecting %d known facts into prompt.",
+                    topic_name, len(known_facts),
+                )
+
+        search_prompt = build_gemini_search_prompt(topic_name, last_run_str, today_str, known_facts=known_facts or None)
         grounded: GroundedResult = self.llm.call_gemini_with_grounding(
             step_name="gemini_search",
             prompt=search_prompt,
