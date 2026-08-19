@@ -1,7 +1,7 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ThemeProvider } from 'next-themes';
+import { ThemeProvider } from '@/lib/useTheme';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import {
@@ -112,7 +112,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <SupabaseSessionProvider onSessionChange={handleSessionChange}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange={false}>
+      <ThemeProvider>
         <QueryClientProvider client={queryClient}>
           {children}
         </QueryClientProvider>

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Menu, X, Zap, Sun, Moon, Monitor, LogOut } from 'lucide-react';
 import { useState } from 'react';
-import { useTheme } from 'next-themes';
+import { useTheme } from '@/lib/useTheme';
 import { useRouter } from 'next/navigation';
 import { useSession } from '@/app/providers';
 import { createClient } from '@/lib/supabase/client';

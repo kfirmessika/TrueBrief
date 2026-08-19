@@ -53,6 +53,9 @@ export default function Sidebar() {
   const api = useApi();
 
   const queryClient = useQueryClient();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const [hoveredTopic, setHoveredTopic] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [editingTopic, setEditingTopic] = useState<string | null>(null);
@@ -228,6 +231,7 @@ export default function Sidebar() {
         Topics
       </div>
 
+      {mounted ? (<>
       {topics.map(topic => {
         const isActive = activeTopic === topic.id;
         const isHovered = hoveredTopic === topic.id;
@@ -359,11 +363,11 @@ export default function Sidebar() {
           {session ? 'No topics yet' : 'Sign in to track topics'}
         </div>
       )}
-
-      {/* Public topics — admin-only, visually separated from "My topics" above,
-          never interleaved with it. is_admin only hides/shows the section; every
-          mutation it makes is independently gated server-side. */}
       {stats?.is_admin && <AdminPublicTopics />}
+      </>) : (
+        /* Match server render — empty during SSR to avoid hydration mismatch */
+        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', padding: '8px 14px', fontStyle: 'italic' }} />
+      )}
 
       {/* Footer */}
       <div style={{ marginTop: 'auto', borderTop: '0.5px solid var(--color-border-tertiary)', padding: 6 }}>
