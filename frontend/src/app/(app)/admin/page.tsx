@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import Link from 'next/link';
 import { RefreshCw, AlertCircle, GitCompare } from 'lucide-react';
+import { StatCard, STAGE_LABELS, STATUS_COLOR, STATUS_LABELS, stepLabel, RunRowList } from './_shared';
 
 interface QuotaAlert {
   id: string;
@@ -48,73 +49,6 @@ interface AdminMetrics {
     dupe: number;
     error: string | null;
   }>;
-}
-
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
-  return (
-    <div style={{
-      background: 'var(--color-background-secondary)',
-      border: '0.5px solid var(--color-border-secondary)',
-      borderRadius: 10,
-      padding: '16px 20px',
-    }}>
-      <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 24, fontWeight: 600, color: 'var(--color-text-primary)', lineHeight: 1 }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
-}
-
-// Raw pipeline_run.exit_status / llm_call_log.stage values, for a founder-facing label
-// instead of the internal snake_case name. Anything not listed here still renders —
-// this is cosmetic, not a whitelist.
-const STAGE_LABELS: Record<string, string> = {
-  gemini_search: 'Search (Gemini)',
-  gemini_extract: 'Extraction',
-  arbiter: 'Dedup / Judge',
-  briefer: 'Brief writing',
-  embedding: 'Embedding (memory)',
-  signal_scorer: 'Signal scoring',
-  query_builder: 'Query building',
-  harvester: 'Harvesting (V4)',
-  story_stitch: 'Story stitching',
-  story_summarizer: 'Story summary',
-};
-const STATUS_LABELS: Record<string, string> = {
-  success: 'Success', running: 'Running', error: 'Error',
-  no_update: 'No new facts', failure: 'Failure',
-};
-const STATUS_COLOR: Record<string, string> = {
-  success: 'var(--tb-green-dark)', running: 'var(--tb-amber)',
-  error: '#DC2626', failure: '#DC2626', no_update: 'var(--color-text-tertiary)',
-};
-
-function StatusBadge({ status }: { status: string | null }) {
-  const s = (status ?? 'unknown').toLowerCase();
-  const colors: Record<string, { bg: string; color: string }> = {
-    success: { bg: 'var(--tb-green-light)', color: 'var(--tb-green-dark)' },
-    failure: { bg: '#FEE2E2', color: '#991B1B' },
-    revoked: { bg: '#FEF3C7', color: '#92400E' },
-  };
-  const c = colors[s] ?? { bg: 'var(--color-background-tertiary)', color: 'var(--color-text-secondary)' };
-  return (
-    <span style={{
-      fontSize: 11, padding: '2px 7px', borderRadius: 6,
-      background: c.bg, color: c.color, fontWeight: 500,
-    }}>
-      {status ?? 'unknown'}
-    </span>
-  );
-}
-
-// Founder-facing labels for llm_call_log stage names / model ids, reused from the
-// STAGE_LABELS map below where the key matches; falls back to the raw string.
-function stepLabel(step: string): string {
-  return STAGE_LABELS[step] ?? step;
 }
 
 function QuotaAlertsBanner() {
@@ -402,50 +336,7 @@ export default function AdminPage() {
         <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '0 0 12px' }}>
           Click a run to open its full pipeline trace — query &amp; tools, articles, AI prompts/responses, and per-fact decisions.
         </p>
-        <div style={{
-          background: 'var(--color-background-secondary)',
-          border: '0.5px solid var(--color-border-secondary)',
-          borderRadius: 10, overflow: 'hidden',
-        }}>
-          {data!.recent_runs.length === 0 && (
-            <div style={{ padding: '16px', fontSize: 13, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-              No runs yet.
-            </div>
-          )}
-          {data!.recent_runs.map((run, i) => (
-            <Link key={run.id} href={`/admin/runs/${run.id}`} style={{
-              display: 'grid', gridTemplateColumns: '1fr 80px 70px 70px 70px 70px auto',
-              alignItems: 'center', gap: 12,
-              padding: '10px 16px', textDecoration: 'none',
-              borderTop: i > 0 ? '0.5px solid var(--color-border-tertiary)' : 'none',
-            }}>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--color-text-primary)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {run.topic_id ?? '—'}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                  {run.started_at ? new Date(run.started_at).toLocaleString() : '—'}
-                </div>
-              </div>
-              <StatusBadge status={run.exit_status} />
-              <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                {run.duration_s != null ? `${run.duration_s}s` : '—'}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--tb-green-dark)', textAlign: 'right' }} title="new facts">
-                +{run.new}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--tb-amber)', textAlign: 'right' }} title="updated facts">
-                ↑{run.update}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', textAlign: 'right' }} title="duplicate facts">
-                ={run.dupe}
-              </span>
-              <div style={{ fontSize: 11, color: '#DC2626', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {run.error ?? ''}
-              </div>
-            </Link>
-          ))}
-        </div>
+        <RunRowList runs={data!.recent_runs} />
       </section>
 
       <style>{`

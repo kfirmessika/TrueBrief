@@ -62,7 +62,7 @@ def check_and_schedule_topics() -> dict:
 
         response = (
             db.table("topics")
-            .select("id, raw_query, next_run_at")
+            .select("id, raw_query, search_prompt, next_run_at")
             .eq("is_active", True)
             .lte("next_run_at", now_iso)    # next_run_at <= now
             .not_.is_("next_run_at", "null")  # exclude topics with no next_run_at set
@@ -81,7 +81,7 @@ def check_and_schedule_topics() -> dict:
         scheduled = []
         for topic in due_topics:
             topic_id = topic["id"]
-            raw_query = topic["raw_query"]
+            raw_query = topic.get("search_prompt") or topic["raw_query"]
 
             # Step 1: Advance next_run_at BEFORE enqueuing (prevents double-schedule).
             # If the advance fails, skip the enqueue — the topic stays due and will be

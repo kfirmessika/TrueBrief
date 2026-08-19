@@ -6,8 +6,8 @@ export const handlers = [
   // List topics
   http.get(`${API_URL}/topics`, () => {
     return HttpResponse.json([
-      { id: 'topic-1', raw_query: 'AI Safety', frequency: 'hourly', is_active: true, last_scan_at: null },
-      { id: 'topic-2', raw_query: 'Tesla Bot', frequency: 'hourly', is_active: true, last_scan_at: null },
+      { id: 'topic-1', name: 'AI Safety', raw_query: 'AI Safety', frequency: 'hourly', is_active: true, last_scan_at: null },
+      { id: 'topic-2', name: 'Tesla Bot', raw_query: 'Tesla Bot', frequency: 'hourly', is_active: true, last_scan_at: null },
     ]);
   }),
 
@@ -25,10 +25,25 @@ export const handlers = [
 
     return HttpResponse.json({
       id: 'topic-new',
+      name: body.raw_query,
       raw_query: body.raw_query,
       frequency: 'hourly',
       is_active: true,
       last_scan_at: null
+    });
+  }),
+
+  // Rename topic
+  http.patch(`${API_URL}/topics/:id`, async ({ request, params }) => {
+    const body: any = await request.json();
+    return HttpResponse.json({
+      id: params.id,
+      name: body.name,
+      raw_query: body.name,
+      search_prompt: body.name,
+      frequency: 'hourly',
+      is_active: true,
+      last_scan_at: null,
     });
   }),
 

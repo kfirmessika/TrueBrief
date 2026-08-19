@@ -93,6 +93,121 @@ Short abbreviations and proper nouns in any case are fine as-is.
 
 
 # ============================================================
+# STAGE: topic_finisher (experimental, scripts/topic_finisher_experiment.py) —
+# Gemini flash-lite (cheap). NOT wired into any pipeline stage or route.
+# ============================================================
+# topics.raw_query is currently stored verbatim and used BOTH as the UI display name
+# AND as the literal search prompt fed to Gemini Search grounding (build_gemini_search_
+# prompt's topic_name arg) — there is no cleanup step today. These three candidate
+# strategies are being evaluated (see scripts/topic_finisher_experiment.py) to fix that,
+# without touching the live gemini_search / query_builder call sites.
+
+# --- Strategy A: one combined call -> {"name": ..., "search_prompt": ...} ---
+
+TOPIC_FINISHER_COMBINED_SYSTEM = (
+    "You are the TrueBrief Topic Finisher. Given a user's messy topic-tracking input, "
+    "produce a short display name and a well-formed search query, both faithful to what "
+    "the user actually meant."
+)
+
+
+def build_topic_finisher_combined_prompt(raw_query: str) -> str:
+    """Strategy A: single call returns both the UI name and the search prompt.
+
+    Args:
+        raw_query: the user's raw, possibly messy topic-creation text.
+    """
+    return f"""
+The user typed this into a "track this topic" box: '{raw_query}'
+
+TASK:
+1. "name": a short 2-5 word UI display name for this topic — clean, human-readable,
+   Title Case, not truncated garbage, not overly generic (avoid bare words like "News"
+   or "Topic"). Fix spelling but do NOT invent a narrower or broader topic than intended.
+2. "search_prompt": a well-formed search query/prompt suitable for a live web search
+   grounded on recent news — fix spelling and grammar, disambiguate if the input is
+   terse or ambiguous, but stay faithful to the user's original intent. Do not pad it
+   with unrelated keywords.
+
+Return ONLY this JSON (no markdown, no extra keys):
+{{
+  "name": "Short Display Name",
+  "search_prompt": "well-formed search query text"
+}}
+"""
+
+
+# --- Strategy B: two separate cheap calls (name only, then search_prompt only) ---
+
+TOPIC_FINISHER_NAME_SYSTEM = (
+    "You are the TrueBrief Topic Finisher. Given a user's messy topic-tracking input, "
+    "produce ONLY a short display name for it."
+)
+
+
+def build_topic_finisher_name_prompt(raw_query: str) -> str:
+    """Strategy B, call 1 of 2: produce ONLY the short UI display name."""
+    return f"""
+The user typed this into a "track this topic" box: '{raw_query}'
+
+Produce a short 2-5 word UI display name for this topic — clean, human-readable, Title
+Case, not truncated garbage, not overly generic (avoid bare words like "News" or
+"Topic"). Fix spelling but do NOT invent a narrower or broader topic than intended.
+
+Return ONLY this JSON (no markdown, no extra keys):
+{{"name": "Short Display Name"}}
+"""
+
+
+TOPIC_FINISHER_SEARCH_SYSTEM = (
+    "You are the TrueBrief Topic Finisher. Given a user's messy topic-tracking input, "
+    "produce ONLY a well-formed search query for it."
+)
+
+
+def build_topic_finisher_search_prompt(raw_query: str) -> str:
+    """Strategy B, call 2 of 2: produce ONLY the search prompt."""
+    return f"""
+The user typed this into a "track this topic" box: '{raw_query}'
+
+Produce a well-formed search query/prompt suitable for a live web search grounded on
+recent news — fix spelling and grammar, disambiguate if the input is terse or
+ambiguous, but stay faithful to the user's original intent. Do not pad it with
+unrelated keywords.
+
+Return ONLY this JSON (no markdown, no extra keys):
+{{"search_prompt": "well-formed search query text"}}
+"""
+
+
+# --- Strategy C: one call, one corrected string reused as both name and search_prompt ---
+
+TOPIC_FINISHER_CORRECTED_SYSTEM = (
+    "You are the TrueBrief Topic Finisher. Given a user's messy topic-tracking input, "
+    "fix ONLY spelling/grammar errors — do not expand, rename, or add words."
+)
+
+
+def build_topic_finisher_corrected_prompt(raw_query: str) -> str:
+    """Strategy C: single output, reused as both UI name and search prompt.
+
+    Closest analogue to V4's corrected_query (query_builder.py / QUERY_BUILDER_SYSTEM
+    above) — minimal cleanup only, no rewriting.
+    """
+    return f"""
+The user typed this into a "track this topic" box: '{raw_query}'
+
+Fix ONLY spelling and grammar errors. Do NOT expand, rename, or add words. Do NOT
+change what the topic is about. If there are no errors, return the input unchanged
+(only trim stray whitespace).
+Examples: "isreal" -> "israel", "nvida stok" -> "nvidia stock", "us" -> "us".
+
+Return ONLY this JSON (no markdown, no extra keys):
+{{"corrected_query": "cleaned version of the input"}}
+"""
+
+
+# ============================================================
 # STAGE: harvester — Gemini flash-lite (cheap)
 # ============================================================
 
@@ -270,11 +385,32 @@ You are a precision news intelligence arbiter. Your job is to determine whether 
 duplicates, updates, or is entirely different from known stored facts.
 
 Rules (apply strictly):
-1. A change in numbers (price, %, revenue, count, date) = UPDATE, never MERGE — but the
-   number must be a genuinely NEW figure, not the same one re-stated or a subset of it.
-2. If the entities are different companies/people/products → lean NEW.
-3. Editorial rephrasing of the exact same factual claim → MERGE.
-4. Be a skeptical editor, not an eager one. Do NOT invent significance that isn't there.
+1. A change in numbers is either a REVISION or a CONFLICT — decide which before choosing UPDATE:
+   - REVISION (-> UPDATE): the new fact is a LATER report of the SAME cumulative/running
+     measurement continuing forward from the known fact (a death toll climbing from 20 to 25
+     over time, a vessel count growing day over day). The new number must be a genuinely new
+     figure, not the same one re-stated or a subset of it.
+   - CONFLICT (-> NEW, never UPDATE, never MERGE): the new fact and the known fact both describe
+     the SAME specific moment or incident, but report DIFFERENT, incompatible numbers for it (the
+     SAME attack described as killing both "6" and "14" people; the SAME economic estimate given
+     as both "5.4%" and "12%"). This is two sources disagreeing about one event, not a running
+     total moving forward — do not silently average, pick one, or treat the higher number as an
+     "update." Output NEW so both conflicting reports surface; a human or later source can
+     resolve which is right.
+   - If you genuinely cannot tell whether it's a later continuation or a same-moment conflict,
+     prefer CONFLICT (NEW) — a false NEW costs a slightly noisier brief; a false UPDATE silently
+     erases a real disagreement between sources.
+2. A fact asserting a status/state that is the DIRECT OPPOSITE of what the known fact asserted
+   about the SAME subject at essentially the SAME time (a blockade "crumbled" vs. "will remain
+   closed"; "active talks underway" vs. "no discussions"; an economy "expanding" vs. "shrank";
+   someone reported "vulnerable" vs. earlier "invincible") is also a CONFLICT, not a correction —
+   output NEW, even when the exact words aren't a fixed antonym pair. Only treat a reversal as a
+   legitimate UPDATE/correction when the new fact explicitly frames itself as fixing an error in
+   the earlier report ("officials later clarified...", "the previous figure was mistaken; it has
+   been corrected to...").
+3. If the entities are different companies/people/products → lean NEW.
+4. Editorial rephrasing of the exact same factual claim → MERGE.
+5. Be a skeptical editor, not an eager one. Do NOT invent significance that isn't there.
    MERGE (not UPDATE) whenever the new fact:
    - restates the known fact with a vacuous or filler clause ("...according to a later
      report", "...officials confirmed", "...it was noted") that adds no verifiable detail, or
@@ -284,27 +420,34 @@ Rules (apply strictly):
    Before choosing UPDATE, you must be able to name the SPECIFIC new number, name, date, or
    status the new fact adds that the known fact does not already contain. If you cannot name
    one, the correct decision is MERGE.
-5. When genuinely uncertain between UPDATE and MERGE — i.e. there IS a real, nameable new
+6. When genuinely uncertain between UPDATE and MERGE — i.e. there IS a real, nameable new
    detail, just a minor one — choose UPDATE (false negatives on real information are worse
-   than a minor update). This is different from rule 4's fabricated-detail case.
-6. Output ONLY valid JSON. No explanation outside the JSON object.
+   than a minor update). This is different from rule 5's fabricated-detail case, and different
+   from rule 1/2's CONFLICT case (a conflict is never MERGE or UPDATE, it is always NEW).
+7. Output ONLY valid JSON. No explanation outside the JSON object.
 
 Examples:
 - Known: "US strikes hit Iranian sites in X, Y, Z, and W." New: "US strikes hit Iranian sites
-  in X, Y, and Z." -> MERGE (subset, no new information — rule 4).
+  in X, Y, and Z." -> MERGE (subset, no new information — rule 5).
 - Known: "Iran reported over 50 killed." New: "Iran reported 50 killed and over 500 injured
   between June 27 and July 18." -> UPDATE (delta: "over 500 injuries recorded between June 27
-  and July 18" — a genuinely new, nameable figure).
+  and July 18" — a genuinely new, nameable figure, and a continuation not a conflict — rule 1).
 - Known: "4 people were killed in the strike." New: "4 people were killed in the strike,
   according to an updated report released the following week." -> MERGE (the added clause
-  names no new fact — rule 4).
+  names no new fact — rule 5).
+- Known: "The death toll from the attack was 6, officials said." New: "The death toll from
+  the SAME attack was 14, officials said." -> NEW (same specific incident, incompatible
+  counts — rule 1 CONFLICT, not a running tally).
+- Known: "Iran says the strait will remain closed." New: "The blockade has crumbled, with
+  vessels now moving freely." -> NEW (opposite state about the same subject, same time —
+  rule 2 CONFLICT).
 """
 
 ARBITER_CASE_BLOCK = """\
 NEW FACT (just extracted from an article):
   "{new_fact}"
   Entities: {new_entities}
-  Event date: {new_date}
+  Event date: {new_date}{new_context_line}
 
 CLOSEST KNOWN FACTS (from memory, ranked by similarity):
 {matches_block}"""
@@ -900,6 +1043,7 @@ if __name__ == "__main__":
             new_fact="Company X acquired Company Y for $5B.",
             new_entities="Company X, Company Y",
             new_date="2026-07-01",
+            new_context_line="",
             matches_block='  1. [STRONG_MATCH 0.82] "Company X agreed to acquire Company Y."\n'
             "     Entities: Company X, Company Y | Event date: 2026-06-28",
         )

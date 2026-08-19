@@ -14,6 +14,7 @@ import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 interface Topic {
   id: string;
+  name: string;
   raw_query: string;
   frequency: string;
   poll_interval_seconds?: number | null;
@@ -562,7 +563,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         flexShrink: 0,
       }}>
         <p style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
-          {session ? (topic?.raw_query ?? '…') : 'Sign in to view this topic'}
+          {session ? (topic?.name ?? '…') : 'Sign in to view this topic'}
         </p>
         {session && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>

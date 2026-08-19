@@ -9,7 +9,7 @@ import BriefContent from '@/components/briefs/BriefContent';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface Topic { id: string; raw_query: string; }
+interface Topic { id: string; name: string; raw_query: string; }
 interface Brief { id: string; content: string; delivered_at: string; }
 interface HistoryFact {
   text: string;
@@ -109,7 +109,7 @@ export default function ComparePage() {
 
   const [picked, setPicked] = useState<string | null>(null);
   const topicId = picked ?? topics[0]?.id ?? null;
-  const topicName = topics.find(t => t.id === topicId)?.raw_query ?? '';
+  const topicName = topics.find(t => t.id === topicId)?.name ?? '';
 
   const { data: history } = useQuery<HistoryDoc>({
     queryKey: ['topic-history', topicId],
@@ -163,7 +163,7 @@ export default function ComparePage() {
         }}
       >
         {topics.length === 0 && <option>No topics</option>}
-        {topics.map(t => <option key={t.id} value={t.id}>{t.raw_query}</option>)}
+        {topics.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
 
       {/* Two panels */}

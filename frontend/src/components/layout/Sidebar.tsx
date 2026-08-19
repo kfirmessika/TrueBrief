@@ -8,11 +8,13 @@ import { useApi } from '@/lib/useApi';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import AdminPublicTopics from '@/components/layout/AdminPublicTopics';
 import {
-  Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2, LogOut, CreditCard, LogIn,
+  Plus, LayoutGrid, Settings, MoreHorizontal, ScanSearch, Trash2, BarChart2, LogOut, CreditCard, LogIn, Pencil,
 } from 'lucide-react';
+import { useRenameTopic } from '@/hooks/useTopics';
 
 interface Topic {
   id: string;
+  name: string;
   raw_query: string;
   is_active: boolean;
   last_scan_at?: string | null;
@@ -53,6 +55,8 @@ export default function Sidebar() {
   const queryClient = useQueryClient();
   const [hoveredTopic, setHoveredTopic] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [editingTopic, setEditingTopic] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
@@ -84,6 +88,21 @@ export default function Sidebar() {
     mutationFn: (id: string) => api.delete(`/topics/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['topics'] }),
   });
+
+  const renameTopic = useRenameTopic();
+
+  const startRename = useCallback((topic: Topic) => {
+    setEditingTopic(topic.id);
+    setEditValue(topic.name);
+    setOpenMenu(null);
+  }, []);
+
+  const submitRename = useCallback((topicId: string) => {
+    const trimmed = editValue.trim();
+    setEditingTopic(null);
+    if (!trimmed) return;
+    renameTopic.mutate({ topicId, name: trimmed });
+  }, [editValue, renameTopic]);
 
   const [scanError, setScanError] = useState<string | null>(null);
 
@@ -204,9 +223,9 @@ export default function Sidebar() {
 
       <hr style={{ border: 'none', borderTop: '0.5px solid var(--color-border-tertiary)', margin: '4px 10px' }} />
 
-      {/* My Topics */}
+      {/* Topics */}
       <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', padding: '10px 14px 3px', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 500 }}>
-        My topics
+        Topics
       </div>
 
       {topics.map(topic => {
@@ -227,15 +246,34 @@ export default function Sidebar() {
             }}
           >
             <StatusDot topic={topic} />
-            <span style={{
-              fontSize: 13, color: 'var(--color-text-primary)', flex: 1,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {topic.raw_query}
-            </span>
+            {editingTopic === topic.id ? (
+              <input
+                autoFocus
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                onBlur={() => submitRename(topic.id)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); submitRename(topic.id); }
+                  if (e.key === 'Escape') { e.preventDefault(); setEditingTopic(null); }
+                }}
+                style={{
+                  fontSize: 13, color: 'var(--color-text-primary)', flex: 1, minWidth: 0,
+                  fontFamily: 'inherit', border: '0.5px solid var(--tb-green-border)',
+                  borderRadius: 4, padding: '1px 4px', background: 'var(--color-background-primary)',
+                }}
+              />
+            ) : (
+              <span style={{
+                fontSize: 13, color: 'var(--color-text-primary)', flex: 1,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {topic.name}
+              </span>
+            )}
 
             {/* 3-dots button — visible only on hover or when menu is open */}
-            {(isHovered || menuOpen) && (
+            {editingTopic !== topic.id && (isHovered || menuOpen) && (
               <button
                 onClick={e => { e.stopPropagation(); setOpenMenu(menuOpen ? null : topic.id); }}
                 style={{
@@ -283,7 +321,21 @@ export default function Sidebar() {
                   </div>
                 )}
                 <button
-                  onClick={() => { if (confirm(`Delete "${topic.raw_query}"?`)) { deleteTopic.mutate(topic.id); setOpenMenu(null); } }}
+                  onClick={() => startRename(topic)}
+                  style={{
+                    width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '7px 10px', borderRadius: 6,
+                    fontSize: 13, color: 'var(--color-text-primary)', textAlign: 'left',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-background-tertiary)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                >
+                  <Pencil size={13} />
+                  Rename
+                </button>
+                <button
+                  onClick={() => { if (confirm(`Delete "${topic.name}"?`)) { deleteTopic.mutate(topic.id); setOpenMenu(null); } }}
                   style={{
                     width: '100%', background: 'none', border: 'none', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', gap: 8,

@@ -88,6 +88,15 @@ class Settings(BaseSettings):
     # IC1 — running-total / tally collapse: incoming tally fact with entity-overlap to an
     # existing tally → force UPDATE (never NEW), preventing N duplicate casualty-count rows.
     V3_TALLY_COLLAPSE: bool = False
+    # Stage 2 arbiter integrity fix (2026-08-16, docs/benchmarks/2026-08-13_stage2-fix-and-remeasure.md):
+    # spelled-out-number normalization guard on the raw-cosine auto-merge (Step 2c) and
+    # same-day near-identical (Step 3c) fast-paths, plus the same-day entity/subject-overlap
+    # guard. Default True (not the section's usual False-until-opt-in) because the plan's own
+    # Stage 3 re-measurement validated it live before merge (76.0% strict accuracy, 0.939
+    # precision, vs a 56.6%/0.590 baseline) — this exists as a rollback lever for the canary
+    # window, not an opt-in trial. Flipping False reverts each guarded gate to its exact
+    # pre-Stage-2 check (raw _digit_runs() equality, no entity guard on same-day).
+    V3_DIGIT_GUARD: bool = True
     # IC7 — state-of-play: topic-header status block (situation line + agreed/contested/
     # postponed/escalating checklist) generated from stored facts only, regenerated when a
     # state_change fact lands. Needs migration 014 (topics.state_of_play). Degrades to no-op.
@@ -250,6 +259,15 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     # Restructures the grounded prose into the alpha+context JSON contract. Plain (non-grounded)
     # extraction call, same model as the harvester it replaces.
     "gemini_extract": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+
+    # --- Topic Finisher experiment (scripts/topic_finisher_experiment.py) ---
+    # Candidate topics.raw_query cleanup step, NOT wired into production yet. Same
+    # provider/model as query_builder (low token usage, simple reasoning); split into
+    # distinct step names purely so cost telemetry can distinguish the 3 strategies.
+    "topic_finisher_combined": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "topic_finisher_name":     {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "topic_finisher_search":   {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "topic_finisher_corrected": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
 }
 
 

@@ -403,16 +403,35 @@ class VectorStore:
         """
         IC1 (V3_TALLY_COLLAPSE): find an existing tally fact for the same entities.
 
-        Used when the incoming alpha has event_class='tally'. We skip vector similarity
-        (wording varies too much across tallies) and use entity overlap instead.
-        Returns the most-recent matching stored tally, or None.
+        Used when the incoming alpha has event_class='tally'. Entity overlap remains
+        the GATE (wording varies too much across tallies to gate on text alone) — but
+        among the entity-gated candidates, the BEST match is now the one most similar
+        to `alpha.embedding` by cosine, not simply the most recent by event_date.
+
+        Stage 2 fix (2026-08-16): by the time Arbiter._prepare() calls this (Step 1b),
+        `alpha.embedding` has already been generated at Step 1 — real vector
+        similarity is available here despite this function's previous "skip vector
+        similarity" design. The old most-recent-by-date rule could hand IC1's
+        number-equality guard the WRONG reference fact on a verbatim duplicate when a
+        more-recent, less-similar tally row existed for the same entities (confirmed
+        live and independently reproduced: C1-01/C1-06 in the red-team audit, H1 in
+        the Stage 3 holdout — same failure both times). Rows with no stored embedding
+        (older data) are gracefully excluded from the similarity ranking; if NONE of
+        the gated candidates have a usable embedding (or `alpha.embedding` itself is
+        missing), falls back to the original most-recent-by-date behavior so this
+        never breaks on older data.
+
+        Returns the best matching stored tally among entity-gated candidates, or None.
         """
         if not alpha.topic_id or not alpha.entities:
             return None
         try:
             response = (
                 self.db.table("known_facts")
-                .select("id, alpha_text, entities, event_date, source_url, source_domain, context, confidence, event_class")
+                .select(
+                    "id, alpha_text, alpha_embedding, entities, event_date, "
+                    "source_url, source_domain, context, confidence, event_class"
+                )
                 .eq("topic_id", alpha.topic_id)
                 .eq("event_class", "tally")
                 .order("event_date", desc=True)
@@ -424,22 +443,51 @@ class VectorStore:
             return None
 
         incoming_set = {e.lower() for e in alpha.entities}
+        # Entity-overlap gate — unchanged. Preserves date order (query above), which
+        # is exactly the fallback ranking used below when no embeddings are usable.
+        candidates = []
         for row in response.data:
             stored_entities = {e.lower() for e in (row.get("entities") or [])}
             if not stored_entities:
                 continue
             overlap = len(incoming_set & stored_entities) / max(len(incoming_set | stored_entities), 1)
             if overlap >= min_entity_overlap:
-                return Alpha(
-                    id=row.get("id"),
-                    topic_id=alpha.topic_id,
-                    alpha_text=row.get("alpha_text", ""),
-                    entities=row.get("entities", []),
-                    source_url=row.get("source_url", ""),
-                    source_name=row.get("source_domain", ""),
-                    event_date=row.get("event_date"),
-                    context=row.get("context"),
-                    confidence=row.get("confidence", 1.0),
-                    event_class=row.get("event_class"),
-                )
-        return None
+                candidates.append(row)
+
+        if not candidates:
+            return None
+
+        best_row = None
+        if alpha.embedding:
+            scored = []
+            for row in candidates:
+                emb = row.get("alpha_embedding")
+                if not emb:
+                    continue  # older row with no stored embedding — excluded, not crashed on
+                if isinstance(emb, str):
+                    try:
+                        emb = json.loads(emb)
+                    except (ValueError, TypeError):
+                        continue
+                scored.append((row, _cosine(alpha.embedding, emb)))
+            if scored:
+                scored.sort(key=lambda pair: pair[1], reverse=True)
+                best_row = scored[0][0]
+
+        if best_row is None:
+            # No usable embeddings among the gated candidates (or alpha has none) —
+            # fall back to most-recent-by-date, the original behavior.
+            best_row = candidates[0]
+
+        return Alpha(
+            id=best_row.get("id"),
+            topic_id=alpha.topic_id,
+            alpha_text=best_row.get("alpha_text", ""),
+            entities=best_row.get("entities", []),
+            source_url=best_row.get("source_url", ""),
+            source_name=best_row.get("source_domain", ""),
+            event_date=best_row.get("event_date"),
+            context=best_row.get("context"),
+            confidence=best_row.get("confidence", 1.0),
+            event_class=best_row.get("event_class"),
+        )

@@ -17,6 +17,7 @@ import { SignInPrompt } from '@/components/auth/SignInPrompt';
 
 interface Topic {
   id: string;
+  name: string;
   raw_query: string;
   is_active: boolean;
   last_scan_at?: string | null;
@@ -172,7 +173,7 @@ export default function TopicsPage() {
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}
             >
-              {topic.raw_query}
+              {topic.name}
             </span>
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
               {topic.is_scanning ? 'Scanning…' : relativeTime(topic.last_scan_at)}

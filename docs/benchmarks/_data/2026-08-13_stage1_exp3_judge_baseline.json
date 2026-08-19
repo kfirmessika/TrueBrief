@@ -1,0 +1,222 @@
+[
+  {
+    "id": "C7-01",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The Strait of Hormuz is no longer blockaded and vessels are moving freely as of August 12, 2026.",
+    "correct": false,
+    "alpha_text": "Iran's blockade of the Strait of Hormuz has crumbled, with vessels now moving freely.",
+    "matched_text": "Iran stated the Strait of Hormuz will remain closed unless Washington releases assets and initiates steps toward regional de-escalation.",
+    "adjusted_score_fed_to_judge": 0.6291062835466088
+  },
+  {
+    "id": "C7-02",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The International Monetary Fund reported that the Iranian economy transitioned from a contraction to an expansion as of August 11, 2026.",
+    "correct": false,
+    "alpha_text": "The IMF said Iran's economy is expanding again, reversing the earlier contraction.",
+    "matched_text": "The International Monetary Fund estimated that the Iranian economy shrank by 5.4%.",
+    "adjusted_score_fed_to_judge": 0.835703810621216
+  },
+  {
+    "id": "C7-03",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "An Iranian official stated that active talks are underway between Iran and the United States to extend the ceasefire.",
+    "correct": false,
+    "alpha_text": "An Iranian official confirmed active talks are underway between Iran and the United States to extend the ceasefire.",
+    "matched_text": "An Iranian official stated there have been no discussions between Iran and the United States to extend a ceasefire.",
+    "adjusted_score_fed_to_judge": 0.929820958982651
+  },
+  {
+    "id": "C7-04",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "Abbas Araghchi publicly stated that Iran is vulnerable in its conflict with the United States and Israel, contradicting his previous claim of invincibility.",
+    "correct": false,
+    "alpha_text": "Abbas Araghchi conceded Iran is vulnerable in its war against the United States and Israel.",
+    "matched_text": "Abbas Araghchi declared Iran an invincible power in its war against the United States and Israel.",
+    "adjusted_score_fed_to_judge": 0.849132436617328
+  },
+  {
+    "id": "C7-05",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "U.S. forces allowed a specific ship to pass through the blockade of Iran's ports unchallenged, contradicting the reported action of firing on a blockade-runner on the same date.",
+    "correct": false,
+    "alpha_text": "U.S. forces allowed a ship to pass through the blockade of Iran's ports unchallenged.",
+    "matched_text": "U.S. forces fired on a ship attempting to break a blockade of Iran's ports.",
+    "adjusted_score_fed_to_judge": 0.903425383976154
+  },
+  {
+    "id": "C7-06",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "Mojtaba Khamenei dismissed Ahmad Vahidi from his role as commander-in-chief of the IRGC on August 10, 2026.",
+    "correct": false,
+    "alpha_text": "Mojtaba Khamenei dismissed Ahmad Vahidi as commander-in-chief of the IRGC.",
+    "matched_text": "Iranian Supreme Leader Mojtaba Khamenei appointed Brigadier General Ahmad Vahidi as commander-in-chief of the IRGC.",
+    "adjusted_score_fed_to_judge": 0.922577307685147
+  },
+  {
+    "id": "C7-07",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "Shipping traffic in the Strait of Hormuz returned to normal levels on August 12, 2026.",
+    "correct": false,
+    "alpha_text": "The number of vessels transiting the Strait of Hormuz climbed back to normal levels.",
+    "matched_text": "Shipping traffic in the Strait of Hormuz reached a one-week low.",
+    "adjusted_score_fed_to_judge": 0.886289591174321
+  },
+  {
+    "id": "C7-08",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "Shipping traffic in the Strait of Hormuz changed from a one-week low to a one-week high on 2026-08-12.",
+    "correct": false,
+    "alpha_text": "Shipping traffic in the Strait of Hormuz surged to a one-week high.",
+    "matched_text": "Shipping traffic in the Strait of Hormuz reached a one-week low.",
+    "adjusted_score_fed_to_judge": 0.930756431367147
+  },
+  {
+    "id": "C7-09",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "Iraqi Prime Minister Ali al-Zaidi refused to meet with Admiral Brad Cooper instead of meeting him as previously reported.",
+    "correct": false,
+    "alpha_text": "Iraqi Prime Minister Ali al-Zaidi refused to meet with Admiral Brad Cooper of U.S. Central Command.",
+    "matched_text": "Iraqi Prime Minister Ali al-Zaidi met with Admiral Brad Cooper of U.S. Central Command.",
+    "adjusted_score_fed_to_judge": 0.915580449361237
+  },
+  {
+    "id": "C7-10",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "Khawaja Asif stated the U.S. and Iran are moving away from a peace arrangement instead of toward one.",
+    "correct": false,
+    "alpha_text": "Khawaja Asif stated that the U.S. and Iran are moving further apart from any peace arrangement.",
+    "matched_text": "Khawaja Asif stated that the U.S. and Iran are nearing a peace arrangement.",
+    "adjusted_score_fed_to_judge": 0.8879919722089864
+  },
+  {
+    "id": "C8-01",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The death toll from the Houthi rebel attack on the vessel in the Bab el-Mandeb strait on August 11, 2026, has been revised to fourteen.",
+    "correct": false,
+    "alpha_text": "Fourteen people were killed in the Houthi rebel attack on the vessel in the Bab el-Mandeb strait.",
+    "matched_text": "Six people were killed in a Houthi rebel attack on a vessel in the Bab el-Mandeb strait.",
+    "adjusted_score_fed_to_judge": 0.919305081326205
+  },
+  {
+    "id": "C8-02",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The number of Pakistani nationals killed in the Red Sea ship attack on 2026-08-12 was reported as nine, rather than three.",
+    "correct": false,
+    "alpha_text": "Nine Pakistani nationals were reported killed in the attack on the ship in the Red Sea.",
+    "matched_text": "Three Pakistani nationals were reported killed in an attack on a ship in the Red Sea.",
+    "adjusted_score_fed_to_judge": 0.948144395262345
+  },
+  {
+    "id": "C8-03",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The International Monetary Fund's estimate for the contraction of the Iranian economy was revised from 5.4% to 12%.",
+    "correct": false,
+    "alpha_text": "The International Monetary Fund estimated that the Iranian economy shrank by twelve percent.",
+    "matched_text": "The International Monetary Fund estimated that the Iranian economy shrank by 5.4%.",
+    "adjusted_score_fed_to_judge": 1.0
+  },
+  {
+    "id": "C8-04",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The death toll from the Houthi attack on al-Makha, Yemen, rose from seven to eleven, and the number of wounded increased from 30 to 40.",
+    "correct": false,
+    "alpha_text": "Houthi rebels attacked the port city of al-Makha, Yemen, leaving eleven fatalities and 40 hurt.",
+    "matched_text": "Houthi rebels attacked the port city of al-Makha, Yemen, killing seven people and wounding 30 others.",
+    "adjusted_score_fed_to_judge": 0.950985272434265
+  },
+  {
+    "id": "C8-05",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The number of U.S. warships deployed to the Middle East has increased to over thirty-five.",
+    "correct": false,
+    "alpha_text": "The U.S. deployed over thirty-five warships to the Middle East.",
+    "matched_text": "The U.S. deployed over 20 warships to the Middle East.",
+    "adjusted_score_fed_to_judge": 0.953821431679411
+  },
+  {
+    "id": "C8-06",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The price of oil decreased by 5% on August 10, 2026, contradicting the previous report of a 5% increase.",
+    "correct": false,
+    "alpha_text": "The price of oil dropped by 5% on August 10, 2026.",
+    "matched_text": "The price of oil increased by 5% on August 10, 2026.",
+    "adjusted_score_fed_to_judge": 0.948558908185595
+  },
+  {
+    "id": "C8-07",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The IMF revised its estimate of Iran's GDP contraction to 9%.",
+    "correct": false,
+    "alpha_text": "The IMF said Iran's GDP contracted by 9 points.",
+    "matched_text": "The International Monetary Fund estimated that the Iranian economy shrank by 5.4%.",
+    "adjusted_score_fed_to_judge": 1.0
+  },
+  {
+    "id": "C8-08",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The number of Pakistani nationals confirmed dead in the Red Sea ship attack has risen to twelve.",
+    "correct": false,
+    "alpha_text": "The Red Sea ship attack left a dozen Pakistani nationals dead.",
+    "matched_text": "Three Pakistani nationals were reported killed in an attack on a ship in the Red Sea.",
+    "adjusted_score_fed_to_judge": 0.90111569126289
+  },
+  {
+    "id": "C8-09",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The number of vessels transiting the Strait of Hormuz on 2026-08-12 rose from eight to twenty-four.",
+    "correct": false,
+    "alpha_text": "The number of vessels transiting the Strait of Hormuz climbed to two dozen.",
+    "matched_text": "The number of vessels transiting the Strait of Hormuz fell to eight.",
+    "adjusted_score_fed_to_judge": 1.0
+  },
+  {
+    "id": "C8-10",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The number of redirected commercial vessels by U.S. Central Command decreased from 55 to 30.",
+    "correct": false,
+    "alpha_text": "The U.S. Central Command redirected 30 commercial vessels and disabled two as part of a naval blockade of Iranian ports.",
+    "matched_text": "The U.S. Central Command redirected 55 commercial vessels and disabled two as part of a naval blockade of Iranian ports.",
+    "adjusted_score_fed_to_judge": 0.987241860402229
+  }
+]

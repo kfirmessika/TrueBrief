@@ -1,0 +1,162 @@
+[
+  {
+    "id": "C7-01",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C7-02",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The International Monetary Fund reported that the Iranian economy is currently expanding.",
+    "correct": false
+  },
+  {
+    "id": "C7-03",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C7-04",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C7-05",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C7-06",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C7-07",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "Shipping traffic in the Strait of Hormuz returned to normal levels on 2026-08-12.",
+    "correct": false
+  },
+  {
+    "id": "C7-08",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C7-09",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C7-10",
+    "category": "ANTONYM_GAP_CONTRADICTION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-01",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-02",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The death toll of Pakistani nationals in the Red Sea ship attack was revised to nine.",
+    "correct": false
+  },
+  {
+    "id": "C8-03",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-04",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-05",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-06",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-07",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-08",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "UPDATE",
+    "delta": "The death toll for Pakistani nationals in the Red Sea ship attack has been revised to 12.",
+    "correct": false
+  },
+  {
+    "id": "C8-09",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  },
+  {
+    "id": "C8-10",
+    "category": "NUMERIC_CONTRADICTION_EVASION",
+    "expected": "NEW",
+    "judge_decision": "NEW",
+    "delta": null,
+    "correct": true
+  }
+]

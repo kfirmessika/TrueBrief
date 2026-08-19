@@ -60,6 +60,26 @@ export function useDeleteTopic() {
 }
 
 /**
+ * Hook to rename a topic (updates `name` and `search_prompt` server-side —
+ * a verbatim PATCH, no client-side LLM/finishing logic).
+ */
+export function useRenameTopic() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ topicId, name }: { topicId: string; name: string }) => {
+      const { data } = await api.patch<Topic>(`/topics/${topicId}`, { name });
+      return data;
+    },
+    onSuccess: (_data, { topicId }) => {
+      queryClient.invalidateQueries({ queryKey: ['topics'] });
+      queryClient.invalidateQueries({ queryKey: ['topic', topicId] });
+    },
+  });
+}
+
+/**
  * Hook to trigger a manual scan for a topic.
  */
 export function useTriggerScan() {

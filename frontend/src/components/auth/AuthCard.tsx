@@ -20,9 +20,9 @@
  *    Custom Tab + signInWithOAuth, because GIS's popup doesn't work inside a
  *    Capacitor webview -- native shows the supabase.co screen until it gets
  *    a native Google Sign-In SDK integration (separate, bigger task).
- *  - Email: signInWithOtp() sends a magic link (shouldCreateUser defaults to
- *    true, so this single flow covers both sign-in and sign-up — no
- *    password to manage).
+ *
+ * Email/password and magic-link sign-in were removed — Google is the only
+ * auth path, for both sign-in and sign-up (mode only changes the copy).
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -55,31 +55,9 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Where Supabase sends the browser after Google/magic-link auth.
- *
- * NEXT_PUBLIC_SITE_URL wins when set, so the deployed domain can change
- * (or move to a custom domain) without a code change — just update the env
- * var and the Supabase redirect allowlist. Falls back to the current origin
- * so local dev on localhost:3000 works with no config at all.
- *
- * Whatever this resolves to MUST also be listed in
- * Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs,
- * or Supabase silently drops the redirect and falls back to the Site URL.
- *
- * Native (Capacitor) does NOT use this — it needs the truebrief:// custom
- * scheme instead. See NativeGoogleButton.
- */
-function callbackUrl(): string {
-  const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') || window.location.origin;
-  return `${base}/sso-callback`;
-}
-
 export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const isNativeApp = useIsNativeApp();
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState('');
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const rawNonceRef = useRef<string>('');
@@ -144,26 +122,6 @@ export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     return () => { cancelled = true; };
   }, [isNativeApp, router]);
 
-  const handleEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setStatus('sending');
-    setError('');
-    const supabase = createClient();
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: callbackUrl(),
-      },
-    });
-    if (otpError) {
-      setError(otpError.message);
-      setStatus('error');
-      return;
-    }
-    setStatus('sent');
-  };
-
   return (
     <div
       style={{
@@ -201,50 +159,6 @@ export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           <NativeGoogleButton mode={mode} />
         ) : (
           <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 40 }} />
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
-          <div style={{ flex: 1, height: 1, background: 'var(--color-border-tertiary)' }} />
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>or</span>
-          <div style={{ flex: 1, height: 1, background: 'var(--color-border-tertiary)' }} />
-        </div>
-
-        {status === 'sent' ? (
-          <div style={{
-            fontSize: 13, color: 'var(--tb-green-dark)', background: 'var(--tb-green-light)',
-            border: '0.5px solid var(--tb-green-border)', borderRadius: 8,
-            padding: '10px 12px', lineHeight: 1.5,
-          }}>
-            Check <strong>{email}</strong> for a sign-in link.
-          </div>
-        ) : (
-          <form onSubmit={handleEmail} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              style={{
-                fontSize: 13, padding: '9px 12px', borderRadius: 8,
-                border: '0.5px solid var(--color-border-secondary)',
-                background: 'var(--color-background-primary)', color: 'var(--color-text-primary)',
-                fontFamily: 'inherit', outline: 'none',
-              }}
-            />
-            <button
-              type="submit"
-              disabled={status === 'sending'}
-              style={{
-                fontSize: 13, fontWeight: 500, padding: '10px 12px', borderRadius: 8,
-                border: 'none', cursor: status === 'sending' ? 'default' : 'pointer',
-                background: 'var(--tb-green)', color: '#fff', fontFamily: 'inherit',
-                opacity: status === 'sending' ? 0.7 : 1,
-              }}
-            >
-              {status === 'sending' ? 'Sending…' : 'Continue with email'}
-            </button>
-          </form>
         )}
 
         {error && (

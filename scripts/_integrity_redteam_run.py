@@ -52,7 +52,26 @@ from truebrief.models.alpha import Alpha  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _integrity_redteam_cases import CASES, TOPIC_ID  # noqa: E402
 
-OUT_PATH = os.path.join(ROOT, "docs", "benchmarks", "_data", "2026-08-13_arbiter-redteam-results.json")
+DEFAULT_OUT_PATH = os.path.join(ROOT, "docs", "benchmarks", "_data", "2026-08-13_arbiter-redteam-results.json")
+
+# ── Guardrails (added 2026-08-16 — catch the two classes of "silent wrong result"
+# a prior LLM-analysis pass had to notice by eye: an embedding-space mismatch, and
+# out-of-band DB writes during the run). Both are cheap deterministic checks, no LLM. ──
+
+# Cases whose expected_decision is DUPLICATE via a verbatim/near-verbatim match against
+# the ledger — if the embedder is misconfigured (e.g. local .env EMBED_PROVIDER=local
+# instead of production's gemini), these score raw cosine ~0.3-0.6 instead of ~0.95+,
+# and EVERY downstream result becomes silently meaningless. Checking a handful of known
+# gimmes catches that before trusting 131 results built on top of it.
+_SANITY_CHECK_IDS = {"C1-01", "C1-04", "C1-07", "C1-09", "C3-03", "C3-05", "C3-08"}
+_SANITY_MIN_SIMILARITY = 0.85
+
+
+def _known_facts_count(topic_id: str) -> int:
+    from truebrief.ledger.database import get_supabase
+    db = get_supabase()
+    resp = db.table("known_facts").select("id", count="exact").eq("topic_id", topic_id).execute()
+    return resp.count if resp.count is not None else len(resp.data)
 
 
 def make_alpha(case: dict) -> Alpha:
@@ -63,6 +82,7 @@ def make_alpha(case: dict) -> Alpha:
         source_name="redteam-harness",
         event_date=case["event_date"],
         event_class=case.get("event_class"),
+        context=case.get("context"),
         topic_id=TOPIC_ID,
         embedding=None,
     )
@@ -103,17 +123,29 @@ def error_record(case: dict, exc: Exception) -> dict:
 
 
 def main():
+    out_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUT_PATH
+
     print("=" * 80)
-    print("ARBITER RED-TEAM AUDIT RUNNER — 2026-08-13 — READ-ONLY")
+    print("ARBITER RED-TEAM AUDIT RUNNER — READ-ONLY")
     print("=" * 80)
     print(f"TOPIC_ID = {TOPIC_ID}")
     print(f"Total cases loaded: {len(CASES)}")
+    print(f"Output path: {out_path}")
     print()
     print("Live flag states (from config/settings.py + .env):")
     print(f"  V3_ENTITY_DEDUP       = {settings.V3_ENTITY_DEDUP}")
     print(f"  V3_CONTRADICTION_FLAG = {settings.V3_CONTRADICTION_FLAG}")
     print(f"  V3_TALLY_COLLAPSE     = {settings.V3_TALLY_COLLAPSE}")
     print(f"  V3_BATCH_JUDGE        = {settings.V3_BATCH_JUDGE}")
+    print(f"  V3_DIGIT_GUARD        = {settings.V3_DIGIT_GUARD}")
+    print()
+
+    try:
+        pre_count = _known_facts_count(TOPIC_ID)
+        print(f"[GUARDRAIL] known_facts row count for topic (pre-run): {pre_count}")
+    except Exception as exc:
+        pre_count = None
+        print(f"[GUARDRAIL] pre-run row count check failed (non-fatal, continuing): {exc}")
     print()
 
     arbiter = Arbiter()
@@ -162,8 +194,31 @@ def main():
                 results.append(error_record(c, exc))
             print(f"ERROR: {exc}")
 
-    os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
-    with open(OUT_PATH, "w", encoding="utf-8") as f:
+    # ── Guardrail 1: embedding-space sanity check ───────────────────────────
+    # If these known-verbatim/near-verbatim cases don't score high similarity, the
+    # embedder is misconfigured (e.g. local .env EMBED_PROVIDER mismatch vs prod) and
+    # every other result in this run is meaningless. Fail loudly instead of writing
+    # 131 silently-wrong results.
+    by_id = {r["id"]: r for r in results}
+    sanity_scores = [by_id[cid]["similarity_score"] for cid in _SANITY_CHECK_IDS
+                      if cid in by_id and by_id[cid]["similarity_score"] is not None]
+    if sanity_scores:
+        avg_sanity = sum(sanity_scores) / len(sanity_scores)
+        print(f"[GUARDRAIL] embedding sanity check: avg similarity on {len(sanity_scores)} "
+              f"known-verbatim cases = {avg_sanity:.3f} (need >= {_SANITY_MIN_SIMILARITY})")
+        if avg_sanity < _SANITY_MIN_SIMILARITY:
+            print(
+                "\n[GUARDRAIL FAILED] Known-verbatim duplicate cases scored implausibly low "
+                "similarity — this almost always means the embedder is misconfigured (e.g. "
+                "EMBED_PROVIDER=local in .env vs production's gemini), making every result in "
+                "this run meaningless. Results were NOT written. Check EMBED_PROVIDER and re-run."
+            )
+            sys.exit(2)
+    else:
+        print("[GUARDRAIL] embedding sanity check: SKIPPED (no sanity-check case results found)")
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(
             {
                 "run_at": datetime.utcnow().isoformat(),
@@ -174,6 +229,7 @@ def main():
                     "V3_CONTRADICTION_FLAG": settings.V3_CONTRADICTION_FLAG,
                     "V3_TALLY_COLLAPSE": settings.V3_TALLY_COLLAPSE,
                     "V3_BATCH_JUDGE": settings.V3_BATCH_JUDGE,
+                    "V3_DIGIT_GUARD": settings.V3_DIGIT_GUARD,
                 },
                 "results": results,
             },
@@ -183,9 +239,29 @@ def main():
         )
 
     print()
-    print(f"Wrote {len(results)} results to {OUT_PATH}")
+    print(f"Wrote {len(results)} results to {out_path}")
     n_error = sum(1 for r in results if r["actual_decision"] == "ERROR")
     print(f"Errors: {n_error}")
+
+    # ── Guardrail 2: no-write confirmation ──────────────────────────────────
+    if pre_count is not None:
+        try:
+            post_count = _known_facts_count(TOPIC_ID)
+            print(f"[GUARDRAIL] known_facts row count for topic (post-run): {post_count}")
+            if post_count != pre_count:
+                print(
+                    f"\n[GUARDRAIL WARNING] Row count changed during this run: {pre_count} -> "
+                    f"{post_count} (delta {post_count - pre_count}). This harness only calls "
+                    "judge_alpha()/judge_alphas(), which are read-only (find_similar/"
+                    "find_tally_match RPCs) — grep this file and _integrity_redteam_cases.py "
+                    "for add_fact/INSERT/UPDATE/DELETE to confirm. If it's really zero writes "
+                    "here, something ELSE touched this table during the run window — flag it, "
+                    "don't assume the harness caused it, but don't ignore it either."
+                )
+            else:
+                print("[GUARDRAIL] row count unchanged — consistent with a read-only run.")
+        except Exception as exc:
+            print(f"[GUARDRAIL] post-run row count check failed (non-fatal): {exc}")
 
 
 if __name__ == "__main__":

@@ -33,8 +33,10 @@ from truebrief.llm.prompts import (
     build_dashboard_summary_prompt,
     build_story_stitch_batch_prompt,
     build_story_stitch_pair_prompt,
+    build_topic_finisher_combined_prompt,
     DASHBOARD_SUMMARY_SYSTEM,
     STORY_STITCH_SYSTEM,
+    TOPIC_FINISHER_COMBINED_SYSTEM,
 )
 from config.settings import settings
 
@@ -62,6 +64,37 @@ def _require_topic_owner(db, topic_id: str, user_id: str) -> None:
     )
     if not topic.data or topic.data[0].get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to modify this topic")
+
+
+def _finish_topic_fields(raw_query: str) -> tuple[str, str]:
+    """Derive (name, search_prompt) for a newly-created topic via the topic_finisher
+    LLM step. Fails SOFT on any error (quota, malformed JSON, timeout, etc.) — falls
+    back to (raw_query, raw_query), today's exact behavior, so topic creation is never
+    blocked by an LLM hiccup. Logs the fallback at WARNING level."""
+    try:
+        llm = LLMClient()
+        prompt = build_topic_finisher_combined_prompt(raw_query)
+        raw_response = llm.call(
+            step_name="topic_finisher_combined",
+            prompt=prompt,
+            system_prompt=TOPIC_FINISHER_COMBINED_SYSTEM,
+            json_mode=True,
+        )
+        parsed = json.loads(raw_response)
+        name = parsed.get("name")
+        search_prompt = parsed.get("search_prompt")
+        if not name or not isinstance(name, str) or not name.strip():
+            raise ValueError(f"topic_finisher_combined returned no usable 'name': {parsed!r}")
+        if not search_prompt or not isinstance(search_prompt, str) or not search_prompt.strip():
+            raise ValueError(f"topic_finisher_combined returned no usable 'search_prompt': {parsed!r}")
+        return name.strip(), search_prompt.strip()
+    except Exception as exc:
+        logger.warning(
+            "topic_finisher_combined failed for raw_query=%r — falling back to raw_query "
+            "for both name and search_prompt. Reason: %s",
+            raw_query, exc,
+        )
+        return raw_query, raw_query
 
 
 def _require_founder(user: User) -> None:
@@ -123,6 +156,8 @@ def _scan_is_recent(started_at, max_minutes: int = 15) -> bool:
 class TopicResponse(BaseModel):
     id: str
     raw_query: str
+    name: Optional[str] = None
+    search_prompt: Optional[str] = None
     frequency: Optional[str] = None
     is_active: bool
     last_scan_at: Optional[str] = None
@@ -195,8 +230,11 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         # AYR-managed poll_interval_seconds. A new topic gets zero topic_schedule_times
         # rows (= the one-run/day default, see ledger/alarm_schedule.py); the user adds
         # specific times via PUT /topics/{id}/schedule.
+        _name, _search_prompt = _finish_topic_fields(normalized_query)
         data = {
             "raw_query": normalized_query,
+            "name": _name,
+            "search_prompt": _search_prompt,
             "user_id": val_uuid,  # kept as original-creator metadata only
         }
 
@@ -226,7 +264,7 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
                 from truebrief.tasks.pipeline_task import enqueue_pipeline
                 _task = enqueue_pipeline(
                     topic_id=topic_record["id"],
-                    raw_query=topic_record["raw_query"],
+                    raw_query=topic_record.get("search_prompt") or topic_record["raw_query"],
                 )
                 _first_task_id = _task.id
                 logger.info(f"First scan enqueued for new topic {topic_record['id']} task={_first_task_id}")
@@ -297,8 +335,11 @@ def create_public_topic(request: Request, topic: AdminTopicCreate, user: User = 
             topic_record = upd.data[0] if upd.data else {**topic_record, "is_public": True}
         logger.info(f"Admin {user.email}: topic '{normalized_query}' already exists, marked public.")
     else:
+        _name, _search_prompt = _finish_topic_fields(normalized_query)
         data = {
             "raw_query": normalized_query,
+            "name": _name,
+            "search_prompt": _search_prompt,
             "user_id": val_uuid,  # original-creator metadata only
             "is_public": True,
         }
@@ -326,7 +367,7 @@ def create_public_topic(request: Request, topic: AdminTopicCreate, user: User = 
                 from truebrief.tasks.pipeline_task import enqueue_pipeline
                 _task = enqueue_pipeline(
                     topic_id=topic_record["id"],
-                    raw_query=topic_record["raw_query"],
+                    raw_query=topic_record.get("search_prompt") or topic_record["raw_query"],
                 )
                 _first_task_id = _task.id
                 logger.info(f"First scan enqueued for new public topic {topic_record['id']} task={_first_task_id}")
@@ -571,6 +612,52 @@ def put_topic_schedule(
     return {"times": [{"hour": h, "minute": m} for h, m in times]}
 
 
+class TopicRenameRequest(BaseModel):
+    # Same bound as raw_query — this text becomes both the display name and the
+    # literal search_prompt, so it flows into LLM prompts/search/embeddings too.
+    name: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _strip_control_chars(self):
+        cleaned = "".join(
+            ch for ch in self.name if ch == " " or ch == "\t" or ord(ch) >= 0x20
+        ).strip()
+        if not cleaned:
+            raise ValueError("name must contain visible characters")
+        self.name = cleaned
+        return self
+
+
+@router.patch("/topics/{topic_id}", response_model=TopicResponse)
+@limiter.limit("30/hour")
+def rename_topic(
+    request: Request,
+    topic_id: str,
+    body: TopicRenameRequest,
+    user: User = Depends(get_current_user),
+):
+    """
+    Owner-only: rename a topic. Sets BOTH `name` and `search_prompt` to the submitted
+    text verbatim — no LLM finishing call on rename (intentional simplification).
+    `raw_query` (used for exact-match dedup on topic creation) is never touched.
+    """
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+    _require_topic_owner(db, topic_id, user.id)
+
+    upd = (
+        db.table("topics")
+        .update({"name": body.name, "search_prompt": body.name})
+        .eq("id", topic_id)
+        .execute()
+    )
+    if not upd.data:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    logger.info(f"Topic {topic_id} renamed to '{body.name}' by {user.email}")
+    return upd.data[0]
+
+
 @router.post("/topics/{topic_id}/scan")
 @limiter.limit("60/hour")   # coarse per-IP abuse guard; per-user tier limit is the real throttle (admins bypass it)
 def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_current_user)):
@@ -584,12 +671,12 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
     """
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
-    res = db.table("topics").select("id, raw_query, last_run_at").eq("id", topic_id).execute()
+    res = db.table("topics").select("id, raw_query, search_prompt, last_run_at").eq("id", topic_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
 
     topic_row = res.data[0]
-    raw_query = topic_row["raw_query"]
+    raw_query = topic_row.get("search_prompt") or topic_row["raw_query"]
 
     # --- Tier Enforcement: scan frequency (admins bypass entirely) ---
     val_uuid = user.id
@@ -753,8 +840,8 @@ def get_briefs_history(user: User = Depends(get_current_user)):
         .execute()
     )
 
-    topics_res = db.table("topics").select("id, raw_query").in_("id", topic_ids).execute()
-    topic_map = {t["id"]: t["raw_query"] for t in topics_res.data}
+    topics_res = db.table("topics").select("id, raw_query, name").in_("id", topic_ids).execute()
+    topic_map = {t["id"]: (t.get("name") or t["raw_query"]) for t in topics_res.data}
 
     result = []
     for brief in briefs.data:
@@ -798,8 +885,11 @@ def get_shared_brief(brief_id: str):
         raise HTTPException(status_code=404, detail="Brief not found")
     brief = brief_res.data[0]
 
-    topic_res = db.table("topics").select("raw_query").eq("id", brief["topic_id"]).execute()
-    topic_name = topic_res.data[0]["raw_query"] if topic_res.data else "Intelligence Brief"
+    topic_res = db.table("topics").select("raw_query, name").eq("id", brief["topic_id"]).execute()
+    topic_name = (
+        (topic_res.data[0].get("name") or topic_res.data[0]["raw_query"])
+        if topic_res.data else "Intelligence Brief"
+    )
 
     return {
         "brief_id": brief["id"],
@@ -1100,7 +1190,11 @@ def _with_subscriber_counts(db, topics: list[dict]) -> List[dict]:
             .eq("topic_id", t["id"])
             .execute()
         )
-        out.append({"id": t["id"], "name": t["raw_query"], "subscriber_count": count_res.count or 0})
+        out.append({
+            "id": t["id"],
+            "name": t.get("name") or t["raw_query"],
+            "subscriber_count": count_res.count or 0,
+        })
     return out
 
 
@@ -1113,7 +1207,9 @@ def search_shared_topics(q: str = "", user: User = Depends(get_current_user)):
     user's private topic names via ?q=. Fixed 2026-08-06.
     """
     db = get_supabase()
-    query = db.table("topics").select("id, raw_query").eq("is_public", True)
+    # Search still matches against raw_query (the original user-typed text) — not in
+    # scope of the display-name switch, only the returned "name" field changes below.
+    query = db.table("topics").select("id, raw_query, name").eq("is_public", True)
     if q and len(q) >= 2:
         query = query.ilike("raw_query", f"%{q}%")
     res = query.limit(5).execute()
@@ -1126,7 +1222,7 @@ def list_public_topics():
     admin-curated public topics before signing in. Nothing is persisted for the caller;
     "adding" one is a client-side/ephemeral action until they sign in (see report)."""
     db = get_supabase()
-    res = db.table("topics").select("id, raw_query").eq("is_public", True).order("raw_query").execute()
+    res = db.table("topics").select("id, raw_query, name").eq("is_public", True).order("raw_query").execute()
     return _with_subscriber_counts(db, res.data or [])
 
 
@@ -1259,7 +1355,7 @@ def get_dashboard(user: User = Depends(get_current_user)):
 
         result.append({
             "topic_id": topic["id"],
-            "topic_name": topic["raw_query"],
+            "topic_name": topic.get("name") or topic["raw_query"],
             "frequency": topic.get("frequency", "Auto"),
             "last_scanned_at": topic.get("last_run_at"),
             "new_count": new_count,
@@ -1952,4 +2048,242 @@ def get_pipeline_run_trace(run_id: str, user: User = Depends(get_current_user)):
             "llm_cost_usd": round(llm_cost, 6),
         },
         "timeline": timeline,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin: per-topic / per-user drill-down (public/private topics list screen +
+# a dedicated per-user usage screen, splitting these out of the single /admin
+# screen). Gated with _is_admin (not _require_admin/tiers.is_admin, which the
+# /admin/public-topics + PATCH .../public endpoints use) — these three expose
+# every user's data, so they sit on the same stricter gate as /admin/metrics
+# and /admin/runs above rather than a separate allowlist.
+# ---------------------------------------------------------------------------
+
+class AdminTopicListItem(BaseModel):
+    id: str
+    raw_query: str
+    is_public: bool = False
+    owner_id: Optional[str] = None
+    owner_email: Optional[str] = None
+    subscriber_count: int = 0
+    is_active: bool = True
+    last_run_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+@router.get("/admin/topics", response_model=List[AdminTopicListItem])
+def list_admin_topics(user: User = Depends(get_current_user)):
+    """Admin: every topic with its owner + subscriber count, for the topics admin screen."""
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    db = get_supabase()
+
+    topics = (
+        db.table("topics")
+        .select("id, raw_query, is_public, user_id, is_active, last_run_at, created_at")
+        .order("created_at", desc=True)
+        .execute()
+    ).data or []
+
+    owner_ids = list({t["user_id"] for t in topics if t.get("user_id")})
+    owner_emails: dict = {}
+    if owner_ids:
+        owner_res = db.table("users").select("id, email").in_("id", owner_ids).execute()
+        owner_emails = {o["id"]: o.get("email") for o in (owner_res.data or [])}
+
+    # Batch subscriber counts in one query rather than one count() per topic. This app is
+    # pre-launch scale, so a plain select well under PostgREST's ~1000-row default cap is
+    # fine; if topic_subscriptions grows past that, switch to a dedicated group-by RPC (the
+    # same fix already applied to LLM cost totals — see admin_stats.get_cost_for_topics).
+    topic_ids = [t["id"] for t in topics]
+    subscriber_counts: dict = {}
+    if topic_ids:
+        sub_res = (
+            db.table("topic_subscriptions")
+            .select("topic_id")
+            .in_("topic_id", topic_ids)
+            .limit(10000)
+            .execute()
+        )
+        for row in (sub_res.data or []):
+            tid = row.get("topic_id")
+            if tid:
+                subscriber_counts[tid] = subscriber_counts.get(tid, 0) + 1
+
+    return [
+        {
+            "id": t["id"],
+            "raw_query": t.get("raw_query"),
+            "is_public": bool(t.get("is_public")),
+            "owner_id": t.get("user_id"),
+            "owner_email": owner_emails.get(t.get("user_id")),
+            "subscriber_count": subscriber_counts.get(t["id"], 0),
+            "is_active": t.get("is_active", True),
+            "last_run_at": t.get("last_run_at"),
+            "created_at": t.get("created_at"),
+        }
+        for t in topics
+    ]
+
+
+class AdminUserListItem(BaseModel):
+    id: str
+    email: str
+    tier: str = "free"
+    created_at: Optional[str] = None
+    topics_created: int = 0
+    subscriptions: int = 0
+
+
+@router.get("/admin/users", response_model=List[AdminUserListItem])
+def list_admin_users(user: User = Depends(get_current_user)):
+    """Admin: every user with billing tier + topic/subscription counts.
+
+    Deliberately cheap — no cost aggregation here, that belongs to the per-user
+    drill-down (GET /admin/users/{user_id}). Tier is read from user_subscriptions.tier
+    (the live table Paddle/Stripe billing writes to), not users.plan — that column exists
+    in schema.sql but nothing in the codebase reads or writes it, so it would only ever
+    show its default and silently misreport every paid user as free.
+    """
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    db = get_supabase()
+
+    users_rows = (
+        db.table("users").select("id, email, created_at").order("created_at", desc=True).execute()
+    ).data or []
+    user_ids = [u["id"] for u in users_rows]
+
+    tiers: dict = {}
+    if user_ids:
+        tier_res = db.table("user_subscriptions").select("user_id, tier").in_("user_id", user_ids).execute()
+        tiers = {r["user_id"]: r.get("tier", "free") for r in (tier_res.data or [])}
+
+    topics_created: dict = {}
+    if user_ids:
+        topics_res = db.table("topics").select("user_id").in_("user_id", user_ids).limit(10000).execute()
+        for row in (topics_res.data or []):
+            uid = row.get("user_id")
+            if uid:
+                topics_created[uid] = topics_created.get(uid, 0) + 1
+
+    subscriptions: dict = {}
+    if user_ids:
+        subs_res = (
+            db.table("topic_subscriptions").select("user_id").in_("user_id", user_ids).limit(10000).execute()
+        )
+        for row in (subs_res.data or []):
+            uid = row.get("user_id")
+            if uid:
+                subscriptions[uid] = subscriptions.get(uid, 0) + 1
+
+    return [
+        {
+            "id": u["id"],
+            "email": u.get("email"),
+            "tier": tiers.get(u["id"], "free"),
+            "created_at": u.get("created_at"),
+            "topics_created": topics_created.get(u["id"], 0),
+            "subscriptions": subscriptions.get(u["id"], 0),
+        }
+        for u in users_rows
+    ]
+
+
+@router.get("/admin/users/{user_id}")
+def get_admin_user_detail(user_id: str, user: User = Depends(get_current_user)):
+    """Admin: full per-user drill-down — profile, created topics, subscribed (watch-list)
+    topics, recent pipeline runs, and usage/cost.
+
+    Cost and run attribution go through topics.user_id (creator) only, never subscribers.
+    Topics can be shared/public, so attributing a run's cost to every subscriber would
+    double- (or N-) count a single pipeline run across everyone watching that topic.
+    """
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    _require_uuid(user_id, "user_id")
+    db = get_supabase()
+
+    profile_res = db.table("users").select("id, email, created_at").eq("id", user_id).execute()
+    if not profile_res.data:
+        raise HTTPException(status_code=404, detail="User not found")
+    profile = profile_res.data[0]
+
+    tier_res = db.table("user_subscriptions").select("tier").eq("user_id", user_id).execute()
+    tier = tier_res.data[0]["tier"] if tier_res.data else "free"
+
+    created_res = (
+        db.table("topics")
+        .select("id, raw_query, is_public, last_run_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    created_topics = created_res.data or []
+    created_topic_ids = [t["id"] for t in created_topics]
+
+    sub_res = db.table("topic_subscriptions").select("topic_id").eq("user_id", user_id).execute()
+    subscribed_topic_ids = [r["topic_id"] for r in (sub_res.data or []) if r.get("topic_id")]
+    watch_list = []
+    if subscribed_topic_ids:
+        wl_res = (
+            db.table("topics")
+            .select("id, raw_query, is_public, last_run_at")
+            .in_("id", subscribed_topic_ids)
+            .execute()
+        )
+        watch_list = wl_res.data or []
+
+    recent_runs: list = []
+    if created_topic_ids:
+        try:
+            runs_res = (
+                db.table("pipeline_run")
+                .select("id, topic_id, started_at, duration_ms, exit_status, brief_length, "
+                        "articles_collected, articles_selected, alphas_extracted, "
+                        "decisions_new, decisions_update, decisions_duplicate, error_message")
+                .in_("topic_id", created_topic_ids)
+                .order("started_at", desc=True)
+                .limit(25)
+                .execute()
+            )
+            runs = runs_res.data or []
+        except Exception as exc:
+            logger.warning("get_admin_user_detail: pipeline_run fetch failed: %s", exc)
+            runs = []
+        names = _topic_names(db, [r.get("topic_id") for r in runs])
+        recent_runs = [
+            {
+                "id": r["id"],
+                "topic_id": r.get("topic_id"),
+                "topic_name": names.get(r.get("topic_id")) or "—",
+                "started_at": r.get("started_at"),
+                "duration_s": round(r["duration_ms"] / 1000, 1) if r.get("duration_ms") else None,
+                "exit_status": r.get("exit_status"),
+                "brief_length": r.get("brief_length", 0),
+                "articles_collected": r.get("articles_collected", 0),
+                "articles_selected": r.get("articles_selected", 0),
+                "new": r.get("decisions_new", 0),
+                "update": r.get("decisions_update", 0),
+                "dupe": r.get("decisions_duplicate", 0),
+                "error": r.get("error_message"),
+            }
+            for r in runs
+        ]
+
+    from truebrief.ledger.admin_stats import get_cost_for_topics
+    usage = get_cost_for_topics(created_topic_ids)
+
+    return {
+        "user": {
+            "id": profile["id"],
+            "email": profile.get("email"),
+            "tier": tier,
+            "created_at": profile.get("created_at"),
+        },
+        "created_topics": created_topics,
+        "watch_list": watch_list,
+        "recent_runs": recent_runs,
+        "usage": usage,
     }

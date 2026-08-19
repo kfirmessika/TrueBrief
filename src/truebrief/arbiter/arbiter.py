@@ -62,6 +62,123 @@ def _digit_runs(text: str) -> list:
     return re.findall(r"\d+", text)
 
 
+# Compact word→number map for _normalized_numbers() — NOT a full NLP number parser
+# (simplicity over cleverness, per project philosophy). Covers one..nineteen, the
+# tens, hundred/thousand/million/billion, and dozen/half, which is enough to close
+# the specific blind spot Stage 1 Experiment 2 measured on real data (2026-08-16,
+# docs/benchmarks/2026-08-13_stage1-validation.md): a digit-only comparison sees
+# "halted five vessels" and "halted three vessels" as having NO numeric
+# difference at all, because neither "five" nor "three" is a digit run.
+_NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
+    "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_SCALE_WORDS = {"hundred": 100, "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
+_UNIT_WORDS = {"dozen": 12, "dozens": 12, "half": 0.5}
+
+_NUMBER_TOKEN_RE = re.compile(r"\d[\d,]*\.?\d*|[a-zA-Z]+")
+
+# Attached scale-letter suffixes ("1.8M", "$500K", "2B") never reached the word→scale
+# map below because the digit-token regex above stops at the letter and "m"/"k"/"b"
+# alone aren't in _SCALE_WORDS. Expanded to their spelled-out form before tokenizing
+# so the existing combine logic handles them unchanged. Requires the letter directly
+# against a digit (no space) so unrelated units glued to a number aren't misread —
+# and specifically NOT matched when a second letter follows (guards "50km"/"5kg":
+# the trailing \b fails between two letters, so "k" in "50km" is left alone).
+_SCALE_SUFFIX_RE = re.compile(r"(?<=\d)([kKmMbB])\b")
+_SCALE_SUFFIX_EXPAND = {"k": " thousand", "m": " million", "b": " billion"}
+
+# Fillers that never carry numeric meaning but sit between number words in normal
+# English ("half A million", "twenty AND five") — skipped rather than treated as a
+# run-breaking word, so the surrounding number tokens still combine.
+_FILLER_WORDS = {"a", "an", "and"}
+
+
+def _normalized_numbers(text: str) -> set:
+    """
+    Canonical set of numeric values mentioned in `text`, covering both digit runs
+    ("59", "3,912", "1.6") AND common spelled-out numbers ("five", "twelve", "two
+    dozen", "a hundred", "1.6 million", "1.8M"). Used in place of raw
+    ``_digit_runs()`` equality by the fast-path gates below, so a value that only
+    differs because one side spelled it out is no longer invisible to the guard.
+
+    Adjacent number tokens combine the way they're normally read ("twenty" +
+    "five" -> 25, "1.6" + "million" -> 1_600_000, "half" + "a" + "million" ->
+    500_000 — "a"/"an"/"and" are skipped, not run-breaking); any other non-number
+    word breaks the run. Deliberately conservative: it will under-parse an unusual
+    phrasing ("a couple dozen") rather than guess, which is the safe failure
+    direction — the guard simply won't fire (same as today), it won't invent a
+    false match.
+    """
+    text = _SCALE_SUFFIX_RE.sub(lambda m: _SCALE_SUFFIX_EXPAND[m.group(1).lower()], text)
+    tokens = _NUMBER_TOKEN_RE.findall(text.lower())
+    values: set = set()
+    current = 0.0
+    have_current = False
+
+    def _flush():
+        nonlocal current, have_current
+        if have_current:
+            values.add(current)
+        current = 0.0
+        have_current = False
+
+    for tok in tokens:
+        if tok[0].isdigit():
+            _flush()
+            try:
+                current = float(tok.replace(",", ""))
+                have_current = True
+            except ValueError:
+                pass
+            continue
+        if tok in _NUMBER_WORDS:
+            current = current + _NUMBER_WORDS[tok] if have_current else float(_NUMBER_WORDS[tok])
+            have_current = True
+            continue
+        if tok in _SCALE_WORDS or tok in _UNIT_WORDS:
+            scale = _SCALE_WORDS.get(tok, _UNIT_WORDS.get(tok))
+            base = current if have_current else 1.0
+            current = base * scale
+            have_current = True
+            continue
+        if tok in _FILLER_WORDS and have_current:
+            continue  # "half A million" — don't let the article sever the run
+        _flush()
+
+    _flush()
+    return values
+
+
+# Purpose-built for the same-day-near-identical gate's specific blind spot: a
+# magnitude-preserving directional reversal ("increased by 5%" vs "dropped by 5%")
+# passes the gate's number-equality check untouched (5 == 5), and these particular
+# direction words are deliberately absent from contradiction.py's general
+# ANTONYM_PAIRS by design ("rose/fell/up/down... prone to false positives" — a tally
+# genuinely rising then falling over time is normal, not a contradiction). This list
+# is intentionally NOT merged into ANTONYM_PAIRS: it only matters when the numbers
+# already match, which narrows it to exactly the shape IC4's general check can't
+# safely make a blanket rule for. Do not expand this ad hoc for unrelated antonyms —
+# it exists to catch same-value/opposite-direction, nothing else.
+_DIRECTION_PAIRS = [
+    ("increased", "decreased"), ("increased", "dropped"), ("increased", "fell"),
+    ("rose", "fell"), ("rose", "dropped"), ("rose", "declined"),
+    ("climbed", "fell"), ("climbed", "dropped"), ("gained", "lost"),
+    ("grew", "shrank"), ("surged", "plunged"), ("up", "down"), ("higher", "lower"),
+]
+_WORD_RE = re.compile(r"[a-z]+")
+
+
+def _direction_conflict(text_a: str, text_b: str) -> bool:
+    """True if the two texts use opposite direction words from _DIRECTION_PAIRS."""
+    wa = set(_WORD_RE.findall(text_a.lower()))
+    wb = set(_WORD_RE.findall(text_b.lower()))
+    return any((x in wa and y in wb) or (y in wa and x in wb) for x, y in _DIRECTION_PAIRS)
+
+
 def _cosine(a: list, b: list) -> float:
     """Cosine similarity between two equal-length float vectors, pure Python (no numpy
     dependency here — pools are tiny, a handful of alphas per collect() batch)."""
@@ -244,6 +361,79 @@ class Arbiter:
         if settings.V3_TALLY_COLLAPSE and alpha.event_class == "tally":
             tally_match = self.ledger.find_tally_match(alpha)
             if tally_match is not None:
+                # Guard 1 (Stage 2, 2026-08-16): identical numbers on both sides means
+                # this is a verbatim restatement, not a genuine revision — DUPLICATE,
+                # not UPDATE. Without this, IC1's own audit found it mislabeling exact
+                # repeats as UPDATE 100% of the time it was wrong (per-gate breakdown,
+                # docs/benchmarks/2026-08-13_arbiter-redteam-audit.md).
+                if _normalized_numbers(alpha.alpha_text) == _normalized_numbers(tally_match.alpha_text):
+                    logger.info(
+                        f"{log_prefix} → TALLY-DUPLICATE (IC1: entity-overlap match, "
+                        f"IDENTICAL numbers → '{tally_match.alpha_text[:60]}')"
+                    )
+                    return (
+                        AlphaDecision(
+                            alpha=alpha,
+                            decision=DecisionType.DUPLICATE,
+                            similarity_score=1.0,
+                            matched_alpha_id=tally_match.id,
+                            reasoning=(
+                                "IC1 tally-collapse: entity-overlap match with identical "
+                                "numbers — verbatim restatement, not a genuine tally revision."
+                            ),
+                        ),
+                        [],
+                    )
+
+                # Guard 2 (Stage 2, 2026-08-16): IC1 used to fire and return UPDATE
+                # before IC4's contradiction check (Step 2b, below) ever got a chance to
+                # run — silently absorbing real contradictions (e.g. a polarity flip
+                # mis-tagged event_class="tally") as tally revisions. Run the same check
+                # here, first, so a contradiction against the matched tally is flagged as
+                # NEW instead.
+                contradiction_reason = detect_contradiction(
+                    alpha.alpha_text, alpha.entities, alpha.event_date, alpha.event_class,
+                    tally_match.alpha_text, tally_match.entities, tally_match.event_date,
+                    tally_match.event_class,
+                )
+                if contradiction_reason:
+                    alpha.contradicts_id = tally_match.id
+                    alpha.contradiction_note = contradiction_reason
+                    logger.info(
+                        f"{log_prefix} → CONTRADICTION-NEW (IC1 pre-check vs "
+                        f"'{tally_match.alpha_text[:50]}': {contradiction_reason})"
+                    )
+                    return (
+                        AlphaDecision(
+                            alpha=alpha,
+                            decision=DecisionType.NEW,
+                            matched_alpha_id=tally_match.id,
+                            reasoning=(
+                                f"IC1 pre-check contradiction — {contradiction_reason}. "
+                                "Stored as NEW and flagged."
+                            ),
+                        ),
+                        [],
+                    )
+
+                # NOTE (2026-08-16 follow-up): tried a Guard 3 here — same exact
+                # event_date as the matched tally + differing numbers => NEW instead of
+                # UPDATE, to close the gap where detect_contradiction()'s numeric-conflict
+                # branch can never fire from this call site (alpha.event_class is always
+                # "tally" here, so contradiction.py's own is_tally exemption always
+                # suppresses it — it can only ever catch a polarity flip from Guard 2
+                # above, never a number clash). Reverted: it broke
+                # test_ic1_real_revision_still_updates and its spelled-out-number
+                # sibling, both of which encode a real, legitimate pattern (a tally
+                # genuinely updated twice on the same calendar date — e.g. a morning
+                # report of 59 vessels revised to 63 that afternoon). Same-day numeric
+                # differences on a tally-classed pair are genuinely ambiguous between
+                # "conflicting report" and "same-day revision" with no reliable
+                # deterministic signal available at this layer to tell them apart —
+                # this needs either richer signal (e.g. Alpha.context reaching this
+                # decision) or judgment, not a blunt date-equality rule. Left as a real,
+                # open gap (NUMERIC_CONTRADICTION_EVASION's C8-03/07/09) rather than
+                # trading a known regression for a known fix.
                 logger.info(
                     f"{log_prefix} → TALLY-UPDATE (IC1: entity-overlap match → "
                     f"'{tally_match.alpha_text[:60]}')"
@@ -275,7 +465,7 @@ class Arbiter:
 
         # Step 2b — IC4 contradiction flag (V3_CONTRADICTION_FLAG). A fact that contradicts
         # an existing one (Hormuz open/closed; toll 3,912 vs 3,468) is NOT a duplicate — flag
-        # the pair and force NEW, so this runs BEFORE the IC3 duplicate fast-path below.
+        # the pair and force NEW, so this runs BEFORE the raw-cosine/same-day fast-paths below.
         if settings.V3_CONTRADICTION_FLAG:
             for match, _score in raw_matches:
                 reason = detect_contradiction(
@@ -308,6 +498,23 @@ class Arbiter:
         # extracted date, so bypass temporal adjustment entirely at this confidence level.
         for match, raw_score in raw_matches:
             if raw_score >= AUTO_MERGE_THRESHOLD:
+                # Guard (Stage 2, 2026-08-16, behind V3_DIGIT_GUARD): near-identical wording
+                # can still carry a real numeric change (a same-template revision). Do NOT
+                # fall through to standard temporal-adjusted zoning on a mismatch — that
+                # reintroduces the exact date-drift bug this gate exists to route around (see
+                # the gate's own docstring above). Force this specific candidate straight to
+                # the Judge LLM instead, un-adjusted. V3_DIGIT_GUARD=False reverts to the
+                # pre-Stage-2 behavior: always auto-merge at this threshold, no number check.
+                if settings.V3_DIGIT_GUARD and (
+                    _normalized_numbers(alpha.alpha_text) != _normalized_numbers(match.alpha_text)
+                ):
+                    logger.info(
+                        f"{log_prefix} → RAW-COSINE-NUMBER-MISMATCH "
+                        f"(raw_sim={raw_score:.3f} >= {AUTO_MERGE_THRESHOLD} but numbers "
+                        "differ) — routing to Judge LLM instead of auto-merge"
+                    )
+                    return None, [(match, raw_score)]
+
                 logger.info(
                     f"{log_prefix} → RAW-COSINE-DUPLICATE "
                     f"(raw_sim={raw_score:.3f} >= {AUTO_MERGE_THRESHOLD}, "
@@ -338,48 +545,65 @@ class Arbiter:
                 adj *= e_factor
             adjusted.append((match, adj))
 
-        # Step 3b — IC3 same-event fast-path (V3_ENTITY_DEDUP).
-        # "4 soldiers killed" × 2 sources: vector sim may be 0.50–0.74 (below grey-zone)
-        # yet it's clearly the same event. Triple gate: high entity-overlap + same date +
-        # moderate vector sim → DUPLICATE without an LLM call.
-        if settings.V3_ENTITY_DEDUP:
-            for match, raw_score in raw_matches:
-                eo = entity_overlap(alpha.entities, match.entities)
-                to = temporal_overlap(alpha.event_date, match.event_date)
-                if eo >= 0.80 and to >= 0.97 and raw_score >= 0.50:
-                    logger.info(
-                        f"{log_prefix} → IC3-DUPLICATE "
-                        f"(entity_overlap={eo:.2f}, temporal={to:.2f}, sim={raw_score:.2f})"
-                    )
-                    return (
-                        AlphaDecision(
-                            alpha=alpha,
-                            decision=DecisionType.DUPLICATE,
-                            similarity_score=raw_score,
-                            matched_alpha_id=match.id,
-                            reasoning=(
-                                f"IC3 same-event: entity_overlap={eo:.2f}, "
-                                f"temporal={to:.2f}, sim={raw_score:.2f} — same event from different outlet."
-                            ),
-                        ),
-                        adjusted or [(match, raw_score)],
-                    )
+        # Step 3b — IC3 same-event fast-path: DELETED (Stage 2, 2026-08-16).
+        # Was: V3_ENTITY_DEDUP triple gate (entity_overlap >= 0.80, temporal >= 0.97,
+        # raw sim >= 0.50) → auto-DUPLICATE without an LLM call. Stage 1 Experiment 4
+        # (docs/benchmarks/2026-08-13_stage1-validation.md) confirmed on real production
+        # data that every one of its 30 measurable firings — right AND wrong — lands
+        # back in the grey zone [0.75, 0.97) once this bypass is removed: none are lost
+        # to AUTO_NEW, none slip past the Judge via AUTO_MERGE. Its correct calls were
+        # redundant with standard zoning; its wrong calls (100% of them: antonym flips
+        # and numeric evasions, per the red-team audit's per-gate breakdown) were
+        # structurally guaranteed by its own design — same actors/day/cosine is exactly
+        # what a paraphrase AND an antonym-flip both look like to this gate. The
+        # separate Step 3 entity-overlap MULTIPLIER just above (not this fast-path) is
+        # unaffected and stays exactly as-is under V3_ENTITY_DEDUP.
 
-        # Step 3c — same-day near-identical fast-path (always on, no flag).
+        # Step 3c — same-day near-identical fast-path (always on, no flag gates the
+        # gate itself — V3_DIGIT_GUARD only gates its NUMBER/ENTITY checks, below).
         # Validated in prod (2026-07-06): cross-scan duplicates at cosine 0.93-0.96
         # with the SAME event_date slip past the Judge LLM ("Khamenei's three sons
         # attended a funeral" stored twice at 0.959). Same date + very high vector
         # similarity is decisive — UNLESS the numbers differ: a same-day tally
         # revision ("toll rises 20 → 25") must stay with the Judge as UPDATE.
+        # Stage 2 (2026-08-16, behind V3_DIGIT_GUARD): the digit-only check is
+        # replaced with _normalized_numbers() (Stage 1 Experiment 2 found the old
+        # _digit_runs() equality blind to spelled-out numbers), and an entity/subject-
+        # overlap guard is added so a same-template-different-subject pair can't
+        # auto-merge on matching numbers alone. Threshold is 0.80, not a looser 0.5:
+        # Stage 3's holdout adversarial set caught a 0.5 threshold passing a real
+        # false-merge ("Houthi rebels attacked ... Hodeidah" vs "... al-Makha" — same
+        # org + same country entities overlap at 0.5 even though the actual
+        # differentiating entity, the specific port, differs). 0.80 matches the
+        # deleted IC3 gate's own bar (validated by that gate's 0 wrong calls on true
+        # duplicates in the 2026-08-13 red-team audit) — reusing an already-proven
+        # number rather than picking a new one. entity_overlap() is neutral — 0.5,
+        # fails this bar — when entities are empty on either side, same as its
+        # existing behavior elsewhere, so an under-tagged fact routes to the Judge
+        # instead of auto-merging blind. V3_DIGIT_GUARD=False reverts both checks to
+        # the pre-Stage-2 behavior: raw _digit_runs() equality, no entity guard.
         for match, raw_score in raw_matches:
+            if settings.V3_DIGIT_GUARD:
+                numbers_match = _normalized_numbers(alpha.alpha_text) == _normalized_numbers(match.alpha_text)
+                subject_match = entity_overlap(alpha.entities, match.entities) >= 0.80
+            else:
+                numbers_match = _digit_runs(alpha.alpha_text) == _digit_runs(match.alpha_text)
+                subject_match = True  # pre-Stage-2 behavior had no entity guard
+            # 2026-08-16 follow-up: numbers_match alone doesn't catch a same-value,
+            # opposite-direction reversal ("increased by 5%" vs "dropped by 5%" — both
+            # normalize to {5.0}). Gated behind V3_DIGIT_GUARD alongside the other two
+            # Stage-2 guards on this gate; off reverts to the pre-fix behavior.
+            direction_ok = not (settings.V3_DIGIT_GUARD and _direction_conflict(alpha.alpha_text, match.alpha_text))
             if (
                 raw_score >= SAME_DAY_DUP_THRESHOLD
                 and temporal_overlap(alpha.event_date, match.event_date) >= 0.97
-                and _digit_runs(alpha.alpha_text) == _digit_runs(match.alpha_text)
+                and numbers_match
+                and subject_match
+                and direction_ok
             ):
                 logger.info(
                     f"{log_prefix} → SAME-DAY-DUPLICATE "
-                    f"(sim={raw_score:.3f}, same event_date, same numbers)"
+                    f"(sim={raw_score:.3f}, same event_date, same numbers, same subject)"
                 )
                 return (
                     AlphaDecision(
@@ -389,7 +613,7 @@ class Arbiter:
                         matched_alpha_id=match.id,
                         reasoning=(
                             f"Same-day near-identical: sim={raw_score:.3f}, same "
-                            "event_date, same numbers — same event reworded."
+                            "event_date, same numbers, same subject — same event reworded."
                         ),
                     ),
                     adjusted or [(match, raw_score)],
@@ -486,7 +710,7 @@ class Arbiter:
 
         Mirrors find_similar()'s own floor (LEDGER_FETCH_THRESHOLD) so pool candidates
         get the same relevance bar as DB-fetched ones instead of flooding the
-        contradiction/IC3 checks with noise.
+        contradiction/raw-cosine/same-day checks with noise.
         """
         matches: List[Tuple[Alpha, float]] = []
         for cand in pool:

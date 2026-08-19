@@ -3,14 +3,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { Check, Loader2, ArrowRight, RefreshCw, Plus } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Check, Loader2, ArrowRight, Plus } from 'lucide-react';
 import { SourceChip } from '@/components/SourceChip';
-import { parseBrief } from '@/app/(app)/topics/[id]/page';
 import { useSession } from '@/app/providers';
 import { SignInPrompt } from '@/components/auth/SignInPrompt';
-
-interface BriefRow { id: string; content: string; delivered_at: string }
 
 // GET /public-topics — no auth required, admin-curated public topics only.
 interface PublicTopic { id: string; name: string; subscriber_count: number }
@@ -157,74 +154,18 @@ function AlphaRow({ fact }: { fact: FeedFact }) {
   );
 }
 
-// The flip card. Front = unseen alphas + sources (instant). Back = the lede + top
-// bullets of the topic's latest STORED brief (Briefer already ran this scan — zero
-// extra LLM cost, and it's the same well-synthesized output the benchmark scored
-// well, not a cheap re-summary of the same facts on a worse model).
-//
-// Uses scaleX squeeze animation instead of 3D rotateY because the ancestor layout
-// container has overflow:auto, which the CSS spec requires to flatten preserve-3d.
-// The squeeze (scaleX 1→0→1) is visually equivalent and works through any overflow.
+// The topic card: shows every unseen fact for this topic (topic.facts — the same
+// salience-ranked, capped-at-40 list the /feed delta engine already computed, zero
+// extra fetch/LLM cost), not a 4-bullet slice of the latest brief. The "N new" badge
+// and the visible content are the same list now, so the count is never a promise the
+// card doesn't keep. Full multi-day history still lives on the topic page.
 function TopicFlipCard({
   topic,
   onNavigate,
-  lastRun,
 }: {
   topic: FeedTopic;
   onNavigate: () => void;
-  lastRun?: string | null;
 }) {
-  const api = useApi();
-  const [showBack, setShowBack] = useState(false);
-  // 'out': squeezing to invisible; 'in': expanding back; 'idle': at rest
-  const [phase, setPhase] = useState<'idle' | 'out' | 'in'>('idle');
-  const nextFace = useRef(false);       // which face to show after the squeeze
-  const autoFlipped = useRef(false);    // guard: fire auto-flip only once
-
-  const { data: briefs, isLoading: briefLoading, isError: briefFailed, refetch } = useQuery<BriefRow[]>({
-    queryKey: ['topic-briefs', topic.topic_id, lastRun],
-    queryFn: async () => (await api.get(`/topics/${topic.topic_id}/briefs`)).data,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-  });
-
-  const latest = briefs?.[0];
-  const blocks = useMemo(() => (latest ? parseBrief(latest.content) : []), [latest]);
-  const lede = blocks.find((b) => b.kind === 'lede');
-  const bullets = blocks.filter((b) => b.kind === 'bullet').slice(0, 4);
-
-  const state: 'loading' | 'done' | 'failed' =
-    briefLoading ? 'loading' : (briefFailed || blocks.length === 0) ? 'failed' : 'done';
-
-  // Auto-flip to the brief once it's loaded (skip the single-fact shortcut card —
-  // the front face already IS the whole story at 1 fact).
-  useEffect(() => {
-    if (state === 'done' && topic.facts.length >= 2 && !autoFlipped.current) {
-      autoFlipped.current = true;
-      nextFace.current = true;
-      setPhase('out');
-    }
-  }, [state, topic.facts.length]);
-
-  // Orchestrate the squeeze: out → swap content at invisible midpoint → in.
-  const handleTransitionEnd = (e: React.TransitionEvent<HTMLDivElement>) => {
-    if (e.propertyName !== 'transform') return;
-    if (phase === 'out') {
-      setShowBack(nextFace.current); // content swaps while invisible
-      setPhase('in');
-    } else if (phase === 'in') {
-      setPhase('idle');
-    }
-  };
-
-  const flip = () => {
-    if (state !== 'done' || phase !== 'idle') return;
-    nextFace.current = !showBack;
-    setPhase('out');
-  };
-
-  const isFlipReady = state === 'done';
-
   const OpenTopicBtn = (
     <button
       onClick={(e) => { e.stopPropagation(); onNavigate(); }}
@@ -241,17 +182,11 @@ function TopicFlipCard({
   return (
     <div style={{ marginBottom: 16 }}>
       <div
-        onClick={flip}
-        onTransitionEnd={handleTransitionEnd}
         style={{
           background: 'var(--color-background-primary)',
-          border: `1px solid ${showBack ? 'var(--tb-green, #1A7A52)' : 'var(--color-border-tertiary)'}`,
+          border: '1px solid var(--color-border-tertiary)',
           borderRadius: 12,
           padding: '14px 16px',
-          cursor: isFlipReady && phase === 'idle' ? 'pointer' : 'default',
-          transform: phase === 'out' ? 'scaleX(0)' : 'scaleX(1)',
-          transformOrigin: 'center',
-          transition: phase === 'idle' ? 'none' : 'transform 0.15s ease-in-out',
         }}
       >
         {/* Header */}
@@ -265,63 +200,22 @@ function TopicFlipCard({
           }}>
             {topic.topic_name}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {state === 'loading' && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
-                <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> loading brief…
-              </span>
-            )}
-            {state === 'failed' && topic.facts.length >= 2 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); refetch(); }}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3,
-                  fontSize: 10.5, color: 'var(--color-text-tertiary)',
-                  background: 'none', border: '0.5px solid var(--color-border-secondary)',
-                  borderRadius: 5, padding: '1px 6px', cursor: 'pointer',
-                }}
-              >
-                <RefreshCw size={10} /> retry
-              </button>
-            )}
-            {isFlipReady && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
-                <RefreshCw size={10} /> {showBack ? 'alphas' : 'brief'}
-              </span>
-            )}
-            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{topic.new_count} new</span>
-          </div>
+          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{topic.new_count} new</span>
         </div>
 
-        {/* Content — swapped at the invisible midpoint of the squeeze animation */}
-        {!showBack ? (
+        {/* Content — every unseen fact for this topic */}
+        {topic.facts.length === 0 ? (
           <div>
-            {topic.facts.slice(0, 8).map((fact, i) => <AlphaRow key={i} fact={fact} />)}
-            {topic.facts.length > 8 && (
-              <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '6px 0 0' }}>
-                +{topic.facts.length - 8} more in this topic
-              </p>
-            )}
+            <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '8px 0' }}>
+              No details available for this topic&apos;s update.
+            </p>
             <div style={{ marginTop: 10 }}>{OpenTopicBtn}</div>
           </div>
         ) : (
           <div>
-            {lede && 'text' in lede && (
-              <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--color-text-primary)', margin: '8px 0 8px', fontWeight: 500 }}>
-                {lede.text}
-              </p>
-            )}
-            {bullets.map((b, i) => {
-              if (b.kind !== 'bullet') return null;
-              return (
-                <div key={i} style={{ display: 'flex', gap: 6, margin: '0 0 6px' }}>
-                  <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}>•</span>
-                  <span style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-text-secondary)' }}>
-                    {b.bullet.text}
-                  </span>
-                </div>
-              );
-            })}
+            {topic.facts.map((fact, i) => (
+              <AlphaRow key={i} fact={fact} />
+            ))}
             <div style={{ marginTop: 12 }}>{OpenTopicBtn}</div>
           </div>
         )}
@@ -344,20 +238,13 @@ export default function DashboardPage() {
     enabled: !!session,
   });
 
-  const { data: topicList = [] } = useQuery<{ id: string; is_scanning?: boolean; last_scan_at?: string | null }[]>({
+  const { data: topicList = [] } = useQuery<{ id: string; is_scanning?: boolean }[]>({
     queryKey: ['topics'],
     queryFn: async () => (await api.get('/topics')).data,
     staleTime: 10_000,
     refetchInterval: 8_000,
     enabled: !!session,
   });
-
-  // topicList polls every 8s; map id -> last_scan_at so each card's brief query is keyed
-  // on it and picks up server-side scheduled scans (same fix as the topic page).
-  const lastRunById = useMemo(
-    () => Object.fromEntries(topicList.map((t) => [t.id, t.last_scan_at ?? null])),
-    [topicList],
-  );
 
   const scanningCount = topicList.filter((t) => t.is_scanning).length;
   const prevScanning = useRef(0);
@@ -477,7 +364,6 @@ export default function DashboardPage() {
             key={topic.topic_id}
             topic={topic}
             onNavigate={() => openTopic(topic.topic_id)}
-            lastRun={lastRunById[topic.topic_id]}
           />
         ))}
 

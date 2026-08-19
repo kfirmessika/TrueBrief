@@ -13,7 +13,9 @@ export const api = axios.create({
 // Topic Types
 export interface Topic {
   id: string;
+  name: string;
   raw_query: string;
+  search_prompt: string;
   frequency: string;
   is_active: boolean;
   last_scan_at?: string | null;
@@ -62,6 +64,7 @@ export const topicsApi = {
   get: (id: string) => api.get<Topic>(`/topics/${id}`),
   create: (raw_query: string) => api.post<Topic>('/topics', { raw_query }),
   delete: (id: string) => api.delete(`/topics/${id}`),
+  rename: (id: string, name: string) => api.patch<Topic>(`/topics/${id}`, { name }),
   scan: (id: string) => api.post<{ task_id: string; topic_id: string; status: string }>(`/topics/${id}/scan`),
 };
 

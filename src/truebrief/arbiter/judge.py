@@ -179,6 +179,12 @@ class JudgeLLM:
         """
         new_date_str = _format_event_date(new_alpha.event_date)
         new_entities_str = ", ".join(new_alpha.entities) if new_alpha.entities else "unknown"
+        # Extra context (e.g. "initial toll of 50, later revised as more bodies were
+        # found") is exactly what disambiguates a REVISION from a CONFLICT in the
+        # NUMERIC_CONTRADICTION_EVASION cases — previously extracted onto Alpha.context
+        # but never reached this prompt, so the Judge decided blind on the compressed
+        # one-line alpha_text alone. Omitted entirely (no "Context: None" noise) when absent.
+        new_context_line = f"\n  Context: {new_alpha.context}" if new_alpha.context else ""
 
         # Build the matches block (up to 3 shown for context)
         lines = []
@@ -186,9 +192,10 @@ class JudgeLLM:
             label = _score_label(score)
             match_date = _format_event_date(match.event_date)
             match_entities = ", ".join(match.entities) if match.entities else "unknown"
+            match_context_line = f"\n     Context: {match.context}" if match.context else ""
             lines.append(
                 f"  {i}. [{label} {score:.2f}] \"{match.alpha_text}\"\n"
-                f"     Entities: {match_entities} | Event date: {match_date}"
+                f"     Entities: {match_entities} | Event date: {match_date}{match_context_line}"
             )
 
         matches_block = "\n".join(lines) if lines else "  (none)"
@@ -197,6 +204,7 @@ class JudgeLLM:
             new_fact=new_alpha.alpha_text,
             new_entities=new_entities_str,
             new_date=new_date_str,
+            new_context_line=new_context_line,
             matches_block=matches_block,
         )
 

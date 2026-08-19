@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApi } from '@/lib/useApi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, Clock } from 'lucide-react';
+import { ArrowUp, Clock, Check, Globe } from 'lucide-react';
 import { getTimezone, localToUtc, utcToLocal, fmtHM, tzShortLabel, type ScheduleTime } from '@/lib/timezone';
 import { useSession } from '@/app/providers';
 import { SignInPrompt } from '@/components/auth/SignInPrompt';
@@ -31,6 +31,12 @@ const STATIC_PILLS = [
 ];
 
 interface SharedTopic { id: string; name: string; subscriber_count: number; }
+
+// Same query key + shape as Sidebar's admin check (frontend/src/components/layout/Sidebar.tsx)
+// — shares the cached result instead of firing a second /users/me/stats request, and
+// is_admin only gates whether the toggle below renders; the admin endpoint it calls
+// is independently gated server-side.
+interface UserStatsAdmin { is_admin?: boolean; }
 
 // Shape of an axios error, narrowed by hand so we don't pull axios types into a page.
 interface ApiErrorShape {
@@ -113,6 +119,15 @@ export default function NewTopicPage() {
   const [newTimeInput, setNewTimeInput] = useState('09:00');
   const scheduleRef = useRef<HTMLDivElement>(null);
   const tz = getTimezone();
+  const [makePublic, setMakePublic] = useState(false);
+
+  const { data: stats } = useQuery<UserStatsAdmin>({
+    queryKey: ['user-stats'],
+    queryFn: async () => (await api.get('/users/me/stats')).data,
+    staleTime: 10 * 60_000,
+    enabled: !!session,
+  });
+  const isAdmin = !!stats?.is_admin;
 
   useEffect(() => {
     if (!showSchedule) return;
@@ -179,7 +194,9 @@ export default function NewTopicPage() {
     setErrorStatus(null);
     setNudge(false);
     try {
-      const res = await api.post('/topics', { raw_query: q });
+      const res = isAdmin && makePublic
+        ? await api.post('/admin/public-topics', { raw_query: q })
+        : await api.post('/topics', { raw_query: q });
       // Custom times set before submit -> apply now. No topic id exists until this
       // POST resolves, so this can't happen any earlier; an empty list here just
       // means "leave the default (once/day)" and nothing needs to be sent.
@@ -370,6 +387,17 @@ export default function NewTopicPage() {
               </div>
             )}
           </div>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setMakePublic(v => !v)}
+              aria-pressed={makePublic}
+              title="Force-create this topic as public (admin only)"
+              style={{ ...pillBase, ...(makePublic ? { borderColor: '#0F6E56', background: '#E1F5EE', color: '#085041' } : {}) }}
+            >
+              {makePublic ? <Check size={11} /> : <Globe size={11} />} Make public
+            </button>
+          )}
           <button
             type="button"
             onClick={handleSubmit}
