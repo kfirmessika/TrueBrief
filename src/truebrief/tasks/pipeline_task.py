@@ -33,6 +33,26 @@ logger = logging.getLogger(__name__)
 _thread_tasks: dict[str, dict] = {}
 _thread_tasks_lock = threading.Lock()
 
+# ── Task → topic_id map (both Celery and thread-based tasks) ────────────────
+# Lets /scan-status/{task_id} verify the caller is subscribed to the task's
+# topic before returning its result (task_id alone must not be enough to read
+# another user's scan result). In-memory only, same "lost on process restart"
+# caveat as _thread_tasks above; no schema change.
+_task_topics: dict[str, str] = {}
+_task_topics_lock = threading.Lock()
+
+
+def _set_task_topic(task_id: str, topic_id: str) -> None:
+    with _task_topics_lock:
+        _task_topics[task_id] = topic_id
+
+
+def get_task_topic_id(task_id: str) -> str | None:
+    """Return the topic_id a task_id was enqueued for, or None if unknown
+    (e.g. the process restarted since the task was queued)."""
+    with _task_topics_lock:
+        return _task_topics.get(task_id)
+
 
 def _has_redis() -> bool:
     return bool(os.getenv("REDIS_URL", "").strip())
@@ -65,9 +85,11 @@ def enqueue_pipeline(topic_id: str, raw_query: str) -> _ThreadTaskHandle:
     """
     if _has_redis():
         task = run_pipeline_task.delay(topic_id=topic_id, raw_query=raw_query)
+        _set_task_topic(task.id, topic_id)
         return _ThreadTaskHandle(task.id)
 
     task_id = str(uuid.uuid4())
+    _set_task_topic(task_id, topic_id)
     with _thread_tasks_lock:
         _thread_tasks[task_id] = {"state": "PENDING", "result": None}
 

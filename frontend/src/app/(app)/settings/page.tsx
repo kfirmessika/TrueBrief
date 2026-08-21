@@ -321,7 +321,7 @@ function ApiKeysSection() {
             <code style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{k.key_prefix}…</code>
           </div>
           <button
-            onClick={() => revokeKey.mutate(k.id)}
+            onClick={() => { if (confirm(`Revoke API key "${k.name}"?`)) revokeKey.mutate(k.id); }}
             disabled={revokeKey.isPending}
             style={{ ...smallBtn, color: '#B91C1C', borderColor: '#FCCACA' }}
           >
@@ -329,6 +329,62 @@ function ApiKeysSection() {
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Delete-account confirmation ──────────────────────────────────────────────
+// Inline CSS-var modal, not the Tailwind ConfirmDialog in components/ui/ — that
+// component's tokens (--color-surface-raised etc.) flip under the marketing
+// site's .dark class, but this page (like the rest of the app shell) renders
+// from the separate, dark-mode-inert --color-*-primary tokens (see globals.css
+// "APP SHELL DESIGN TOKENS"). Importing it would show a dark card floating over
+// an otherwise-light page whenever a user has dark mode on.
+function DeleteAccountDialog({
+  isOpen, isPending, onConfirm, onCancel,
+}: { isOpen: boolean; isPending: boolean; onConfirm: () => void; onCancel: () => void }) {
+  if (!isOpen) return null;
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.4)', padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 360,
+          background: 'var(--color-background-primary)',
+          border: '0.5px solid var(--color-border-tertiary)',
+          borderRadius: 12, padding: '20px 20px 16px',
+        }}
+      >
+        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 6px' }}>
+          Delete account?
+        </p>
+        <p style={{ fontSize: 12.5, color: 'var(--color-text-secondary)', margin: '0 0 18px', lineHeight: 1.5 }}>
+          This permanently deletes your account and all your data — topics, briefs, and API keys. This cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={smallBtn}>
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            style={{
+              fontSize: 12, padding: '4px 12px', borderRadius: 8, cursor: isPending ? 'default' : 'pointer',
+              background: '#B91C1C', color: '#fff', border: 'none', fontFamily: 'inherit',
+              opacity: isPending ? 0.6 : 1,
+            }}
+          >
+            {isPending ? 'Deleting…' : 'Delete account'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -460,27 +516,21 @@ export default function SettingsPage() {
               Permanently removes all your data.
             </p>
           </div>
-          {!confirmDelete ? (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              style={{ ...smallBtn, color: '#B91C1C', borderColor: '#FCCACA' }}
-            >
-              Delete
-            </button>
-          ) : (
-            <button
-              onClick={() => deleteAccount.mutate()}
-              disabled={deleteAccount.isPending}
-              style={{
-                fontSize: 12, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
-                background: '#B91C1C', color: '#fff', border: 'none', fontFamily: 'inherit',
-              }}
-            >
-              {deleteAccount.isPending ? 'Deleting…' : 'Confirm delete'}
-            </button>
-          )}
+          <button
+            onClick={() => setConfirmDelete(true)}
+            style={{ ...smallBtn, color: '#B91C1C', borderColor: '#FCCACA' }}
+          >
+            Delete
+          </button>
         </div>
       </div>
+
+      <DeleteAccountDialog
+        isOpen={confirmDelete}
+        isPending={deleteAccount.isPending}
+        onConfirm={() => { if (!deleteAccount.isPending) deleteAccount.mutate(); }}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

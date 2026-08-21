@@ -1,10 +1,10 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
-import { Check, Loader2, ArrowRight, Plus } from 'lucide-react';
+import { Check, Loader2, ArrowRight, Plus, AlertTriangle } from 'lucide-react';
 import { SourceChip } from '@/components/SourceChip';
 import { useSession } from '@/app/providers';
 import { SignInPrompt } from '@/components/auth/SignInPrompt';
@@ -230,7 +230,7 @@ export default function DashboardPage() {
   const qc = useQueryClient();
   const { session } = useSession();
 
-  const { data, isLoading } = useQuery<Feed>({
+  const { data, isLoading, isError } = useQuery<Feed>({
     queryKey: ['feed'],
     queryFn: async () => (await api.get('/feed')).data,
     staleTime: 30_000,
@@ -255,10 +255,12 @@ export default function DashboardPage() {
     prevScanning.current = scanningCount;
   }, [scanningCount, qc]);
 
-  const markAllSeen = async () => {
-    try { await api.post('/feed/seen', {}); } catch { /* non-fatal */ }
-    qc.invalidateQueries({ queryKey: ['feed'] });
-  };
+  const markAllSeen = useMutation({
+    mutationFn: () => api.post('/feed/seen', {}),
+    // Mirrors the old try/catch-and-invalidate-anyway behavior: a failed
+    // "mark seen" call is non-fatal, so refetch regardless of outcome.
+    onSettled: () => qc.invalidateQueries({ queryKey: ['feed'] }),
+  });
 
   const openTopic = (tid: string) => {
     api.post('/feed/seen', { topic_ids: [tid] }).catch(() => {});
@@ -267,7 +269,7 @@ export default function DashboardPage() {
 
   const total = data?.total ?? 0;
   const topics = data?.topics ?? [];
-  const allQuiet = !isLoading && (data?.all_quiet ?? topics.length === 0);
+  const allQuiet = !isLoading && !isError && (data?.all_quiet ?? topics.length === 0);
   const quietCount = topicList.length - topics.length;
 
   if (!session) {
@@ -296,24 +298,26 @@ export default function DashboardPage() {
           <p style={{ fontSize: 20, fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>
             Today
           </p>
-          {!isLoading && !allQuiet && (
+          {!isLoading && !isError && !allQuiet && (
             <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '3px 0 0' }}>
               <span style={{ color: 'var(--tb-green)' }}>●</span>{' '}
               {total} new{topics.length > 1 ? ` across ${topics.length} topics` : ''} since you looked
             </p>
           )}
         </div>
-        {!isLoading && !allQuiet && (
+        {!isLoading && !isError && !allQuiet && (
           <button
-            onClick={markAllSeen}
+            onClick={() => markAllSeen.mutate()}
+            disabled={markAllSeen.isPending}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
               fontSize: 12, color: 'var(--color-text-secondary)',
               background: 'none', border: '1px solid var(--color-border-secondary)',
-              borderRadius: 8, padding: '4px 10px', cursor: 'pointer', flexShrink: 0,
+              borderRadius: 8, padding: '4px 10px', cursor: markAllSeen.isPending ? 'default' : 'pointer',
+              flexShrink: 0, opacity: markAllSeen.isPending ? 0.5 : 1,
             }}
           >
-            <Check size={12} /> All caught up
+            <Check size={12} /> {markAllSeen.isPending ? 'Marking…' : 'All caught up'}
           </button>
         )}
       </div>
@@ -340,6 +344,23 @@ export default function DashboardPage() {
           </div>
         ))}
 
+        {isError && (
+          <div style={{ textAlign: 'center', paddingTop: 80 }}>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 40, height: 40, borderRadius: '50%', background: 'var(--tb-coral-bg)', marginBottom: 14,
+            }}>
+              <AlertTriangle size={20} color="var(--tb-coral-text)" />
+            </div>
+            <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
+              Couldn&apos;t load your feed.
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: 0 }}>
+              Something went wrong on our end — try refreshing the page.
+            </p>
+          </div>
+        )}
+
         {allQuiet && (
           <div style={{ textAlign: 'center', paddingTop: 80 }}>
             <div style={{
@@ -359,7 +380,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!isLoading && !allQuiet && topics.map((topic) => (
+        {!isLoading && !isError && !allQuiet && topics.map((topic) => (
           <TopicFlipCard
             key={topic.topic_id}
             topic={topic}
@@ -367,7 +388,7 @@ export default function DashboardPage() {
           />
         ))}
 
-        {!isLoading && !allQuiet && quietCount > 0 && (
+        {!isLoading && !isError && !allQuiet && quietCount > 0 && (
           <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '24px 0 0', paddingTop: 14, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
             ── Nothing else moved across your other {quietCount} {quietCount === 1 ? 'topic' : 'topics'}.
           </p>

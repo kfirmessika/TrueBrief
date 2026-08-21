@@ -5,6 +5,7 @@ FastAPI application setup.
 """
 
 import os
+import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,18 +22,45 @@ from truebrief.api.public_routes import router as public_router
 from truebrief.apikeys.routes import router as apikeys_router
 from postgrest.exceptions import APIError as PostgrestAPIError
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+# Setup logging.
+# logging.basicConfig() writes everything to stderr, which makes Railway tag every
+# routine INFO line as an error — so a log search for real errors returns a wall of
+# successful DB calls and genuine incidents are invisible. Split the streams instead:
+# INFO/DEBUG to stdout, WARNING and above to stderr.
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+_stdout_handler = logging.StreamHandler(sys.stdout)
+_stdout_handler.setLevel(logging.INFO)
+_stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
+_stdout_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_stderr_handler.setLevel(logging.WARNING)
+_stderr_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+
+logging.basicConfig(level=logging.INFO, handlers=[_stdout_handler, _stderr_handler], force=True)
 logging.getLogger("truebrief").setLevel(logging.INFO)
+
+# httpx logs every outbound request at INFO, including full query strings that carry
+# user ids — noisy, and it leaks identifiers into the log stream.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
+
+# The interactive docs publish the full API surface — every route, parameter and schema.
+# Useful in dev, an enumeration aid in production. Fail secure: docs are exposed only
+# when ENV *explicitly* says development, so a missing or mistyped ENV closes them
+# rather than opening them.
+_docs_enabled = os.getenv("ENV", "").strip().lower() in ("development", "dev", "local", "test")
 
 app = FastAPI(
     title="TrueBrief API",
     description="API for the TrueBrief Intelligence Engine.",
     version="1.0.0",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 # Rate limiting

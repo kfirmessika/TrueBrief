@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import { useCallback, useEffect, useMemo, useRef, use, useState } from 'react';
-import { Clock, ScanSearch } from 'lucide-react';
+import { Clock, ScanSearch, Check, Loader2 } from 'lucide-react';
 import { useScanStatus, useTriggerScan } from '@/hooks/useTopics';
 import { SourceChip } from '@/components/SourceChip';
 import { getTimezone, utcToLocal, localToUtc, fmtHM, tzShortLabel, type ScheduleTime } from '@/lib/timezone';
@@ -222,7 +222,7 @@ function PastBriefRow({ brief }: { brief: BriefRow }) {
   );
 }
 
-function BriefPanel({ topicId, lastRun }: { topicId: string; lastRun?: string | null }) {
+function BriefPanel({ topicId, lastRun, scanning }: { topicId: string; lastRun?: string | null; scanning?: boolean }) {
   const api = useApi();
   const [open, setOpen] = useState(true);
   const [showPast, setShowPast] = useState(false);
@@ -237,7 +237,40 @@ function BriefPanel({ topicId, lastRun }: { topicId: string; lastRun?: string | 
   // (config/settings.py V5_CUTOVER_DATE) — every scan's brief is kept, not just the last.
   const latest = data?.[0];
   const past = data?.slice(1) ?? [];
-  if (!latest) return null;
+
+  // No brief yet — the most common reason is simply that this is a brand-new topic
+  // whose first scan hasn't landed. Distinguish that from "we scanned and found
+  // nothing new" using the same `scanning`/`lastRun` signals the sticky header
+  // already reads, instead of rendering a blank content area.
+  if (!latest) {
+    const title = scanning
+      ? (lastRun ? 'Scanning for updates' : 'Your first scan is running')
+      : 'No brief yet';
+    const subtitle = scanning
+      ? "This usually takes a minute or two — your brief will appear here as soon as it's ready."
+      : lastRun
+        ? 'Your last scan finished with nothing new to report.'
+        : "This topic hasn't been scanned yet.";
+    return (
+      <div style={{ textAlign: 'center', padding: '64px 22px' }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 40, height: 40, borderRadius: '50%',
+          background: 'var(--color-background-tertiary)', marginBottom: 14,
+        }}>
+          {scanning
+            ? <Loader2 size={18} color="var(--tb-amber)" style={{ animation: 'spin 1s linear infinite' }} />
+            : <Check size={20} color="var(--tb-green)" />}
+        </div>
+        <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
+          {title}
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '0 auto', maxWidth: 300, lineHeight: 1.6 }}>
+          {subtitle}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -533,7 +566,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
     return () => { clearInterval(interval); window.removeEventListener('storage', check); };
   }, [id]);
 
-  const { data: topic } = useQuery<Topic>({
+  const { data: topic, isError: isTopicError } = useQuery<Topic>({
     queryKey: ['topic', id],
     queryFn: async () => (await api.get(`/topics/${id}`)).data,
     staleTime: 0,
@@ -563,9 +596,13 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
         flexShrink: 0,
       }}>
         <p style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
-          {session ? (topic?.name ?? '…') : 'Sign in to view this topic'}
+          {!session
+            ? 'Sign in to view this topic'
+            : isTopicError
+              ? 'Topic not found'
+              : (topic?.name ?? '…')}
         </p>
-        {session && (
+        {session && !isTopicError && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Clock size={11} color="var(--color-text-tertiary)" />
           {scanning ? (
@@ -702,10 +739,19 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
           Story mode removed for V5 (never proven better than the plain feed;
           reintroduce post-production only if proven). */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {session ? (
-          <BriefPanel topicId={id} lastRun={topic?.last_scan_at} />
-        ) : (
+        {!session ? (
           <SignInPrompt message="Sign in to see this topic's timeline." />
+        ) : isTopicError ? (
+          <div style={{ textAlign: 'center', padding: '80px 24px' }}>
+            <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 6px' }}>
+              Topic not found
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '0 auto', maxWidth: 320, lineHeight: 1.6 }}>
+              This topic doesn&apos;t exist, was deleted, or you don&apos;t have access to it.
+            </p>
+          </div>
+        ) : (
+          <BriefPanel topicId={id} lastRun={topic?.last_scan_at} scanning={scanning} />
         )}
       </div>
     </div>

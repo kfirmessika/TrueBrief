@@ -412,30 +412,18 @@ export default function NewTopicPage() {
                     ))}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input
-                    type="time"
-                    value={newTimeInput}
-                    onChange={(e) => setNewTimeInput(e.target.value)}
-                    style={{
-                      fontSize: 12, padding: '4px 6px', borderRadius: 6,
-                      border: '0.5px solid var(--color-border-secondary)',
-                      background: 'var(--color-background-primary)',
-                      color: 'var(--color-text-primary)', flex: 1,
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={addCustomTime}
-                    style={{
-                      fontSize: 12, fontWeight: 500, color: 'var(--tb-green)',
-                      background: 'none', border: '0.5px solid var(--tb-green)',
-                      borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
-                    }}
-                  >
-                    Add
-                  </button>
-                </div>
+                <input
+                  type="time"
+                  value={newTimeInput}
+                  onChange={(e) => setNewTimeInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomTime(); } }}
+                  style={{
+                    fontSize: 12, padding: '4px 6px', borderRadius: 6,
+                    border: '0.5px solid var(--color-border-secondary)',
+                    background: 'var(--color-background-primary)',
+                    color: 'var(--color-text-primary)', width: '100%',
+                  }}
+                />
               </div>
             )}
           </div>

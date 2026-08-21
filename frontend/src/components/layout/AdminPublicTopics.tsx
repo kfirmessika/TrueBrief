@@ -116,33 +116,19 @@ export default function AdminPublicTopics() {
 
       {showAdd && (
         <div style={{ padding: '2px 12px 8px' }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <input
-              autoFocus
-              value={newQuery}
-              onChange={e => setNewQuery(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') submitCreate(); }}
-              placeholder="New public topic…"
-              style={{
-                flex: 1, fontSize: 12, padding: '6px 8px', borderRadius: 6,
-                border: '0.5px solid var(--color-border-secondary)',
-                background: 'var(--color-background-primary)', color: 'var(--color-text-primary)',
-                fontFamily: 'inherit', boxSizing: 'border-box',
-              }}
-            />
-            <button
-              onClick={submitCreate}
-              disabled={!newQuery.trim() || createPublic.isPending}
-              style={{
-                fontSize: 11, fontWeight: 500, padding: '0 8px', borderRadius: 6,
-                border: '0.5px solid var(--tb-green)', background: 'var(--tb-green)', color: '#fff',
-                cursor: newQuery.trim() ? 'pointer' : 'default', fontFamily: 'inherit',
-                opacity: !newQuery.trim() || createPublic.isPending ? 0.5 : 1,
-              }}
-            >
-              Add
-            </button>
-          </div>
+          <input
+            autoFocus
+            value={newQuery}
+            onChange={e => setNewQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submitCreate(); }}
+            placeholder="New public topic…"
+            style={{
+              width: '100%', fontSize: 12, padding: '6px 8px', borderRadius: 6,
+              border: '0.5px solid var(--color-border-secondary)',
+              background: 'var(--color-background-primary)', color: 'var(--color-text-primary)',
+              fontFamily: 'inherit', boxSizing: 'border-box',
+            }}
+          />
           {error && <p style={{ fontSize: 10.5, color: '#B91C1C', margin: '4px 0 0' }}>{error}</p>}
         </div>
       )}

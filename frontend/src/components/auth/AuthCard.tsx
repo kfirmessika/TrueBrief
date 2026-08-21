@@ -102,9 +102,15 @@ export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         use_fedcm_for_prompt: true,
       });
       if (googleButtonRef.current) {
+        // Google's button takes a fixed pixel width, not a CSS one — measure the
+        // actual container instead of hardcoding a desktop-sized value, or narrow
+        // viewports (this card is ~285px wide at 375px, ~230px at 320px) overflow.
+        // Google's own docs bound this to roughly 200-400px, so clamp into that range.
+        const containerWidth = googleButtonRef.current.offsetWidth || 332;
+        const buttonWidth = Math.min(400, Math.max(200, containerWidth));
         window.google?.accounts.id.renderButton(googleButtonRef.current, {
           type: 'standard', theme: 'outline', size: 'large', text: 'continue_with',
-          shape: 'rectangular', logo_alignment: 'left', width: 332,
+          shape: 'rectangular', logo_alignment: 'left', width: buttonWidth,
         });
       }
     };
@@ -158,7 +164,7 @@ export function AuthCard({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         {isNativeApp ? (
           <NativeGoogleButton mode={mode} />
         ) : (
-          <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 40 }} />
+          <div ref={googleButtonRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 40, maxWidth: '100%', overflow: 'hidden' }} />
         )}
 
         {error && (

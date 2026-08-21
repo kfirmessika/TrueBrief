@@ -15,16 +15,50 @@ from __future__ import annotations
 import logging
 import os
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from truebrief.api.rate_limit import limiter
 from truebrief.auth.dependencies import User, get_current_user
+from truebrief.collector.url_guard import is_public_url
 from truebrief.ledger.database import get_supabase
 
 router = APIRouter(prefix="/push", tags=["push"])
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Push endpoint allowlist (SSRF guard)
+# ---------------------------------------------------------------------------
+# `endpoint` comes from the browser's PushManager.subscribe() and is later
+# POSTed to server-side by pywebpush on every brief delivery. Without this
+# check, a subscriber could point it at an internal address (e.g. the cloud
+# metadata IP 169.254.169.254) and have our server fetch it repeatedly.
+# Real push-service hosts only (browser vendors don't publish more than this):
+#   https://github.com/web-push-libs/webpush-java/wiki/Endpoints
+#   https://learn.microsoft.com/en-us/windows/apps/develop/notifications/push-notifications/firewall-allowlist-config
+_ALLOWED_PUSH_HOSTS = {
+    "fcm.googleapis.com",                  # Chrome, Chromium Edge, Opera, Brave (VAPID)
+    "android.googleapis.com",              # Chrome legacy GCM (non-VAPID)
+    "updates.push.services.mozilla.com",   # Firefox
+    "web.push.apple.com",                  # Safari (macOS 13+ / iOS 16.4+)
+}
+_ALLOWED_PUSH_HOST_SUFFIXES = (
+    ".notify.windows.com",                 # Legacy EdgeHTML / Windows WNS
+)
+
+
+def _is_allowed_push_host(host: str) -> bool:
+    host = host.lower()
+    return host in _ALLOWED_PUSH_HOSTS or host.endswith(_ALLOWED_PUSH_HOST_SUFFIXES)
+
+
+def _validate_push_endpoint(url: str) -> None:
+    """Raise HTTP 400 unless url is a public URL on a known push service."""
+    host = urlparse(url).hostname or ""
+    if not is_public_url(url) or not _is_allowed_push_host(host):
+        raise HTTPException(status_code=400, detail="Invalid push endpoint.")
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +111,7 @@ def subscribe(
     Upsert a browser push subscription for the current user.
     If the same endpoint already exists, mark it enabled and update keys.
     """
+    _validate_push_endpoint(body.endpoint)
     db = get_supabase()
 
     upsert_data = {

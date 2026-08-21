@@ -24,6 +24,8 @@ def verify_supabase_jwt(token: str) -> dict:
 
     jwks = _get_jwks()
     header = jwt.get_unverified_header(token)
+    if "kid" not in header:
+        raise jwt.JWTError("kid not found in JWKS")
     key = next((k for k in jwks["keys"] if k["kid"] == header["kid"]), None)
     if not key:
         raise jwt.JWTError("kid not found in JWKS")

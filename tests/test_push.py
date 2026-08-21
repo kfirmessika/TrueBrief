@@ -124,7 +124,7 @@ class TestPushRoutes:
         ]
 
         body = PushSubscribeRequest(
-            endpoint="https://push.example.com/endpoint",
+            endpoint="https://fcm.googleapis.com/fcm/send/abc123",
             p256dh="p256dh_value",
             auth="auth_value",
         )

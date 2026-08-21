@@ -204,6 +204,11 @@ class PaddleService:
         if abs(time.time() - int(ts)) > self._WEBHOOK_MAX_AGE_SECONDS:
             raise ValueError("Webhook timestamp too old — possible replay attack")
 
+        if not settings.PADDLE_WEBHOOK_SECRET:
+            # Fail CLOSED: an empty secret must never make every signature valid.
+            logger.error("PADDLE_WEBHOOK_SECRET is not set — rejecting webhook (fail-closed).")
+            raise ValueError("Webhook secret is not configured")
+
         signed = f"{ts}:{payload.decode()}"
         expected = hmac.new(
             settings.PADDLE_WEBHOOK_SECRET.encode(),

@@ -1,0 +1,5 @@
+# Tasks Archive
+
+## Done
+- [x] [1] (2026-08-19) Commit all pending app changes so the server gets updated with the latest code — committed bd9ae3b (65 files, arbiter red-team, admin UI, frontend polish, migrations, benchmarks, tests); frontend build passed, 187/188 Python tests passed (1 pre-existing openai module missing in local env).
+- [x] [1] (2026-08-16) Add more data to admin screen — split into tabbed screens (Overview/Topics/Users/Compare via new admin/layout.tsx). Backend: GET /admin/topics, GET /admin/users, GET /admin/users/{user_id} in routes.py + new ledger/admin_stats.py, gated by _is_admin; new Postgres RPC llm_cost_for_topics (migration 031) for accurate per-user cost (avoids PostgREST's 1000-row cap undercounting). Frontend: admin/topics, admin/users, admin/users/[id] pages + admin/_shared.tsx. pytest 361/363 (2 pre-existing unrelated failures, confirmed same before/after), tsc + build pass, all new routes verified rendering without errors in browser (backend stack not running, so only network-error states were checked, not live data). Not committed to git — left as uncommitted working changes.

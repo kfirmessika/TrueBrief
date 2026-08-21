@@ -16,9 +16,10 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from truebrief.api.rate_limit import limiter
 from truebrief.auth.dependencies import User, get_current_user
 from truebrief.ledger.database import get_supabase
 
@@ -126,7 +127,8 @@ def update_digest_settings(
 
 
 @router.post("/preview", response_model=DigestPreviewResponse)
-def preview_digest(user: User = Depends(get_current_user)):
+@limiter.limit("5/hour")
+def preview_digest(request: Request, user: User = Depends(get_current_user)):
     """
     Immediately trigger a digest email for the requesting user.
 
