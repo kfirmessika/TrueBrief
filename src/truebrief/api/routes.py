@@ -729,7 +729,7 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
 
 
 @router.get("/scan-status/{task_id}")
-def get_scan_status(task_id: str, _user: User = Depends(get_current_user)):
+def get_scan_status(task_id: str, user: User = Depends(get_current_user)):
     """
     Poll the status of a queued scan task.
 
@@ -739,7 +739,18 @@ def get_scan_status(task_id: str, _user: User = Depends(get_current_user)):
       SUCCESS  - complete, result contains the brief
       FAILURE  - pipeline crashed, result contains the error
     """
-    from truebrief.tasks.pipeline_task import get_thread_task_state
+    from truebrief.tasks.pipeline_task import get_thread_task_state, get_task_topic_id
+
+    # Ownership check: task_id alone must not be enough to read another
+    # user's scan result. If we know which topic this task belongs to,
+    # require a subscription (raises 403 for non-subscribers). If the
+    # mapping is unknown (e.g. the process restarted since enqueue), fall
+    # back to state-only below — the result/error payload is only ever
+    # returned once ownership is verified.
+    db = get_supabase()
+    owner_topic_id = get_task_topic_id(task_id)
+    if owner_topic_id is not None:
+        _require_subscription(db, owner_topic_id, user.id)
 
     # Thread-based tasks (no Redis) take priority
     thread_state = get_thread_task_state(task_id)
@@ -752,10 +763,12 @@ def get_scan_status(task_id: str, _user: User = Depends(get_current_user)):
             response["message"] = "Pipeline is running..."
         elif state == "SUCCESS":
             response["message"] = "Pipeline complete."
-            response["result"] = thread_state.get("result")
+            if owner_topic_id is not None:
+                response["result"] = thread_state.get("result")
         elif state == "FAILURE":
             response["message"] = "Pipeline failed."
-            response["error"] = str(thread_state.get("result", {}).get("error", ""))
+            if owner_topic_id is not None:
+                response["error"] = str(thread_state.get("result", {}).get("error", ""))
         return response
 
     # Celery-based tasks (Redis available)
@@ -773,10 +786,12 @@ def get_scan_status(task_id: str, _user: User = Depends(get_current_user)):
         response["message"] = "Pipeline is running..."
     elif state == "SUCCESS":
         response["message"] = "Pipeline complete."
-        response["result"] = result.result
+        if owner_topic_id is not None:
+            response["result"] = result.result
     elif state == "FAILURE":
         response["message"] = "Pipeline failed."
-        response["error"] = str(result.result)
+        if owner_topic_id is not None:
+            response["error"] = str(result.result)
     else:
         response["message"] = f"Unknown state: {state}"
 
@@ -1200,19 +1215,46 @@ def _with_subscriber_counts(db, topics: list[dict]) -> List[dict]:
 
 @router.get("/shared-topics", response_model=List[SharedTopicResult])
 def search_shared_topics(q: str = "", user: User = Depends(get_current_user)):
-    """Search PUBLIC topics by name substring — suggestion pills on the New Topic page.
+    """Search PUBLIC topics — suggestion pills on the New Topic page.
 
-    Requires auth. Only ever returns is_public=true topics — this used to run with no
-    auth and no public/private filter, letting a signed-out caller enumerate every
-    user's private topic names via ?q=. Fixed 2026-08-06.
+    Two-layer search:
+    1. Semantic (embedding cosine similarity) when query has enough signal (>= 3 chars).
+       Catches intent ("AI chip stocks" → "Nvidia") and tolerates misspellings at the
+       meaning level.
+    2. ilike substring fallback — runs when embedding fails or returns no results.
+
+    Requires auth. Only ever returns is_public=true topics.
     """
     db = get_supabase()
-    # Search still matches against raw_query (the original user-typed text) — not in
-    # scope of the display-name switch, only the returned "name" field changes below.
-    query = db.table("topics").select("id, raw_query, name").eq("is_public", True)
-    if q and len(q) >= 2:
-        query = query.ilike("raw_query", f"%{q}%")
-    res = query.limit(5).execute()
+    q = (q or "").strip()
+
+    # Short / empty query — return most popular topics instead of searching.
+    if len(q) < 3:
+        res = db.table("topics").select("id, raw_query, name").eq("is_public", True).limit(10).execute()
+        rows = _with_subscriber_counts(db, res.data or [])
+        rows.sort(key=lambda r: r["subscriber_count"], reverse=True)
+        return rows[:5]
+
+    # --- Semantic layer ---
+    try:
+        _llm = LLMClient()
+        q_embedding = _llm.embed(q)
+        # pgvector operator <=> = cosine distance; 1 - distance = similarity
+        sem_res = db.rpc(
+            "match_public_topics",
+            {"query_embedding": q_embedding, "match_count": 5},
+        ).execute()
+        if sem_res.data:
+            ids = [r["id"] for r in sem_res.data]
+            full = db.table("topics").select("id, raw_query, name").in_("id", ids).execute()
+            ordered = sorted(full.data or [], key=lambda t: ids.index(t["id"]))
+            return _with_subscriber_counts(db, ordered)
+    except Exception as _sem_err:
+        logger.debug("Semantic topic search failed, falling back to ilike: %s", _sem_err)
+
+    # --- ilike fallback ---
+    res = db.table("topics").select("id, raw_query, name").eq("is_public", True) \
+        .ilike("raw_query", f"%{q}%").limit(5).execute()
     return _with_subscriber_counts(db, res.data or [])
 
 
@@ -1641,6 +1683,7 @@ def get_topic_facts(topic_id: str, user: User = Depends(get_current_user)):
     """Return all known facts for a topic sorted oldest-first for the thread view."""
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
+    _require_subscription(db, topic_id, user.id)
 
     res = (
         db.table("known_facts")

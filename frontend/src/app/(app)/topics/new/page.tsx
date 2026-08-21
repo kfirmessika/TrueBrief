@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import Fuse from 'fuse.js';
 import { useRouter } from 'next/navigation';
 import { useApi } from '@/lib/useApi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,13 +23,6 @@ import { SignInPrompt } from '@/components/auth/SignInPrompt';
 // described V4's source layers — "Scans RSS feeds and Tavily", "Adds Brave Search and
 // Exa" — none of which exist in V5, where collection is a single Gemini Search call.
 
-const STATIC_PILLS = [
-  { label: 'Tech & AI',   fill: 'AI regulation' },
-  { label: 'Finance',     fill: 'Fed rates' },
-  { label: 'Geopolitics', fill: 'China Taiwan' },
-  { label: 'Science',     fill: 'GLP-1 drugs' },
-  { label: 'Startups',    fill: 'startup funding' },
-];
 
 interface SharedTopic { id: string; name: string; subscriber_count: number; }
 
@@ -96,6 +90,25 @@ function describeCreateError(err: unknown): { message: string; status: number | 
   return { message: msg, status: typeof status === 'number' ? status : null };
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function highlight(text: string, q: string): React.ReactNode {
+  if (!q || q.length < 3) return text;
+  const lower = text.toLowerCase();
+  const lq = q.toLowerCase();
+  if (lq.length === 0) return text;
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let idx: number;
+  while ((idx = lower.indexOf(lq, cursor)) !== -1) {
+    if (idx > cursor) parts.push(text.slice(cursor, idx));
+    parts.push(<strong key={idx} style={{ fontWeight: 600, color: 'var(--tb-green-dark)' }}>{text.slice(idx, idx + q.length)}</strong>);
+    cursor = idx + q.length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function NewTopicPage() {
@@ -146,6 +159,8 @@ export default function NewTopicPage() {
     const utc = localToUtc(localHour, localMinute, tz);
     if (customTimes.some(t => t.hour === utc.hour && t.minute === utc.minute)) return;
     setCustomTimes([...customTimes, utc].sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute)));
+    setNewTimeInput('09:00');
+    setShowSchedule(false);
   };
 
   const removeCustomTime = (t: ScheduleTime) => {
@@ -159,7 +174,24 @@ export default function NewTopicPage() {
       ? localTimes.map(l => fmtHM(l.hour, l.minute)).join(', ')
       : `${localTimes.length} times/day`;
 
-  // Debounce the query for search
+  // All public topics — fetched once for Fuse.js local matching and popular empty state
+  const { data: allPublicTopics = [] } = useQuery<SharedTopic[]>({
+    queryKey: ['public-topics'],
+    queryFn: async () => (await api.get('/public-topics')).data,
+    staleTime: 5 * 60_000,
+    enabled: !!session,
+  });
+
+  // Fuse.js index — rebuilt when public topics change
+  const fuse = useMemo(() => new Fuse(allPublicTopics, {
+    keys: ['name', 'raw_query'],
+    threshold: 0.45,        // 0 = exact, 1 = match anything; 0.45 catches common typos
+    minMatchCharLength: 3,  // don't fire for "a", "AI", etc.
+    ignoreLocation: true,   // match anywhere in the string, not just the start
+    distance: 200,
+  }), [allPublicTopics]);
+
+  // Debounce the query for semantic API search (300ms)
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 300);
     return () => clearTimeout(t);
@@ -174,17 +206,22 @@ export default function NewTopicPage() {
   }, []);
   useEffect(() => { autoResize(); }, [query, autoResize]);
 
-  // Search shared topics when 2+ chars typed
-  const { data: sharedTopics = [] } = useQuery<SharedTopic[]>({
+  // Semantic search via backend embedding (fires after debounce, 3+ chars)
+  const { data: semanticTopics = [] } = useQuery<SharedTopic[]>({
     queryKey: ['shared-topics', debouncedQuery],
     queryFn: async () => {
-      if (debouncedQuery.length < 2) return [];
       const r = await api.get(`/shared-topics?q=${encodeURIComponent(debouncedQuery)}`);
       return r.data;
     },
-    enabled: debouncedQuery.length >= 2 && !!session,
+    enabled: debouncedQuery.length >= 3 && !!session,
     staleTime: 10_000,
   });
+
+  // Fuse local results — instant, no debounce needed
+  const fuseResults = useMemo((): SharedTopic[] => {
+    if (query.length < 3) return [];
+    return fuse.search(query).map(r => r.item);
+  }, [fuse, query]);
 
   const handleSubmit = async () => {
     const q = query.trim();
@@ -209,6 +246,9 @@ export default function NewTopicPage() {
         }
       }
       await qc.invalidateQueries({ queryKey: ['topics'] });
+      if (isAdmin && makePublic) {
+        await qc.invalidateQueries({ queryKey: ['public-topics'] });
+      }
       // Store the first scan task_id so the topic page can show the progress bar
       if (res.data.scan_task_id) {
         localStorage.setItem(`scan_task_${res.data.id}`, res.data.scan_task_id);
@@ -238,6 +278,10 @@ export default function NewTopicPage() {
 
   const fillAndFocus = (text: string) => {
     setQuery(text);
+    setDebouncedQuery(text);
+    setError(null);
+    setErrorStatus(null);
+    setNudge(false);
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
@@ -249,10 +293,25 @@ export default function NewTopicPage() {
     background: 'transparent', color: 'var(--color-text-secondary)', fontFamily: 'inherit',
   };
 
-  const showSearchPills = debouncedQuery.length >= 2 && sharedTopics.length > 0;
-  const pills = showSearchPills
-    ? sharedTopics.map(t => ({ label: t.name, fill: t.name, isShared: true }))
-    : STATIC_PILLS.map(p => ({ ...p, isShared: false }));
+  // Pill source priority:
+  // 1. Empty / too short → popular public topics sorted by subscriber_count
+  // 2. Typing (3+ chars) → Fuse local results immediately, replaced by semantic results
+  //    when the debounced API call returns (semantic = embedding-ranked, better intent)
+  const pills = useMemo(() => {
+    const popular = (fallback = false) => [...allPublicTopics]
+      .sort((a, b) => b.subscriber_count - a.subscriber_count)
+      .slice(0, 5)
+      .map(t => ({ id: t.id, label: t.name, fill: t.name, isShared: true, isPopular: true, isFallback: fallback as boolean }));
+
+    if (query.length < 3) return popular(false);
+    // Prefer semantic (embedding) results; fall back to Fuse while they load
+    const source = (semanticTopics.length > 0 && debouncedQuery === query) ? semanticTopics : fuseResults;
+    if (source.length > 0) return source.slice(0, 5).map(t => ({ id: t.id, label: t.name, fill: t.name, isShared: true, isPopular: false, isFallback: false }));
+    // Nothing matched — fall back to popular so pills are never blank.
+    // Only mark as fallback (shows "No matches" label) after the debounce has settled;
+    // while it's still in flight we're waiting on semantic, so stay silent.
+    return popular(debouncedQuery === query);
+  }, [query, debouncedQuery, allPublicTopics, semanticTopics, fuseResults]);
 
   if (!session) {
     return (
@@ -263,14 +322,6 @@ export default function NewTopicPage() {
         <SignInPrompt message="Sign in to start tracking a topic." />
       </div>
     );
-  }
-
-  // Highlight matched portion of text
-  function highlight(text: string, q: string): React.ReactNode {
-    if (!q || q.length < 2) return text;
-    const idx = text.toLowerCase().indexOf(q.toLowerCase());
-    if (idx === -1) return text;
-    return <>{text.slice(0, idx)}<strong style={{ fontWeight: 600, color: '#085041' }}>{text.slice(idx, idx + q.length)}</strong>{text.slice(idx + q.length)}</>;
   }
 
   return (
@@ -284,7 +335,7 @@ export default function NewTopicPage() {
         style={{
           width: '100%', maxWidth: 420, borderRadius: 22,
           borderWidth: '0.5px', borderStyle: 'solid',
-          borderColor: shellFocused ? '#0F6E56' : 'var(--color-border-secondary)',
+          borderColor: shellFocused ? 'var(--tb-green)' : 'var(--color-border-secondary)',
           background: 'var(--color-background-primary)',
           transition: 'border-color 0.2s',
         }}
@@ -292,7 +343,7 @@ export default function NewTopicPage() {
         <textarea
           ref={textareaRef}
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => { setQuery(e.target.value); if (error) { setError(null); setErrorStatus(null); } if (nudge) setNudge(false); }}
           onKeyDown={handleKeyDown}
           onFocus={() => setShellFocused(true)}
           onBlur={() => setShellFocused(false)}
@@ -315,7 +366,7 @@ export default function NewTopicPage() {
             <button
               type="button"
               onClick={() => setShowSchedule(v => !v)}
-              style={{ ...pillBase, ...(showSchedule || customTimes.length > 0 ? { borderColor: '#0F6E56', background: '#E1F5EE', color: '#085041' } : {}) }}
+              style={{ ...pillBase, ...(showSchedule || customTimes.length > 0 ? { borderColor: 'var(--tb-green-border)', background: 'var(--tb-green-light)', color: 'var(--tb-green-dark)' } : {}) }}
             >
               <Clock size={11} />{scheduleLabel}
             </button>
@@ -351,6 +402,7 @@ export default function NewTopicPage() {
                         <button
                           type="button"
                           onClick={() => removeCustomTime(customTimes[i])}
+                          aria-label={`Remove ${fmtHM(l.hour, l.minute)}`}
                           title="Remove this time"
                           style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)', fontSize: 13, lineHeight: 1, padding: 0, display: 'flex' }}
                         >
@@ -393,7 +445,7 @@ export default function NewTopicPage() {
               onClick={() => setMakePublic(v => !v)}
               aria-pressed={makePublic}
               title="Force-create this topic as public (admin only)"
-              style={{ ...pillBase, ...(makePublic ? { borderColor: '#0F6E56', background: '#E1F5EE', color: '#085041' } : {}) }}
+              style={{ ...pillBase, ...(makePublic ? { borderColor: 'var(--tb-green-border)', background: 'var(--tb-green-light)', color: 'var(--tb-green-dark)' } : {}) }}
             >
               {makePublic ? <Check size={11} /> : <Globe size={11} />} Make public
             </button>
@@ -410,7 +462,7 @@ export default function NewTopicPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'background 0.15s',
             }}
-            onMouseEnter={e => { if (query.trim()) (e.currentTarget as HTMLButtonElement).style.background = '#0F6E56'; }}
+            onMouseEnter={e => { if (query.trim()) (e.currentTarget as HTMLButtonElement).style.background = 'var(--tb-green)'; }}
             onMouseLeave={e => { if (query.trim()) (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-text-primary)'; }}
           >
             <ArrowUp size={13} color={query.trim() ? 'var(--color-background-primary)' : 'var(--color-text-tertiary)'} />
@@ -420,7 +472,7 @@ export default function NewTopicPage() {
 
       {/* Error / nudge */}
       {error && (
-        <p style={{ fontSize: 12, color: '#B91C1C', textAlign: 'center', marginTop: 10, maxWidth: 420 }}>
+        <p style={{ fontSize: 12, color: 'var(--color-text-error)', textAlign: 'center', marginTop: 10, maxWidth: 420 }}>
           {error}
           {errorStatus !== null && (
             <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 5 }}>
@@ -432,45 +484,57 @@ export default function NewTopicPage() {
       {nudge && (
         <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'center', marginTop: 10, maxWidth: 420 }}>
           Private topics need Pro. Follow a shared topic below (free), or{' '}
-          <span style={{ color: 'var(--color-text-info)', cursor: 'pointer', textDecoration: 'underline' }}>upgrade</span>.
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={() => router.push('/settings')}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push('/settings'); } }}
+            style={{ color: 'var(--color-text-info)', cursor: 'pointer', textDecoration: 'underline' }}
+          >upgrade</span>.
         </p>
       )}
 
-      {/* Suggestion pills */}
-      <div style={{
-        width: '100%', maxWidth: 420, marginTop: 14,
-        display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center',
-      }}>
+      {/* Suggestion pills — top spacing always comes from this wrapper, never doubled */}
+      {pills.length > 0 && (
+        <div style={{ width: '100%', maxWidth: 420, marginTop: 14 }}>
+          {pills[0]?.isFallback && (
+            <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '0 0 6px', textAlign: 'center' }}>
+              No matches — popular topics:
+            </p>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
         {pills.map(pill => (
           <button
-            key={pill.label}
+            key={pill.id ?? pill.label}
             type="button"
             onClick={() => fillAndFocus(pill.fill)}
             style={{
               padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
-              borderWidth: '0.5px', borderStyle: 'solid', borderColor: '#A3D9C5',
-              background: '#F0FAF6', fontSize: 12, color: 'var(--color-text-primary)',
+              borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--tb-green-border)',
+              background: 'var(--tb-green-light)', fontSize: 12, color: 'var(--color-text-primary)',
               fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5,
               transition: 'background 0.15s, border-color 0.15s',
             }}
             onMouseEnter={e => {
               const b = e.currentTarget as HTMLButtonElement;
-              b.style.background = '#D7F3E9'; b.style.borderColor = '#5DCAA5';
+              b.style.background = 'var(--tb-green-light-hover)'; b.style.borderColor = 'var(--tb-green)';
             }}
             onMouseLeave={e => {
               const b = e.currentTarget as HTMLButtonElement;
-              b.style.background = '#F0FAF6'; b.style.borderColor = '#A3D9C5';
+              b.style.background = 'var(--tb-green-light)'; b.style.borderColor = 'var(--tb-green-border)';
             }}
           >
-            {showSearchPills ? highlight(pill.label, debouncedQuery) : pill.label}
+            {query.length >= 3 && !pill.isPopular ? highlight(pill.label, query) : pill.label}
             {pill.isShared && (
-              <span style={{ fontSize: 10, background: '#0F6E56', color: '#fff', padding: '1px 5px', borderRadius: 8, fontWeight: 500 }}>
+              <span style={{ fontSize: 10, background: 'var(--tb-green)', color: '#fff', padding: '1px 5px', borderRadius: 8, fontWeight: 500 }}>
                 Free
               </span>
             )}
           </button>
         ))}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@ interface Topic {
   name: string;
   raw_query: string;
   is_active: boolean;
+  is_public?: boolean;
   last_scan_at?: string | null;
   frequency?: string;
   is_scanning?: boolean;
@@ -232,7 +233,7 @@ export default function Sidebar() {
       </div>
 
       {mounted ? (<>
-      {topics.map(topic => {
+      {(stats?.is_admin ? topics.filter(t => !t.is_public) : topics).map(topic => {
         const isActive = activeTopic === topic.id;
         const isHovered = hoveredTopic === topic.id;
         const menuOpen = openMenu === topic.id;
@@ -358,7 +359,7 @@ export default function Sidebar() {
         );
       })}
 
-      {topics.length === 0 && (
+      {(stats?.is_admin ? topics.filter(t => !t.is_public) : topics).length === 0 && (
         <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', padding: '8px 14px', fontStyle: 'italic' }}>
           {session ? 'No topics yet' : 'Sign in to track topics'}
         </div>
