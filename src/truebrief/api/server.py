@@ -4,8 +4,11 @@ API Server - api/server.py
 FastAPI application setup.
 """
 
+import asyncio
+import concurrent.futures
 import os
 import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -54,10 +57,30 @@ logger = logging.getLogger(__name__)
 # rather than opening them.
 _docs_enabled = os.getenv("ENV", "").strip().lower() in ("development", "dev", "local", "test")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-warm the Supabase TCP+TLS connection so the first user request is not
+    # delayed by connection setup (otherwise 10-15s on fresh deployments).
+    try:
+        from truebrief.ledger.database import get_supabase
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            await loop.run_in_executor(
+                pool,
+                lambda: get_supabase().table("topics").select("id").limit(1).execute(),
+            )
+        logger.info("Supabase connection warmed up")
+    except Exception as e:
+        logger.warning("Supabase warmup failed (non-fatal): %s", e)
+    yield
+
+
 app = FastAPI(
     title="TrueBrief API",
     description="API for the TrueBrief Intelligence Engine.",
     version="1.0.0",
+    lifespan=lifespan,
     docs_url="/docs" if _docs_enabled else None,
     redoc_url="/redoc" if _docs_enabled else None,
     openapi_url="/openapi.json" if _docs_enabled else None,

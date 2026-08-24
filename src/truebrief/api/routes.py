@@ -1272,8 +1272,8 @@ def search_shared_topics(q: str = "", user: Optional[User] = Depends(get_optiona
 
 
 @router.post("/admin/backfill-topic-embeddings")
-def backfill_topic_embeddings(user: User = Depends(get_current_user)):
-    """Admin-only: embed any public topics that are missing topic_embedding."""
+def backfill_topic_embeddings(force: bool = False, user: User = Depends(get_current_user)):
+    """Admin-only: embed public topics. force=true re-embeds all, even those with existing embeddings."""
     _require_admin(user)
     db = get_supabase()
     res = db.table("topics").select("id, raw_query, name").eq("is_public", True).execute()
@@ -1287,13 +1287,17 @@ def backfill_topic_embeddings(user: User = Depends(get_current_user)):
     llm = LLMClient()
     backfilled, errors = 0, []
     for t in topics_to_embed:
-        if t["id"] in has_embedding:
+        skip_existing = not force and t["id"] in has_embedding
+        if skip_existing:
             continue
         try:
-            embedding = llm.embed(t["raw_query"])
+            # Embed "Name: raw_query" so short user queries match the topic name well,
+            # not just keywords buried in the long description.
+            embed_text = f"{t['name']}: {t['raw_query']}" if t.get("name") else t["raw_query"]
+            embedding = llm.embed(embed_text)
             db.table("topics").update({"topic_embedding": embedding}).eq("id", t["id"]).execute()
             backfilled += 1
-            logger.info("Backfilled embedding for topic %s (%s)", t["id"], t["raw_query"])
+            logger.info("Backfilled embedding for topic %s (%s)", t["id"], t.get("name"))
         except Exception as e:
             errors.append({"id": t["id"], "name": t.get("name"), "error": str(e)})
             logger.warning("Backfill embedding failed for %s: %s", t["id"], e)
@@ -1991,6 +1995,94 @@ def get_admin_quota_alerts(hours: int = 48, user: User = Depends(get_current_use
         "alerts": alerts,
         "red_count": sum(1 for a in alerts if a.get("severity") == "red"),
         "yellow_count": sum(1 for a in alerts if a.get("severity") == "yellow"),
+    }
+
+
+@router.get("/admin/key-status")
+def get_admin_key_status(user: User = Depends(get_current_user)):
+    """
+    Live Gemini key health + today's usage per model.
+
+    key_status fields:
+      state: "ok" | "rpm_limited" | "rpd_exhausted" | "unknown"
+      last_event_at: ISO timestamp of last quota alert for this key, or null
+      last_event_type: "rpm" | "rpd" | null
+
+    model_usage: today's call counts per model from llm_call_log (UTC day).
+    rpd_limits: known free-tier RPD per model × 2 keys (effective limit with both keys).
+    embed_provider: current EMBED_PROVIDER setting ("gemini" or "local").
+    """
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    from truebrief.ledger.quota_alerts import recent_alerts
+    from config.settings import settings
+
+    db = get_supabase()
+
+    # Key health from quota_alerts (last 2h — stale beyond that means key recovered)
+    alerts_2h = recent_alerts(hours=2, limit=100)
+
+    def _key_state(key_type_value: str):
+        events = [a for a in alerts_2h if a.get("key_type") == key_type_value]
+        if not events:
+            return {"state": "ok", "last_event_at": None, "last_event_type": None}
+        latest = max(events, key=lambda a: a.get("created_at", ""))
+        is_rpm = "PerMinute" in (latest.get("error_detail") or "") or latest.get("key_type") == "rpm"
+        is_rpd = latest.get("severity") in ("red", "yellow") and not is_rpm
+        return {
+            "state": "rpm_limited" if is_rpm else ("rpd_exhausted" if is_rpd else "ok"),
+            "last_event_at": latest.get("created_at"),
+            "last_event_type": "rpm" if is_rpm else "rpd",
+        }
+
+    # Also check rpm key_type directly (new field added 2026-08-24)
+    rpm_events_2h = [a for a in alerts_2h if a.get("key_type") == "rpm"]
+
+    primary_state = _key_state("primary")
+    backup_state = _key_state("backup")
+    if rpm_events_2h and primary_state["state"] == "ok":
+        primary_state["state"] = "rpm_limited"
+        primary_state["last_event_type"] = "rpm"
+
+    # Today's usage per model from llm_call_log
+    try:
+        today_sql = """
+            SELECT model, COUNT(*) as calls
+            FROM llm_call_log
+            WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+            GROUP BY model
+            ORDER BY calls DESC
+        """
+        usage_res = db.rpc("execute_sql", {"sql": today_sql}).execute() if False else None
+        # Direct table query (rpc not available, use postgrest):
+        usage_res = db.table("llm_call_log").select("model").gte(
+            "created_at", datetime.utcnow().strftime("%Y-%m-%dT00:00:00")
+        ).execute()
+        model_calls: dict[str, int] = {}
+        for row in (usage_res.data or []):
+            m = row.get("model", "unknown")
+            model_calls[m] = model_calls.get(m, 0) + 1
+    except Exception:
+        model_calls = {}
+
+    # Known free-tier RPD per model (×2 for two keys)
+    RPD_LIMITS = {
+        "gemini-3.5-flash-lite": 1000,   # 500/key × 2
+        "gemini-3.1-flash-lite": 1000,
+        "gemini-2.5-flash-lite": 40,      # 20/key × 2
+        "models/gemini-embedding-2": 2000,
+    }
+
+    embed_provider = getattr(settings, "EMBED_PROVIDER", "gemini")
+    backup_configured = bool(getattr(settings, "GOOGLE_API_KEY_BACKUP", ""))
+
+    return {
+        "primary_key": primary_state,
+        "backup_key": {**backup_state, "configured": backup_configured},
+        "model_usage_today": model_calls,
+        "rpd_limits": RPD_LIMITS,
+        "embed_provider": embed_provider,
     }
 
 
