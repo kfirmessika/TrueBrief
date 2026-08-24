@@ -169,14 +169,63 @@ def store_history_doc(topic_id: str, doc: Optional[dict] = None, db=None) -> Non
         logger.debug("[HISTORY] store_history_doc failed (non-fatal): %s", exc)
 
 
-def get_history_doc(topic_id: str, db=None) -> dict:
+def get_history_doc(topic_id: str, db=None, user_id: Optional[str] = None) -> dict:
     """
     Read the stored history doc; fall back to a live build if the table is empty
     or migration 018 isn't applied. Always returns a valid doc shape.
+
+    When user_id is provided, a single JOIN query verifies subscription and fetches
+    the doc simultaneously (saves one round-trip vs a separate _require_subscription
+    call). If the user is not subscribed, raises HTTP 403.
     """
+    from fastapi import HTTPException
+
     if db is None:
         from truebrief.ledger.database import get_supabase
         db = get_supabase()
+
+    if user_id is not None:
+        # Single JOIN: fetches doc only when the user is subscribed (inner join acts as
+        # the auth check — empty result means no matching subscription).
+        try:
+            res = (
+                db.table("history_docs")
+                .select("doc, topic_subscriptions!inner(topic_id)")
+                .eq("topic_id", topic_id)
+                .eq("topic_subscriptions.user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if not res.data:
+                # No row returned — either not subscribed or doc not yet built.
+                # Confirm subscription exists before doing a live build.
+                sub_res = (
+                    db.table("topic_subscriptions")
+                    .select("topic_id")
+                    .eq("topic_id", topic_id)
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+                if not sub_res.data:
+                    raise HTTPException(status_code=403, detail="Not subscribed to this topic")
+                # Subscribed but no stored doc — fall through to live build below.
+            else:
+                cached = res.data[0].get("doc")
+                if (
+                    cached
+                    and cached.get("timeline")
+                    and cached.get("schema_version") == _DOC_SCHEMA_VERSION
+                ):
+                    return cached
+                # Cached doc stale or missing — fall through to live build below.
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # table missing or JOIN unsupported → fall through to live build
+        return build_history_doc(topic_id, db=db)
+
+    # No user_id supplied (e.g. Celery tasks) — original behaviour, no auth check.
     try:
         res = (
             db.table("history_docs")

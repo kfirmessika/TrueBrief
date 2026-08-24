@@ -26,7 +26,7 @@ def _require_uuid(value: str, name: str = "id") -> str:
 
 from truebrief.ledger.database import get_supabase
 from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit, _get_limits
-from truebrief.auth.dependencies import User, get_current_user
+from truebrief.auth.dependencies import User, get_current_user, get_optional_user
 from truebrief.api.rate_limit import limiter
 from truebrief.llm.client import LLMClient
 from truebrief.llm.prompts import (
@@ -427,13 +427,13 @@ def set_topic_visibility(
 def list_topics(user: User = Depends(get_current_user)):
     """List topics the authenticated user is subscribed to."""
     db = get_supabase()
-    val_uuid = user.id
-    subs = db.table("topic_subscriptions").select("topic_id").eq("user_id", val_uuid).execute()
-    if not subs.data:
-        return []
-    topic_ids = [sub["topic_id"] for sub in subs.data]
-    res = db.table("topics").select("*").in_("id", topic_ids).execute()
-    return res.data
+    res = (
+        db.table("topic_subscriptions")
+        .select("topics(*)")
+        .eq("user_id", user.id)
+        .execute()
+    )
+    return [row["topics"] for row in (res.data or []) if row.get("topics")]
 
 @router.get("/topics/{topic_id}", response_model=TopicResponse)
 def get_topic(topic_id: str, user: User = Depends(get_current_user)):
@@ -495,9 +495,8 @@ def get_history(topic_id: str, user: User = Depends(get_current_user)):
     before the pipeline has rebuilt it (or if migration 018 isn't applied yet)."""
     _require_uuid(topic_id, "topic_id")
     db = get_supabase()
-    _require_subscription(db, topic_id, user.id)
     from truebrief.ledger.history_doc import get_history_doc
-    return get_history_doc(topic_id, db=db)
+    return get_history_doc(topic_id, db=db, user_id=user.id)
 
 
 @router.delete("/topics/{topic_id}")
@@ -1214,48 +1213,91 @@ def _with_subscriber_counts(db, topics: list[dict]) -> List[dict]:
 
 
 @router.get("/shared-topics", response_model=List[SharedTopicResult])
-def search_shared_topics(q: str = "", user: User = Depends(get_current_user)):
+def search_shared_topics(q: str = "", user: Optional[User] = Depends(get_optional_user)):
     """Search PUBLIC topics — suggestion pills on the New Topic page.
 
-    Two-layer search:
-    1. Semantic (embedding cosine similarity) when query has enough signal (>= 3 chars).
-       Catches intent ("AI chip stocks" → "Nvidia") and tolerates misspellings at the
-       meaning level.
-    2. ilike substring fallback — runs when embedding fails or returns no results.
-
-    Requires auth. Only ever returns is_public=true topics.
+    Hybrid search: runs ilike (catches partial words while typing) AND semantic
+    embedding (catches misspellings + intent) in parallel, then merges — semantic
+    results ranked first, ilike-only additions appended. Either layer enriches the
+    other so both partial inputs and misspelled-but-complete words surface correctly.
     """
     db = get_supabase()
     q = (q or "").strip()
 
     # Short / empty query — return most popular topics instead of searching.
-    if len(q) < 3:
+    if len(q) < 2:
         res = db.table("topics").select("id, raw_query, name").eq("is_public", True).limit(10).execute()
         rows = _with_subscriber_counts(db, res.data or [])
         rows.sort(key=lambda r: r["subscriber_count"], reverse=True)
         return rows[:5]
 
-    # --- Semantic layer ---
-    try:
-        _llm = LLMClient()
-        q_embedding = _llm.embed(q)
-        # pgvector operator <=> = cosine distance; 1 - distance = similarity
-        sem_res = db.rpc(
-            "match_public_topics",
-            {"query_embedding": q_embedding, "match_count": 5},
-        ).execute()
-        if sem_res.data:
-            ids = [r["id"] for r in sem_res.data]
-            full = db.table("topics").select("id, raw_query, name").in_("id", ids).execute()
-            ordered = sorted(full.data or [], key=lambda t: ids.index(t["id"]))
-            return _with_subscriber_counts(db, ordered)
-    except Exception as _sem_err:
-        logger.debug("Semantic topic search failed, falling back to ilike: %s", _sem_err)
+    # --- ilike layer (always runs — fast, catches partial words) ---
+    ilike_res = db.table("topics").select("id, raw_query, name").eq("is_public", True) \
+        .or_(f"raw_query.ilike.%{q}%,name.ilike.%{q}%").limit(8).execute()
+    ilike_rows = {r["id"]: r for r in (ilike_res.data or [])}
 
-    # --- ilike fallback ---
-    res = db.table("topics").select("id, raw_query, name").eq("is_public", True) \
-        .ilike("raw_query", f"%{q}%").limit(5).execute()
-    return _with_subscriber_counts(db, res.data or [])
+    # --- Semantic layer (embedding cosine similarity — catches misspellings + intent) ---
+    sem_ordered_ids: list[str] = []
+    if len(q) >= 3:
+        try:
+            _llm = LLMClient()
+            q_embedding = _llm.embed(q)
+            sem_res = db.rpc(
+                "match_public_topics",
+                {"query_embedding": q_embedding, "match_count": 5},
+            ).execute()
+            sem_ordered_ids = [r["id"] for r in (sem_res.data or [])]
+        except Exception as _sem_err:
+            logger.debug("Semantic topic search failed: %s", _sem_err)
+
+    # --- Merge: semantic order first, then ilike-only extras ---
+    seen: set[str] = set()
+    merged_ids: list[str] = []
+    for _id in sem_ordered_ids:
+        if _id not in seen:
+            seen.add(_id)
+            merged_ids.append(_id)
+    for _id in ilike_rows:
+        if _id not in seen:
+            seen.add(_id)
+            merged_ids.append(_id)
+    merged_ids = merged_ids[:5]
+
+    if not merged_ids:
+        return []
+
+    full = db.table("topics").select("id, raw_query, name").in_("id", merged_ids).execute()
+    ordered = sorted(full.data or [], key=lambda t: merged_ids.index(t["id"]))
+    return _with_subscriber_counts(db, ordered)
+
+
+@router.post("/admin/backfill-topic-embeddings")
+def backfill_topic_embeddings(user: User = Depends(get_current_user)):
+    """Admin-only: embed any public topics that are missing topic_embedding."""
+    _require_admin(user)
+    db = get_supabase()
+    res = db.table("topics").select("id, raw_query, name").eq("is_public", True).execute()
+    topics_to_embed = [t for t in (res.data or []) if t.get("raw_query")]
+    # Fetch which ones already have embeddings
+    ids = [t["id"] for t in topics_to_embed]
+    if not ids:
+        return {"backfilled": 0, "skipped": 0, "errors": []}
+    emb_res = db.table("topics").select("id, topic_embedding").in_("id", ids).execute()
+    has_embedding = {r["id"] for r in (emb_res.data or []) if r.get("topic_embedding") is not None}
+    llm = LLMClient()
+    backfilled, errors = 0, []
+    for t in topics_to_embed:
+        if t["id"] in has_embedding:
+            continue
+        try:
+            embedding = llm.embed(t["raw_query"])
+            db.table("topics").update({"topic_embedding": embedding}).eq("id", t["id"]).execute()
+            backfilled += 1
+            logger.info("Backfilled embedding for topic %s (%s)", t["id"], t["raw_query"])
+        except Exception as e:
+            errors.append({"id": t["id"], "name": t.get("name"), "error": str(e)})
+            logger.warning("Backfill embedding failed for %s: %s", t["id"], e)
+    return {"backfilled": backfilled, "skipped": len(has_embedding), "errors": errors}
 
 
 @router.get("/public-topics", response_model=List[SharedTopicResult])
@@ -1266,6 +1308,42 @@ def list_public_topics():
     db = get_supabase()
     res = db.table("topics").select("id, raw_query, name").eq("is_public", True).order("raw_query").execute()
     return _with_subscriber_counts(db, res.data or [])
+
+
+@router.get("/public-topics/{topic_id}/briefs")
+def list_public_topic_briefs(topic_id: str):
+    """Return recent briefs for a public topic — no auth required.
+
+    Only topics with ``is_public=True`` are accessible. Briefs are filtered to
+    the last 24 hours and after V5_CUTOVER_DATE, ordered newest-first.
+    """
+    _require_uuid(topic_id, "topic_id")
+    db = get_supabase()
+
+    topic_res = db.table("topics").select("id, name, raw_query, is_public").eq("id", topic_id).execute()
+    topic_rows = topic_res.data or []
+    if not topic_rows or not topic_rows[0].get("is_public"):
+        raise HTTPException(status_code=404, detail="Topic not found")
+    topic = topic_rows[0]
+
+    from config.settings import V5_CUTOVER_DATE
+    from datetime import timezone, timedelta
+    cutoff_24h = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
+    cutoff = max(V5_CUTOVER_DATE, cutoff_24h)
+
+    briefs_res = (
+        db.table("briefs")
+        .select("id, content, delivered_at")
+        .eq("topic_id", topic_id)
+        .gte("delivered_at", cutoff)
+        .order("delivered_at", desc=True)
+        .execute()
+    )
+
+    return {
+        "topic": {"id": topic["id"], "name": topic["name"], "raw_query": topic["raw_query"]},
+        "briefs": briefs_res.data or [],
+    }
 
 
 # ---------------------------------------------------------------------------
