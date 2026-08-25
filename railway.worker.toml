@@ -1,5 +1,6 @@
 [build]
 builder = "nixpacks"
+buildCommand = "python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-base-en-v1.5')\" || true"
 
 [deploy]
 startCommand = "PYTHONPATH=/app/src celery -A truebrief.tasks.celery_app worker --loglevel=info -c 2"

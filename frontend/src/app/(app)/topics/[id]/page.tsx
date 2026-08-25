@@ -222,6 +222,86 @@ function PastBriefRow({ brief }: { brief: BriefRow }) {
   );
 }
 
+/** Read-only brief panel for unauthenticated visitors — accepts briefs as a prop, no fetching. */
+function PublicBriefPanel({ briefs }: { briefs: BriefRow[] }) {
+  const [open, setOpen] = useState(true);
+  const [showPast, setShowPast] = useState(false);
+  const latest = briefs[0];
+  const past = briefs.slice(1);
+
+  if (!latest) {
+    return (
+      <div style={{ textAlign: 'center', padding: '64px 22px' }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 40, height: 40, borderRadius: '50%',
+          background: 'var(--color-background-tertiary)', marginBottom: 14,
+        }}>
+          <Check size={20} color="var(--tb-green)" />
+        </div>
+        <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
+          No brief yet
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: '0 auto', maxWidth: 300, lineHeight: 1.6 }}>
+          This topic hasn&apos;t been scanned yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      margin: '12px 22px 4px', padding: '14px 16px',
+      border: '1px solid var(--color-border-tertiary)', borderRadius: 12,
+      background: 'var(--color-background-primary)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{
+          fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: 'var(--color-text-secondary)',
+        }}>
+          Latest brief
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
+            {timeAgo(latest.delivered_at)}
+          </span>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            style={{
+              fontSize: 11, color: 'var(--color-text-secondary)', background: 'none',
+              border: '0.5px solid var(--color-border-secondary)', borderRadius: 6,
+              padding: '1px 7px', cursor: 'pointer',
+            }}
+          >
+            {open ? 'Hide' : 'Show'}
+          </button>
+        </div>
+      </div>
+      {open && <BriefBody content={latest.content} />}
+      {past.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => setShowPast((v) => !v)}
+            style={{
+              fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)',
+              background: 'none', border: 'none', padding: '6px 0 0', cursor: 'pointer',
+              borderTop: '0.5px solid var(--color-border-tertiary)', width: '100%', textAlign: 'left',
+            }}
+          >
+            {showPast ? 'Hide' : 'Show'} {past.length} earlier brief{past.length === 1 ? '' : 's'}
+          </button>
+          {showPast && (
+            <div style={{ marginTop: 4 }}>
+              {past.map((b) => <PastBriefRow key={b.id} brief={b} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BriefPanel({ topicId, lastRun, scanning }: { topicId: string; lastRun?: string | null; scanning?: boolean }) {
   const api = useApi();
   const [open, setOpen] = useState(true);
@@ -430,6 +510,19 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
   const qc = useQueryClient();
   const { session } = useSession();
 
+  // Public (unauthenticated) topic data — fetched with plain fetch, no JWT needed.
+  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? '';
+  const { data: publicTopicData } = useQuery<{ topic: { id: string; name: string; raw_query: string }; briefs: BriefRow[] }>({
+    queryKey: ['public-topic-briefs', id],
+    queryFn: async () => {
+      const r = await fetch(`${apiBase}/public-topics/${id}/briefs`);
+      if (!r.ok) throw new Error('Not found');
+      return r.json() as Promise<{ topic: { id: string; name: string; raw_query: string }; briefs: BriefRow[] }>;
+    },
+    enabled: !session,
+    staleTime: 60_000,
+  });
+
   const [scanError, setScanError] = useState<string | null>(null);
   const [showFreqPicker, setShowFreqPicker] = useState(false);
   // Re-render when the zone changes in Settings (same tab fires 'tb-timezone-change';
@@ -597,7 +690,7 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
       }}>
         <p style={{ fontSize: 17, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
           {!session
-            ? 'Sign in to view this topic'
+            ? (publicTopicData?.topic?.name ?? '…')
             : isTopicError
               ? 'Topic not found'
               : (topic?.name ?? '…')}
@@ -740,7 +833,12 @@ export default function TopicViewPage({ params }: { params: Promise<{ id: string
           reintroduce post-production only if proven). */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!session ? (
-          <SignInPrompt message="Sign in to see this topic's timeline." />
+          <>
+            <PublicBriefPanel briefs={publicTopicData?.briefs ?? []} />
+            <div style={{ margin: '12px 22px' }}>
+              <SignInPrompt message="Sign in to track this topic and get daily briefs." />
+            </div>
+          </>
         ) : isTopicError ? (
           <div style={{ textAlign: 'center', padding: '80px 24px' }}>
             <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 6px' }}>

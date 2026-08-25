@@ -137,6 +137,128 @@ function QuotaAlertsBanner() {
   );
 }
 
+interface KeyStatus {
+  state: 'ok' | 'rpm_limited' | 'rpd_exhausted' | 'unknown';
+  last_event_at: string | null;
+  last_event_type: 'rpm' | 'rpd' | null;
+  configured?: boolean;
+}
+
+interface KeyStatusResponse {
+  primary_key: KeyStatus;
+  backup_key: KeyStatus & { configured: boolean };
+  model_usage_today: Record<string, number>;
+  rpd_limits: Record<string, number>;
+  embed_provider: string;
+}
+
+function KeyStatusPanel() {
+  const api = useApi();
+  const { data, isLoading } = useQuery<KeyStatusResponse>({
+    queryKey: ['admin-key-status'],
+    queryFn: async () => (await api.get('/admin/key-status')).data,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: 0,
+  });
+
+  if (isLoading || !data) return null;
+
+  const stateColor = (s: KeyStatus['state']) =>
+    s === 'ok' ? '#16A34A' : s === 'rpm_limited' ? '#B45309' : s === 'rpd_exhausted' ? '#DC2626' : '#6B7280';
+  const stateLabel = (s: KeyStatus['state']) =>
+    s === 'ok' ? 'OK' : s === 'rpm_limited' ? 'RPM limit (retrying)' : s === 'rpd_exhausted' ? 'RPD exhausted' : 'Unknown';
+  const stateDesc = (s: KeyStatus) =>
+    s.state === 'rpm_limited'
+      ? 'Per-minute rate limit hit — auto-retries after 65s, no action needed'
+      : s.state === 'rpd_exhausted'
+      ? `Daily quota exhausted${s.last_event_at ? ' since ' + new Date(s.last_event_at).toLocaleTimeString() : ''} — will recover at midnight UTC`
+      : null;
+
+  const MODEL_LABELS: Record<string, string> = {
+    'gemini-3.5-flash-lite': '3.5 Flash Lite',
+    'gemini-3.1-flash-lite': '3.1 Flash Lite',
+    'gemini-2.5-flash-lite': '2.5 Flash Lite',
+    'models/gemini-embedding-2': 'Embedding 2',
+  };
+
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
+        API Key Health
+        <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12, marginLeft: 8 }}>live · refreshes every 60s</span>
+      </h2>
+
+      {/* Key status cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+        {([['Primary key', data.primary_key], ['Backup key', data.backup_key]] as const).map(([label, key]) => (
+          <div key={label} style={{
+            background: 'var(--color-background-secondary)',
+            border: `1px solid ${key.state !== 'ok' ? stateColor(key.state) + '66' : 'var(--color-border-secondary)'}`,
+            borderRadius: 10, padding: '14px 16px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: stateColor(key.state), flexShrink: 0,
+                boxShadow: key.state !== 'ok' ? `0 0 6px ${stateColor(key.state)}` : 'none',
+              }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>{label}</span>
+              {'configured' in key && !key.configured && (
+                <span style={{ fontSize: 11, color: '#DC2626', marginLeft: 4 }}>not configured</span>
+              )}
+              <span style={{ fontSize: 12, color: stateColor(key.state), marginLeft: 'auto', fontWeight: 600 }}>
+                {stateLabel(key.state)}
+              </span>
+            </div>
+            {stateDesc(key) && (
+              <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: 0, paddingLeft: 16 }}>
+                {stateDesc(key)}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Today's model usage vs RPD limits */}
+      {Object.keys(data.model_usage_today).length > 0 && (
+        <div style={{ background: 'var(--color-background-secondary)', border: '1px solid var(--color-border-secondary)', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+            Today&apos;s calls (UTC) — limits are ×2 keys combined
+          </div>
+          {Object.entries(data.model_usage_today)
+            .filter(([m]) => !m.startsWith('local/'))
+            .sort((a, b) => b[1] - a[1])
+            .map(([model, calls]) => {
+              const limit = data.rpd_limits[model];
+              const pct = limit ? Math.round((calls / limit) * 100) : null;
+              const barColor = pct == null ? '#94A3B8' : pct >= 90 ? '#DC2626' : pct >= 70 ? '#B45309' : '#16A34A';
+              return (
+                <div key={model} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', width: 120, flexShrink: 0 }}>
+                    {MODEL_LABELS[model] ?? model}
+                  </span>
+                  <div style={{ flex: 1, background: 'var(--color-border-secondary)', borderRadius: 4, height: 6 }}>
+                    {pct != null && (
+                      <div style={{ width: `${Math.min(pct, 100)}%`, background: barColor, borderRadius: 4, height: 6, transition: 'width 0.3s' }} />
+                    )}
+                  </div>
+                  <span style={{ fontSize: 12, color: pct != null && pct >= 70 ? barColor : 'var(--color-text-tertiary)', width: 80, textAlign: 'right' }}>
+                    {calls}{limit ? ` / ${limit}` : ''}{pct != null ? ` (${pct}%)` : ''}
+                  </span>
+                </div>
+              );
+            })}
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 6 }}>
+            Embed: <strong>{data.embed_provider === 'local' ? 'local (no quota)' : 'Gemini API'}</strong>
+            {data.embed_provider === 'gemini' && ' — set EMBED_PROVIDER=local to remove quota dependency'}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function AdminPage() {
   const api = useApi();
 
@@ -218,6 +340,7 @@ export default function AdminPage() {
         </div>
       </div>
 
+      <KeyStatusPanel />
       <QuotaAlertsBanner />
 
       {/* Stat grid */}

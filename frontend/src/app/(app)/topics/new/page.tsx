@@ -133,6 +133,7 @@ export default function NewTopicPage() {
   const scheduleRef = useRef<HTMLDivElement>(null);
   const tz = getTimezone();
   const [makePublic, setMakePublic] = useState(false);
+  const [showSignInNudge, setShowSignInNudge] = useState(false);
 
   const { data: stats } = useQuery<UserStatsAdmin>({
     queryKey: ['user-stats'],
@@ -179,21 +180,19 @@ export default function NewTopicPage() {
     queryKey: ['public-topics'],
     queryFn: async () => (await api.get('/public-topics')).data,
     staleTime: 5 * 60_000,
-    enabled: !!session,
   });
 
   // Fuse.js index — rebuilt when public topics change
   const fuse = useMemo(() => new Fuse(allPublicTopics, {
     keys: ['name', 'raw_query'],
-    threshold: 0.45,        // 0 = exact, 1 = match anything; 0.45 catches common typos
-    minMatchCharLength: 3,  // don't fire for "a", "AI", etc.
-    ignoreLocation: true,   // match anywhere in the string, not just the start
-    distance: 200,
+    threshold: 0.25,        // tight — catches common typos but not suffix coincidences
+    minMatchCharLength: 4,
+    distance: 100,          // match must be near the start of the string
   }), [allPublicTopics]);
 
   // Debounce the query for semantic API search (300ms)
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query), 300);
+    const t = setTimeout(() => setDebouncedQuery(query), 150);
     return () => clearTimeout(t);
   }, [query]);
 
@@ -213,7 +212,7 @@ export default function NewTopicPage() {
       const r = await api.get(`/shared-topics?q=${encodeURIComponent(debouncedQuery)}`);
       return r.data;
     },
-    enabled: debouncedQuery.length >= 3 && !!session,
+    enabled: debouncedQuery.length >= 2,
     staleTime: 10_000,
   });
 
@@ -272,7 +271,11 @@ export default function NewTopicPage() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      if (!session) {
+        setShowSignInNudge(true);
+      } else {
+        handleSubmit();
+      }
     }
   };
 
@@ -303,26 +306,15 @@ export default function NewTopicPage() {
       .slice(0, 5)
       .map(t => ({ id: t.id, label: t.name, fill: t.name, isShared: true, isPopular: true, isFallback: fallback as boolean }));
 
-    if (query.length < 3) return popular(false);
-    // Prefer semantic (embedding) results; fall back to Fuse while they load
-    const source = (semanticTopics.length > 0 && debouncedQuery === query) ? semanticTopics : fuseResults;
-    if (source.length > 0) return source.slice(0, 5).map(t => ({ id: t.id, label: t.name, fill: t.name, isShared: true, isPopular: false, isFallback: false }));
-    // Nothing matched — fall back to popular so pills are never blank.
-    // Only mark as fallback (shows "No matches" label) after the debounce has settled;
-    // while it's still in flight we're waiting on semantic, so stay silent.
-    return popular(debouncedQuery === query);
+    if (query.length < 2) return popular(false);
+    // While debounce is still in flight, show popular silently — don't trust Fuse
+    // for semantic meaning (it's character-level; "technologey" won't match tech topics).
+    if (debouncedQuery !== query) return popular(false);
+    // Debounce has settled — use semantic results from the backend embedding search.
+    if (semanticTopics.length > 0) return semanticTopics.slice(0, 5).map(t => ({ id: t.id, label: t.name, fill: t.name, isShared: true, isPopular: false, isFallback: false }));
+    // Semantic returned nothing → show popular as labelled fallback.
+    return popular(true);
   }, [query, debouncedQuery, allPublicTopics, semanticTopics, fuseResults]);
-
-  if (!session) {
-    return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px 44px' }}>
-        <p style={{ fontSize: 22, fontWeight: 500, color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: 24, margin: '0 0 24px' }}>
-          What&apos;s worth your attention?
-        </p>
-        <SignInPrompt message="Sign in to start tracking a topic." />
-      </div>
-    );
-  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px 44px' }}>
@@ -343,11 +335,11 @@ export default function NewTopicPage() {
         <textarea
           ref={textareaRef}
           value={query}
-          onChange={e => { setQuery(e.target.value); if (error) { setError(null); setErrorStatus(null); } if (nudge) setNudge(false); }}
+          onChange={e => { setQuery(e.target.value); if (error) { setError(null); setErrorStatus(null); } if (nudge) setNudge(false); if (showSignInNudge) setShowSignInNudge(false); }}
           onKeyDown={handleKeyDown}
           onFocus={() => setShellFocused(true)}
           onBlur={() => setShellFocused(false)}
-          placeholder="Tell me what to watch... e.g. Apple, Fed rates, EU AI regulation"
+          placeholder={session ? "Tell me what to watch... e.g. Apple, Fed rates, EU AI regulation" : "Search public topics to preview, or sign in to track anything"}
           rows={1}
           style={{
             width: '100%', display: 'block',
@@ -362,72 +354,74 @@ export default function NewTopicPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5,
           padding: '7px 10px', borderTop: '0.5px solid var(--color-border-tertiary)',
         }}>
-          <div ref={scheduleRef} style={{ position: 'relative', marginRight: 'auto' }}>
-            <button
-              type="button"
-              onClick={() => setShowSchedule(v => !v)}
-              style={{ ...pillBase, ...(showSchedule || customTimes.length > 0 ? { borderColor: 'var(--tb-green-border)', background: 'var(--tb-green-light)', color: 'var(--tb-green-dark)' } : {}) }}
-            >
-              <Clock size={11} />{scheduleLabel}
-            </button>
-            {showSchedule && (
-              <div style={{
-                position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, zIndex: 50,
-                background: 'var(--color-background-primary)',
-                border: '0.5px solid var(--color-border-secondary)',
-                borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                minWidth: 240, padding: 10,
-              }}>
-                <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-tertiary)', margin: '0 0 8px' }}>
-                  Scheduled run times · {tzShortLabel(tz)}
-                </p>
-                {customTimes.length === 0 ? (
-                  <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>
-                    Default — once a day at {(() => { const l = utcToLocal(9, 0, tz); return fmtHM(l.hour, l.minute); })()}.
-                    Add a time below to set your own schedule.
+          {session && (
+            <div ref={scheduleRef} style={{ position: 'relative', marginRight: 'auto' }}>
+              <button
+                type="button"
+                onClick={() => setShowSchedule(v => !v)}
+                style={{ ...pillBase, ...(showSchedule || customTimes.length > 0 ? { borderColor: 'var(--tb-green-border)', background: 'var(--tb-green-light)', color: 'var(--tb-green-dark)' } : {}) }}
+              >
+                <Clock size={11} />{scheduleLabel}
+              </button>
+              {showSchedule && (
+                <div style={{
+                  position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, zIndex: 50,
+                  background: 'var(--color-background-primary)',
+                  border: '0.5px solid var(--color-border-secondary)',
+                  borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  minWidth: 240, padding: 10,
+                }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-tertiary)', margin: '0 0 8px' }}>
+                    Scheduled run times · {tzShortLabel(tz)}
                   </p>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                    {localTimes.map((l, i) => (
-                      <span
-                        key={`${customTimes[i].hour}:${customTimes[i].minute}`}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)',
-                          background: 'var(--color-background-secondary)',
-                          padding: '3px 6px 3px 8px', borderRadius: 12,
-                        }}
-                      >
-                        {fmtHM(l.hour, l.minute)}
-                        <button
-                          type="button"
-                          onClick={() => removeCustomTime(customTimes[i])}
-                          aria-label={`Remove ${fmtHM(l.hour, l.minute)}`}
-                          title="Remove this time"
-                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)', fontSize: 13, lineHeight: 1, padding: 0, display: 'flex' }}
+                  {customTimes.length === 0 ? (
+                    <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>
+                      Default — once a day at {(() => { const l = utcToLocal(9, 0, tz); return fmtHM(l.hour, l.minute); })()}.
+                      Add a time below to set your own schedule.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                      {localTimes.map((l, i) => (
+                        <span
+                          key={`${customTimes[i].hour}:${customTimes[i].minute}`}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)',
+                            background: 'var(--color-background-secondary)',
+                            padding: '3px 6px 3px 8px', borderRadius: 12,
+                          }}
                         >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <input
-                  type="time"
-                  value={newTimeInput}
-                  onChange={(e) => setNewTimeInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomTime(); } }}
-                  style={{
-                    fontSize: 12, padding: '4px 6px', borderRadius: 6,
-                    border: '0.5px solid var(--color-border-secondary)',
-                    background: 'var(--color-background-primary)',
-                    color: 'var(--color-text-primary)', width: '100%',
-                  }}
-                />
-              </div>
-            )}
-          </div>
-          {isAdmin && (
+                          {fmtHM(l.hour, l.minute)}
+                          <button
+                            type="button"
+                            onClick={() => removeCustomTime(customTimes[i])}
+                            aria-label={`Remove ${fmtHM(l.hour, l.minute)}`}
+                            title="Remove this time"
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)', fontSize: 13, lineHeight: 1, padding: 0, display: 'flex' }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    type="time"
+                    value={newTimeInput}
+                    onChange={(e) => setNewTimeInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomTime(); } }}
+                    style={{
+                      fontSize: 12, padding: '4px 6px', borderRadius: 6,
+                      border: '0.5px solid var(--color-border-secondary)',
+                      background: 'var(--color-background-primary)',
+                      color: 'var(--color-text-primary)', width: '100%',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          {session && isAdmin && (
             <button
               type="button"
               onClick={() => setMakePublic(v => !v)}
@@ -440,7 +434,13 @@ export default function NewTopicPage() {
           )}
           <button
             type="button"
-            onClick={handleSubmit}
+            onClick={() => {
+              if (!session) {
+                setShowSignInNudge(true);
+              } else {
+                handleSubmit();
+              }
+            }}
             disabled={submitting || !query.trim()}
             aria-label="Track this topic"
             style={{
@@ -457,6 +457,13 @@ export default function NewTopicPage() {
           </button>
         </div>
       </div>
+
+      {/* Sign-in nudge — shown when anon user tries to submit */}
+      {showSignInNudge && (
+        <div style={{ marginTop: 10, width: '100%', maxWidth: 420 }}>
+          <SignInPrompt message="Sign in to start tracking any topic." />
+        </div>
+      )}
 
       {/* Error / nudge */}
       {error && (
@@ -495,7 +502,13 @@ export default function NewTopicPage() {
           <button
             key={pill.id ?? pill.label}
             type="button"
-            onClick={() => fillAndFocus(pill.fill)}
+            onClick={() => {
+              if (pill.isShared && !session) {
+                router.push(`/topics/${pill.id}`);
+              } else {
+                fillAndFocus(pill.fill);
+              }
+            }}
             style={{
               padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
               borderWidth: '0.5px', borderStyle: 'solid', borderColor: 'var(--tb-green-border)',

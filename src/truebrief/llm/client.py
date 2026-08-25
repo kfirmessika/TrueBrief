@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextvars
+import itertools
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional, List, Any
@@ -70,6 +72,17 @@ class LLMClient:
     MAX_RETRIES = 3
     RETRY_DELAY_SECONDS = 5.0
 
+    # Round-robin counter shared across all instances so calls alternate between
+    # primary and backup Gemini keys from the first request, not only on failure.
+    _key_counter: itertools.count = itertools.count()
+    _key_lock: threading.Lock = threading.Lock()
+
+    # Process-level LocalEmbedder singleton — loading the 420MB model takes ~1s;
+    # sharing it across all LLMClient instances means it loads once per process, not
+    # once per request (which was previously causing 1-2s delay on every embed call).
+    _shared_local_embedder: Optional[Any] = None
+    _shared_local_embedder_lock: threading.Lock = threading.Lock()
+
     def __init__(self) -> None:
         from config.settings import LLM_CONFIG, settings
         self._config = LLM_CONFIG
@@ -78,16 +91,17 @@ class LLMClient:
         self._gemini_client_backup: Optional[Any] = None
         self._openai_client: Optional[Any] = None
         self._groq_client: Optional[Any] = None
-        self._local_embedder: Optional[Any] = None  # lazy-loaded LocalEmbedder
 
     def _get_local_embedder(self):
-        """Return (and lazily init) the LocalEmbedder singleton."""
-        if self._local_embedder is None:
-            from truebrief.llm.local_embedder import LocalEmbedder
-            self._local_embedder = LocalEmbedder(
-                model_name=getattr(self._settings, "LOCAL_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
-            )
-        return self._local_embedder
+        """Return the process-level LocalEmbedder singleton (loads once, reused forever)."""
+        if LLMClient._shared_local_embedder is None:
+            with LLMClient._shared_local_embedder_lock:
+                if LLMClient._shared_local_embedder is None:
+                    from truebrief.llm.local_embedder import LocalEmbedder
+                    LLMClient._shared_local_embedder = LocalEmbedder(
+                        model_name=getattr(self._settings, "LOCAL_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+                    )
+        return LLMClient._shared_local_embedder
 
     def call(
         self,
@@ -103,12 +117,18 @@ class LLMClient:
         provider = cfg["provider"]
         model = cfg["model"]
 
+        # Pick which Gemini key to start with (round-robin). On quota exhaustion we try
+        # the other key. Both are resolved once here so the loop doesn't re-pick.
+        _picked_client, _picked_other = (
+            self._pick_gemini_client() if provider == "gemini" else (None, None)
+        )
+
         for attempt in range(1, self.MAX_RETRIES + 1):
             t0 = time.monotonic()
             try:
                 if provider == "gemini":
                     result, in_tok, out_tok = self._call_gemini_instrumented(
-                        model, prompt, json_mode, system_prompt
+                        model, prompt, json_mode, system_prompt, client=_picked_client
                     )
                 elif provider == "openai":
                     result, in_tok, out_tok = self._call_openai_instrumented(
@@ -135,13 +155,22 @@ class LLMClient:
                 return result
 
             except Exception as exc:
-                # Quota exhausted on primary key — switch to backup immediately (no wait).
+                # Per-minute rate limit (RPM/TPM): wait 65s then retry same key — no switch.
+                if provider == "gemini" and self._is_quota_exhausted(exc) and self._is_per_minute_limit(exc):
+                    logger.warning(
+                        "[LLM] Per-minute rate limit hit (step=%s). Waiting 65s before retry.", step_name
+                    )
+                    self._flag_quota("yellow", step_name, model, "rpm", exc)
+                    time.sleep(65)
+                    continue
+
+                # Per-day quota exhausted on whichever key was picked — switch to the other immediately.
                 if provider == "gemini" and self._is_quota_exhausted(exc):
-                    backup = self._get_gemini_client_backup()
+                    backup = _picked_other
                     if backup:
                         logger.warning(
-                            "[LLM] Primary GOOGLE_API_KEY quota exhausted (step=%s). "
-                            "Switching to GOOGLE_API_KEY_BACKUP. Reason: %s",
+                            "[LLM] Gemini key quota exhausted (step=%s). "
+                            "Switching to other key. Reason: %s",
                             step_name, str(exc)[:200],
                         )
                         self._flag_quota("yellow", step_name, model, "primary", exc)
@@ -256,7 +285,7 @@ class LLMClient:
         primary/backup Gemini key rotation that call() already does for quota exhaustion.
         """
         cfg = self._config.get(step_name)
-        model = cfg["model"] if cfg else "gemini-2.5-flash-lite"
+        model = cfg["model"] if cfg else "gemini-3.5-flash-lite"
         from google.genai import types
 
         config = types.GenerateContentConfig(
@@ -286,15 +315,23 @@ class LLMClient:
                                    input_tokens=in_tok, output_tokens=out_tok)
 
         t0 = time.monotonic()
+        _picked, _other = self._pick_gemini_client()
         try:
-            result = _do_call(self._get_gemini_client())
+            result = _do_call(_picked)
         except Exception as exc:
-            if self._is_quota_exhausted(exc):
-                backup = self._get_gemini_client_backup()
+            if self._is_quota_exhausted(exc) and self._is_per_minute_limit(exc):
+                logger.warning(
+                    "[LLM] Per-minute rate limit hit (step=%s, grounded). Waiting 65s.", step_name
+                )
+                self._flag_quota("yellow", step_name, model, "rpm", exc)
+                time.sleep(65)
+                result = _do_call(_picked)
+            elif self._is_quota_exhausted(exc):
+                backup = _other
                 if backup:
                     logger.warning(
-                        "[LLM] Primary GOOGLE_API_KEY quota exhausted (step=%s, grounded). "
-                        "Switching to GOOGLE_API_KEY_BACKUP.", step_name,
+                        "[LLM] Gemini key quota exhausted (step=%s, grounded). "
+                        "Switching to other key.", step_name,
                     )
                     self._flag_quota("yellow", step_name, model, "primary", exc)
                     try:
@@ -600,24 +637,42 @@ class LLMClient:
     def _call_with_timeout(func, timeout_seconds: float):
         """Run func() in a thread; raise LLMError if it exceeds timeout_seconds.
 
-        Python threads cannot be forcibly killed, but the calling stack unwinds
-        with a clean LLMError so the pipeline can handle it and the Celery task
-        can mark itself FAILURE instead of hanging forever.
+        IMPORTANT: do NOT use `with ThreadPoolExecutor(...) as executor:` here.
+        The context manager calls shutdown(wait=True) on exit, which blocks until
+        the background thread finishes — even when we've already timed out. On slow
+        Gemini responses (large briefs, high load) this causes indefinite hangs
+        instead of a clean timeout. shutdown(wait=False, cancel_futures=True) lets
+        the call return immediately; the orphaned thread dies on its own.
         """
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(func)
-            try:
-                return future.result(timeout=timeout_seconds)
-            except concurrent.futures.TimeoutError:
-                raise LLMError(
-                    f"Gemini API call timed out after {timeout_seconds}s. "
-                    "The API may be slow or rate-limited."
-                )
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(func)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except concurrent.futures.TimeoutError:
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise LLMError(
+                f"Gemini API call timed out after {timeout_seconds}s. "
+                "The API may be slow or rate-limited."
+            )
+        else:
+            executor.shutdown(wait=False)
 
     @staticmethod
     def _is_quota_exhausted(exc: Exception) -> bool:
         msg = str(exc)
         return "429" in msg or "RESOURCE_EXHAUSTED" in msg
+
+    @staticmethod
+    def _is_per_minute_limit(exc: Exception) -> bool:
+        """True when the 429 is an RPM/TPM rate limit (retry in ~60s fixes it).
+        False means it's a per-day (RPD) limit — switching key is the right move."""
+        msg = str(exc)
+        return (
+            "PerMinute" in msg
+            or "per_minute" in msg
+            or "rate_limit_exceeded" in msg.lower()
+            or "GenerateTokensPerMinute" in msg
+        )
 
     @staticmethod
     def _flag_quota(severity: str, step_name: str, model: str, key_type: str, error: Exception) -> None:
@@ -656,6 +711,23 @@ class LLMClient:
         """
         model_name = getattr(self._settings, "LOCAL_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
         return f"local/{model_name}"
+
+    def _pick_gemini_client(self) -> tuple:
+        """Return (client, other_client_or_None) alternating between primary and backup.
+
+        Distributes calls 50/50 across both keys from the first request so neither
+        key shoulders all the daily RPD quota alone. Falls back to primary-only when
+        no backup is configured.
+        """
+        backup = self._get_gemini_client_backup()
+        if not backup:
+            return self._get_gemini_client(), None
+        with LLMClient._key_lock:
+            n = next(LLMClient._key_counter)
+        if n % 2 == 0:
+            return self._get_gemini_client(), backup
+        else:
+            return backup, self._get_gemini_client()
 
     def _get_gemini_client_backup(self) -> Optional[Any]:
         """Return a Gemini client using GOOGLE_API_KEY_BACKUP, or None if not configured."""

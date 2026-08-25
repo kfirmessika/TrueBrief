@@ -7,5 +7,5 @@ import { redirect } from 'next/navigation';
  * (app)/* pages) instead of a hard auth-gate redirect.
  */
 export default function RootPage() {
-  redirect('/dashboard');
+  redirect('/topics/new');
 }

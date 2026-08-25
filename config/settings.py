@@ -204,29 +204,29 @@ if not settings.SUPABASE_ISSUER and settings.SUPABASE_URL:
 # Auto-select provider/model for cheap steps: Groq when key is present, Gemini otherwise.
 # Only dashboard_summary and story_stitch auto-switch; all other steps stay on Gemini.
 _cheap_provider = "groq" if settings.GROQ_API_KEY else "gemini"
-_cheap_model = "llama-3.1-8b-instant" if settings.GROQ_API_KEY else "gemini-3.1-flash-lite"
+_cheap_model = "llama-3.1-8b-instant" if settings.GROQ_API_KEY else "gemini-3.5-flash-lite"
 
 LLM_CONFIG: dict[str, dict[str, str]] = {
     # Query Builder: Low token usage, simple reasoning.
-    "query_builder":  {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "query_builder":  {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Harvester: High token usage (reads full articles), strict JSON output.
-    "harvester":      {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "harvester":      {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Arbiter (Delta/Decision): Low tokens, high reasoning.
-    "arbiter":        {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "arbiter":        {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Briefer: Writes the final markdown report. High reasoning needed.
     "briefer":        {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Garbage Filter: Trivial classification, low tokens.
-    "garbage_filter": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "garbage_filter": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Query Rotator: Generates fresh search queries when variants underperform.
-    "query_rotator":  {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "query_rotator":  {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Story Summarizer: Merges previous summary + new fact → updated summary (Phase 3, Task 3.3).
-    "story_summarizer": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "story_summarizer": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # State of Play (IC7): synthesizes the topic-level status block from stored facts.
     # High reasoning (must rank threads + assign statuses), strict JSON output.
@@ -257,17 +257,17 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
     "gemini_search": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # Restructures the grounded prose into the alpha+context JSON contract. Plain (non-grounded)
-    # extraction call, same model as the harvester it replaces.
-    "gemini_extract": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    # extraction call.
+    "gemini_extract": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
     # --- Topic Finisher experiment (scripts/topic_finisher_experiment.py) ---
     # Candidate topics.raw_query cleanup step, NOT wired into production yet. Same
     # provider/model as query_builder (low token usage, simple reasoning); split into
     # distinct step names purely so cost telemetry can distinguish the 3 strategies.
-    "topic_finisher_combined": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
-    "topic_finisher_name":     {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
-    "topic_finisher_search":   {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
-    "topic_finisher_corrected": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+    "topic_finisher_combined": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "topic_finisher_name":     {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "topic_finisher_search":   {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "topic_finisher_corrected": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 }
 
 
