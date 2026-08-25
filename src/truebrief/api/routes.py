@@ -28,6 +28,7 @@ from truebrief.ledger.database import get_supabase
 from truebrief.billing.tiers import enforce_topic_limit, enforce_speed_limit, _get_limits
 from truebrief.auth.dependencies import User, get_current_user, get_optional_user
 from truebrief.api.rate_limit import limiter
+from truebrief.api.cache import cache_get, cache_set, cache_delete
 from truebrief.llm.client import LLMClient
 from truebrief.llm.prompts import (
     build_dashboard_summary_prompt,
@@ -296,6 +297,7 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         if "duplicate key value" not in str(sub_err).lower() and "unique constraint" not in str(sub_err).lower():
             logger.warning(f"Failed to create topic subscription: {sub_err}")
 
+    cache_delete(f"topics:user:{val_uuid}")
     return topic_record
 
 
@@ -426,6 +428,10 @@ def set_topic_visibility(
 @router.get("/topics", response_model=List[TopicResponse])
 def list_topics(user: User = Depends(get_current_user)):
     """List topics the authenticated user is subscribed to."""
+    cache_key = f"topics:user:{user.id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     db = get_supabase()
     res = (
         db.table("topic_subscriptions")
@@ -433,17 +439,24 @@ def list_topics(user: User = Depends(get_current_user)):
         .eq("user_id", user.id)
         .execute()
     )
-    return [row["topics"] for row in (res.data or []) if row.get("topics")]
+    result = [row["topics"] for row in (res.data or []) if row.get("topics")]
+    cache_set(cache_key, result, ttl=60)
+    return result
 
 @router.get("/topics/{topic_id}", response_model=TopicResponse)
 def get_topic(topic_id: str, user: User = Depends(get_current_user)):
     """Get a specific topic the user is subscribed to."""
     _require_uuid(topic_id, "topic_id")
+    cache_key = f"topic:{topic_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
     res = db.table("topics").select("*").eq("id", topic_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Topic not found")
+    cache_set(cache_key, res.data[0], ttl=60)
     return res.data[0]
 
 @router.get("/topics/{topic_id}/known-facts")
@@ -524,6 +537,12 @@ def delete_topic(request: Request, topic_id: str, user: User = Depends(get_curre
         db.table("topics").delete().eq("id", topic_id).execute()
         logger.info(f"Topic {topic_id} deleted (no subscribers remaining).")
 
+    cache_delete(
+        f"topics:user:{user.id}",
+        f"topic:{topic_id}",
+        f"briefs:{topic_id}",
+        f"schedule:{topic_id}",
+    )
     return {"status": "unsubscribed"}
 
 class ScheduleTime(BaseModel):
@@ -552,6 +571,10 @@ def get_topic_schedule(request: Request, topic_id: str, user: User = Depends(get
     times (UTC). Empty list = default, one run/day (ledger/alarm_schedule.py).
     """
     _require_uuid(topic_id, "topic_id")
+    cache_key = f"schedule:{topic_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
 
@@ -562,10 +585,12 @@ def get_topic_schedule(request: Request, topic_id: str, user: User = Depends(get
     if is_default:
         times = [(DEFAULT_HOUR, DEFAULT_MINUTE)]
 
-    return {
+    result = {
         "times": [{"hour": h, "minute": m} for h, m in times],
         "is_default": is_default,
     }
+    cache_set(cache_key, result, ttl=120)
+    return result
 
 
 @router.put("/topics/{topic_id}/schedule")
@@ -606,6 +631,7 @@ def put_topic_schedule(
 
     set_schedule_times(db, topic_id, times)
     set_next_run(topic_id)
+    cache_delete(f"schedule:{topic_id}")
 
     logger.info(f"Topic {topic_id} schedule updated: {times}")
     return {"times": [{"hour": h, "minute": m} for h, m in times]}
@@ -653,6 +679,7 @@ def rename_topic(
     if not upd.data:
         raise HTTPException(status_code=404, detail="Topic not found")
 
+    cache_delete(f"topic:{topic_id}")
     logger.info(f"Topic {topic_id} renamed to '{body.name}' by {user.email}")
     return upd.data[0]
 
@@ -717,6 +744,9 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
         ).eq("id", topic_id).execute()
     except Exception:
         pass
+
+    # Invalidate topic cache so next GET reflects scan_started_at immediately.
+    cache_delete(f"topic:{topic_id}")
 
     logger.info(f"Scan queued: topic_id={topic_id} task_id={task.id}")
     return {
@@ -800,6 +830,10 @@ def get_scan_status(task_id: str, user: User = Depends(get_current_user)):
 def list_topic_briefs(topic_id: str, user: User = Depends(get_current_user)):
     """Get all briefs for a topic the user is subscribed to."""
     _require_uuid(topic_id, "topic_id")
+    cache_key = f"briefs:{topic_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     db = get_supabase()
     _require_subscription(db, topic_id, user.id)
     # V5 only — pre-cutover briefs came from the frozen V4 pipeline and are hidden
@@ -813,6 +847,7 @@ def list_topic_briefs(topic_id: str, user: User = Depends(get_current_user)):
         .order("delivered_at", desc=True)
         .execute()
     )
+    cache_set(cache_key, res.data, ttl=60)
     return res.data
 
 
@@ -1309,9 +1344,14 @@ def list_public_topics():
     """List all PUBLIC topics — no auth required. Lets a signed-out visitor browse
     admin-curated public topics before signing in. Nothing is persisted for the caller;
     "adding" one is a client-side/ephemeral action until they sign in (see report)."""
+    cached = cache_get("public_topics")
+    if cached is not None:
+        return cached
     db = get_supabase()
     res = db.table("topics").select("id, raw_query, name").eq("is_public", True).order("raw_query").execute()
-    return _with_subscriber_counts(db, res.data or [])
+    result = _with_subscriber_counts(db, res.data or [])
+    cache_set("public_topics", result, ttl=120)
+    return result
 
 
 @router.get("/public-topics/{topic_id}/briefs")
