@@ -1,8 +1,8 @@
 """
 Article data models.
 
-RawArticle: what we get from a collector (RSS or Tavily).
-ProcessedArticle: after text extraction (trafilatura), ready for the Harvester.
+RawArticle: what a collector returns (URL + metadata + optional text).
+ProcessedArticle: after text extraction, with guaranteed non-empty text.
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ from typing import Optional
 
 class ArticleSource(str, Enum):
     RSS = "rss"
-    TAVILY = "tavily"
-    GOOGLE_NEWS = "google_news"  # Phase 2
-    BRAVE = "brave"              # Phase 3 — Step 3.19
-    EXA = "exa"                  # Phase 3 — Step 3.19
+    TAVILY = "tavily"       # V4 legacy
+    GOOGLE_NEWS = "google_news"  # V4 legacy
+    BRAVE = "brave"         # V4 legacy
+    EXA = "exa"             # V4 legacy
 
 
 @dataclass

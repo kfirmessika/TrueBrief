@@ -100,35 +100,25 @@ Respond ONLY with valid JSON matching this exact schema (no markdown fences):
 # ── runners ────────────────────────────────────────────────────────────────────
 
 def run_truebrief(topic: str) -> tuple[str, str | None]:
-    """Run the full TrueBrief pipeline against a throwaway real topic.
+    """Run the V5 TrueBrief pipeline (GeminiSearchRunner) against a throwaway real topic.
 
-    A real topics row is required because known_facts.topic_id has a FK to it —
-    a random UUID makes every fact insert fail and never exercises storage/dedup.
+    A real topics row is required because known_facts.topic_id has a FK to it.
     The temp topic (and its facts) are deleted in finally so the DB stays clean.
     """
     db = None
     temp_topic_id = None
     try:
         from truebrief.ledger.database import get_supabase
-        from truebrief.pipeline.runner import PipelineRunner
+        from truebrief.pipeline.v5_runner import GeminiSearchRunner
 
         db = get_supabase()
         marker = f"[bench] {topic} {uuid.uuid4().hex[:8]}"
         res = db.table("topics").insert({"raw_query": marker}).execute()
         temp_topic_id = res.data[0]["id"]
 
-        runner = PipelineRunner()
+        runner = GeminiSearchRunner()
         brief = runner.run(topic, topic_id=temp_topic_id)
         brief = brief or "(pipeline returned empty brief)"
-
-        # Fold the IC7 state-of-play board (generated in-process during the run) into
-        # the output so the judge sees the full TrueBrief experience, not just the feed.
-        sop = getattr(runner, "last_state_of_play", None)
-        if sop:
-            lines = ["STATE OF PLAY", sop.get("situation", "")]
-            for t in sop.get("threads", []):
-                lines.append(f"  - [{t.get('status', '')}] {t.get('label', '')} — {t.get('note', '')}")
-            brief = "\n".join(lines) + "\n\n" + brief
         return brief, None
     except Exception as exc:
         return "", f"Pipeline error: {exc}"

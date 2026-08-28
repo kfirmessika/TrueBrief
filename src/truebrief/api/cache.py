@@ -79,3 +79,38 @@ def cache_delete_pattern(pattern: str) -> None:
             r.delete(*keys)
     except Exception:
         pass
+
+
+# ── Automation freeze flag ─────────────────────────────────────────────────────
+# Stored in Redis (key "automation:frozen", value "1") so it survives worker
+# restarts and is visible across all processes (API + Beat + worker).
+# Falls back to an in-process module variable when Redis is unavailable (dev
+# without Redis — works fine, just doesn't survive a restart in that mode).
+
+_local_frozen: bool = False
+_FREEZE_KEY = "automation:frozen"
+
+
+def automation_is_frozen() -> bool:
+    r = _get_redis()
+    if r is None:
+        return _local_frozen
+    try:
+        return r.get(_FREEZE_KEY) == "1"
+    except Exception:
+        return _local_frozen
+
+
+def automation_set_frozen(frozen: bool) -> None:
+    global _local_frozen
+    _local_frozen = frozen
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        if frozen:
+            r.set(_FREEZE_KEY, "1")
+        else:
+            r.delete(_FREEZE_KEY)
+    except Exception:
+        pass

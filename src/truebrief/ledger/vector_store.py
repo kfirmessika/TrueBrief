@@ -16,7 +16,24 @@ import numpy as np
 
 from supabase import Client
 from truebrief.ledger.database import get_supabase
-from truebrief.ledger.source_logger import extract_domain
+from urllib.parse import urlparse
+
+_STRIP_PREFIXES = ("www.", "feeds.", "feed.", "rss.", "news.", "m.", "amp.")
+
+
+def extract_domain(url: str) -> str:
+    """Extract the bare domain from a URL, stripping common non-content subdomains."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc or parsed.path
+        host = host.lower()
+        for prefix in _STRIP_PREFIXES:
+            if host.startswith(prefix):
+                host = host[len(prefix):]
+                break
+        return host or "unknown"
+    except Exception:
+        return "unknown"
 from truebrief.models.alpha import Alpha
 from truebrief.llm.client import LLMClient
 from truebrief.llm.prompts import build_story_stitch_pair_prompt
@@ -31,13 +48,11 @@ _GEMINI_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 def _resolve_source_domain(alpha: Alpha) -> str:
     """Domain to display for this fact's source.
 
-    Normally just extract_domain(source_url) — unchanged from before, so V4 collectors
-    (and the Phase 4 A/B benchmark, which still runs V4's PipelineRunner) keep their
-    exact existing behavior. The one exception: V5's Gemini Search collector stores
-    Google's grounding-redirect URL as source_url — real domains are deliberately
+    Normally just extract_domain(source_url). The one exception: the Gemini Search
+    collector stores Google's grounding-redirect URL as source_url — real domains are
     obscured behind vertexaisearch.cloud.google.com, so extract_domain() on it would
     show the SAME redirect host for every single fact, not the real outlet. In that
-    one case, use source_name, which the collector already set from the real,
+    case, use source_name, which the collector already set from the real,
     verified grounding_chunks[].web.title.
     """
     if _GEMINI_GROUNDING_REDIRECT_HOST in (alpha.source_url or ""):
@@ -75,12 +90,8 @@ class VectorStore:
         """
         logger.info(f"Adding fact to ledger: {alpha.alpha_text[:50]}...")
 
-        # 2026-08-13: live-DB audit found 675 known_facts rows with topic_id IS NULL
-        # (spanning 2026-06-08 to 2026-08-13 — an old, ongoing leak, not a one-off).
-        # Root cause: scripts/run_pipeline.py called PipelineRunner().run(topic) with
-        # no topic_id, so every NEW/UPDATE fact silently landed here with topic_id=None
-        # and can never be deduped again (find_similar() is always scoped by topic_id).
-        # Fail loud instead of silently inserting orphaned, unsearchable data.
+        # Fail loud if topic_id is missing — orphaned rows can never be deduped
+        # (find_similar() is always topic-scoped).
         if not alpha.topic_id:
             raise ValueError(
                 "VectorStore.add_fact() refused to insert: alpha.topic_id is missing. "

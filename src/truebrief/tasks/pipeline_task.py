@@ -100,8 +100,6 @@ def enqueue_pipeline(topic_id: str, raw_query: str) -> _ThreadTaskHandle:
         try:
             # Import here to avoid circular imports at module load time.
             # V5 (docs/core/architecture_v5.md): Gemini Search collector + memory/dedup.
-            # V4's PipelineRunner stays available (pipeline/runner.py) for the Phase 4
-            # benchmark comparison, just not called from production anymore.
             from truebrief.pipeline.v5_runner import GeminiSearchRunner
             runner = GeminiSearchRunner()
             brief_content = runner.run(raw_query, topic_id=topic_id)
@@ -184,8 +182,6 @@ def run_pipeline_task(self, topic_id: str, raw_query: str) -> dict:
 
     try:
         # V5 (docs/core/architecture_v5.md): Gemini Search collector + memory/dedup.
-        # V4's PipelineRunner stays available (pipeline/runner.py, unmodified) for the
-        # Phase 4 benchmark comparison, just not called from production anymore.
         from truebrief.pipeline.v5_runner import GeminiSearchRunner
 
         runner = GeminiSearchRunner()

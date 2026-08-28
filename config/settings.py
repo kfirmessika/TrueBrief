@@ -24,10 +24,14 @@ class Settings(BaseSettings):
     """
 
     # --- LLM ---
+    # Primary key — all Gemini calls in production.
     GOOGLE_API_KEY: str = ""
-    # Backup Gemini key (different Google account → independent 500 req/day quota).
-    # When the primary key hits 429, the LLM client automatically retries with this key.
+    # Fallback key — different Google account → independent quota.
+    # LLMClient auto-retries with this on primary 429.
     GOOGLE_API_KEY_BACKUP: str = ""
+    # Dev/testing key — local benchmarks and experiments; keeps prod quota clean.
+    # LLMClient uses this instead of GOOGLE_API_KEY when ENV=development and it is set.
+    GOOGLE_API_KEY_DEV: str = ""
     # Groq API key — unlocks near-unlimited cheap inference for dashboard_summary/story_stitch.
     # When set, those steps automatically route to Groq (llama-3.1-8b-instant) instead of Gemini.
     GROQ_API_KEY: str = ""
@@ -41,9 +45,12 @@ class Settings(BaseSettings):
     # step on quota-exhaustion, including briefer, at ~10x the necessary cost.
     GROQ_FALLBACK_CHEAP_MODEL: str = "llama-3.1-8b-instant"
 
-    # --- Collector ---
+    # --- Search layer candidates (V5 benchmark) ---
+    BRAVE_API_KEY: str = ""    # Search Plan — $5/1k, auth: X-Subscription-Token header
+    LINKUP_API_KEY: str = ""   # Standard depth — $0.006/call with sourcedAnswer
+
+    # --- V4 collector keys (frozen — not used by V5 pipeline) ---
     TAVILY_API_KEY: str = ""
-    BRAVE_API_KEY: str = ""
     EXA_API_KEY: str = ""
 
     # --- Database (Supabase) ---

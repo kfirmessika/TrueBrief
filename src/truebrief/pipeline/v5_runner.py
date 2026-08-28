@@ -2,14 +2,10 @@
 V5 Pipeline Runner — pipeline/v5_runner.py
 
 The production entry point per docs/core/architecture_v5.md: Gemini Search collector ->
-Arbiter (memory/dedup + judge) -> stored facts -> brief. Deliberately minimal — no
-query_builder, no search layers, no harvester, no signal scorer, no story
-stitching/clustering, no AYR. Those stay available on V4's PipelineRunner
-(pipeline/runner.py, unmodified) for the Phase 4 A/B benchmark; nothing there was
-deleted, only not called from here.
+Arbiter (memory/dedup + judge) -> stored facts -> brief. Deliberately minimal — one
+grounded search call, memory/dedup, one brief.
 
-Same public contract as PipelineRunner.run() (topic_input, topic_id) -> brief text, so
-tasks/pipeline_task.py only needs to change which runner it constructs.
+Public contract: GeminiSearchRunner().run(topic_input, topic_id) -> brief text.
 """
 from __future__ import annotations
 

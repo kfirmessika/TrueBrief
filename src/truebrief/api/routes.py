@@ -1013,96 +1013,6 @@ def delete_account(user: User = Depends(get_current_user)):
     return {"status": "deleted"}
 
 
-@router.get("/topics/{topic_id}/ayr")
-def get_topic_ayr(topic_id: str, days: int = 30, user: User = Depends(get_current_user)):
-    """
-    Get Alpha Yield Rate (AYR) stats for a topic.
-
-    Returns overall yield rate (what % of scanned articles produced new facts),
-    per-source-domain breakdown, and the recommended polling interval.
-
-    Query params:
-      days: Lookback window in days (default 30).
-
-    Example response:
-      {
-        "topic_id": "...",
-        "days": 30,
-        "total": 42,
-        "alphas": 18,
-        "duplicates": 24,
-        "ayr": 0.4286,
-        "trusted": true,
-        "recommended_interval_s": 3600,
-        "by_domain": [
-          {"source_domain": "reuters.com", "total": 15, "alphas": 9, "ayr": 0.6},
-          ...
-        ]
-      }
-    """
-    db = get_supabase()
-    _require_subscription(db, topic_id, user.id)
-    res = db.table("topics").select("id, raw_query, poll_interval_seconds").eq("id", topic_id).execute()
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Topic not found")
-
-    topic = res.data[0]
-
-    try:
-        from truebrief.ledger.ayr_engine import calculate_topic_ayr
-        stats = calculate_topic_ayr(topic_id, days=days)
-    except Exception as exc:
-        logger.error(f"AYR calculation failed for topic {topic_id}: {exc}")
-        raise HTTPException(status_code=500, detail="AYR calculation failed.")
-
-    # Enrich with current topic info
-    stats["raw_query"] = topic["raw_query"]
-    stats["current_interval_s"] = topic["poll_interval_seconds"]
-
-    return stats
-
-
-@router.get("/topics/{topic_id}/query-variants")
-def get_query_variants(topic_id: str, user: User = Depends(get_current_user)):
-    """
-    List all search query variants for a topic.
-
-    Shows which queries are active, how many times each was used,
-    how many alphas each produced, and the current AYR per variant.
-
-    Useful for debugging keyword rotation and understanding which search
-    angles are producing the most novel information.
-
-    Example response:
-      [
-        {
-          "id": "...",
-          "query_text": "TSMC semiconductor production",
-          "scans_used": 8,
-          "alphas_yielded": 5,
-          "ayr": 0.625,
-          "is_active": true,
-          "generation": 0,
-          "last_used_at": "2026-04-30T..."
-        },
-        ...
-      ]
-    """
-    db = get_supabase()
-    _require_subscription(db, topic_id, user.id)
-    topic_res = db.table("topics").select("id").eq("id", topic_id).execute()
-    if not topic_res.data:
-        raise HTTPException(status_code=404, detail="Topic not found")
-
-    res = (
-        db.table("topic_query_variants")
-        .select("id, query_text, scans_used, alphas_yielded, ayr, is_active, generation, created_at, last_used_at")
-        .eq("topic_id", topic_id)
-        .order("ayr", desc=True)
-        .execute()
-    )
-    return res.data or []
-
 
 @router.get("/topics/{topic_id}/stories")
 def get_topic_stories(topic_id: str, limit: int = 50, user: User = Depends(get_current_user)):
@@ -1886,6 +1796,25 @@ def _is_admin(user: User) -> bool:
     return False
 
 
+@router.get("/admin/automation-freeze")
+def get_automation_freeze(user: User = Depends(get_current_user)):
+    """Return whether the automation scheduler is currently frozen."""
+    _require_admin(user)
+    from truebrief.api.cache import automation_is_frozen
+    return {"frozen": automation_is_frozen()}
+
+
+@router.post("/admin/automation-freeze")
+def set_automation_freeze(body: dict, user: User = Depends(get_current_user)):
+    """Set the global automation freeze flag. Pass {\"frozen\": true} to freeze, false to unfreeze."""
+    _require_admin(user)
+    frozen = bool(body.get("frozen", False))
+    from truebrief.api.cache import automation_set_frozen
+    automation_set_frozen(frozen)
+    logger.info("Automation freeze set to %s by %s", frozen, user.email)
+    return {"frozen": frozen}
+
+
 @router.get("/admin/metrics")
 def get_admin_metrics(user: User = Depends(get_current_user)):
     """
@@ -1943,12 +1872,7 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
     ]
 
     # ── LLM costs ────────────────────────────────────────────────────────────
-    # V5 production (GeminiSearchRunner, pipeline/v5_runner.py) only ever calls these
-    # stages. Anything else (harvester, query_builder, signal_scorer, story_stitch, ...)
-    # is V4's PipelineRunner, which production never runs — it only fires from
-    # scripts/quality_benchmark.py's A/B comparison arm, on throwaway topics. Both write
-    # to the same llm_call_log table, so without this split the benchmark's cost silently
-    # dominates the "production spend" total and misreads as live cost.
+    # V5 production stages. Only costs from these stages count toward the live cost total.
     V5_STAGES = {
         "gemini_search", "gemini_extract", "arbiter", "briefer", "embedding",
     }

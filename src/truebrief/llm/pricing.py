@@ -8,7 +8,7 @@ Update when Google changes rates.
 All costs are in USD per token.
 """
 
-# Gemini 2.0 Flash Lite (production model — query_builder, harvester, arbiter, summarizer)
+# Gemini 2.0 Flash Lite (production model — arbiter, embeddings)
 # Price tier: ≤128k context window
 GEMINI_FLASH_LITE_INPUT_PER_TOKEN = 0.000_000_075   # $0.075 per 1M tokens
 GEMINI_FLASH_LITE_OUTPUT_PER_TOKEN = 0.000_000_300  # $0.30 per 1M tokens
@@ -26,7 +26,7 @@ GEMINI_PRO_OUTPUT_PER_TOKEN = 0.000_005_000   # $5.00 per 1M tokens
 GEMINI_25_FLASH_LITE_INPUT_PER_TOKEN = 0.000_000_100   # $0.10 per 1M tokens
 GEMINI_25_FLASH_LITE_OUTPUT_PER_TOKEN = 0.000_000_400  # $0.40 per 1M tokens
 
-# Gemini 3.5 Flash Lite — briefer/state_of_play. Verified 2026-07-30 (ai.google.dev
+# Gemini 3.5 Flash Lite — briefer. Verified 2026-07-30 (ai.google.dev
 # /gemini-api/docs/pricing, standard tier). Do not swap this for an older name from
 # training data — always confirm the current model ID against this same page first.
 GEMINI_35_FLASH_LITE_INPUT_PER_TOKEN = 0.000_000_300   # $0.30 per 1M tokens
@@ -43,15 +43,13 @@ GEMINI_EMBEDDING_PER_TOKEN = 0.0
 # still resolves to $0 via compute_cost_usd's unknown-model fallback below.
 LOCAL_EMBEDDING_PER_TOKEN = 0.0
 
-# Groq — Llama 3.1 8B Instant. The intended V4 provider for the cheap summary/story
-# steps. We run these on Gemini flash-lite for now (free tier), but bill them at Groq
-# rates so the cost projection reflects the real target provider (see _COST_AS_GROQ_STEPS).
+# Groq — Llama 3.1 8B Instant. Used for story_stitch and dashboard_summary steps.
 # Source: Groq pricing (llama-3.1-8b-instant), as of 2026-07.
 GROQ_LLAMA8B_INPUT_PER_TOKEN = 0.000_000_050   # $0.05 per 1M tokens
 GROQ_LLAMA8B_OUTPUT_PER_TOKEN = 0.000_000_080  # $0.08 per 1M tokens
 
-# Groq — Llama 3.3 70B Versatile. Used by signal_scorer when GROQ_API_KEY is set, and as
-# GROQ_FALLBACK_MODEL (config/settings.py) for any step when Gemini keys are quota-exhausted.
+# Groq — Llama 3.3 70B Versatile. Used as GROQ_FALLBACK_MODEL (config/settings.py)
+# for any step when Gemini keys are quota-exhausted.
 # Was missing here entirely, causing those calls to silently cost $0 in llm_call_log — see
 # tests/test_pricing_coverage.py, which now guards against this recurring.
 # Source: Groq pricing (llama-3.3-70b-versatile), verified 2026-07-22.

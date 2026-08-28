@@ -50,8 +50,7 @@ pipeline_run_id_var: contextvars.ContextVar[Optional[str]] = contextvars.Context
 
 # Steps that fall back to GROQ_FALLBACK_CHEAP_MODEL (llama-3.1-8b-instant) instead of
 # GROQ_FALLBACK_MODEL (llama-3.3-70b-versatile) on quota exhaustion. briefer writes
-# markdown from already-extracted facts — no open-ended judgment call like
-# signal_scorer's topic-fit gate (which validated the 70b requirement 2026-07-07).
+# markdown from already-extracted facts — no open-ended judgment required.
 _GROQ_FALLBACK_CHEAP_STEPS: frozenset[str] = frozenset({"briefer"})
 
 
@@ -239,9 +238,7 @@ class LLMClient:
                     time.sleep(wait)
                 else:
                     # Reverse fallback: Groq step exhausted its retries → try Gemini
-                    # once before giving up. Critical for signal_scorer: a fail-open
-                    # quality gate floods noise into the DB (seen 2026-07-07 when
-                    # Groq's free-tier daily token cap died mid-test).
+                    # once before giving up.
                     if provider == "groq" and self._settings.GOOGLE_API_KEY:
                         gem_model = "gemini-3.1-flash-lite"
                         logger.warning(
@@ -742,7 +739,11 @@ class LLMClient:
     def _get_gemini_client(self) -> Any:
         if self._gemini_client is None:
             from google import genai
-            api_key = self._settings.GOOGLE_API_KEY
+            # In development, prefer GOOGLE_API_KEY_DEV so prod quota is never
+            # consumed by local benchmark runs or experiments.
+            dev_key = getattr(self._settings, "GOOGLE_API_KEY_DEV", "")
+            is_dev = getattr(self._settings, "ENV", "production") == "development"
+            api_key = (dev_key if (is_dev and dev_key) else None) or self._settings.GOOGLE_API_KEY
             if not api_key:
                 raise LLMError("GOOGLE_API_KEY not set.")
             self._gemini_client = genai.Client(api_key=api_key)

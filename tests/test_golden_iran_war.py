@@ -10,8 +10,7 @@ Documented failures this guards against:
   2. Tally noise            → IC2 significance ranks tally LAST (state_change leads)
   3. Duplicated same-event  → IC3 entity+temporal gate would merge "4 soldiers killed" ×2
   4. Hormuz contradiction   → IC4 flags 'open' vs 'closed'
-  5. Missing state-of-play  → IC7 synthesizes a grounded status board
-  6. Tally ≠ contradiction  → IC4 does NOT flag a running total as a contradiction
+  5. Tally ≠ contradiction  → IC4 does NOT flag a running total as a contradiction
 
 These run with no live LLM/DB so they're CI-safe and deterministic.
 """
@@ -21,7 +20,6 @@ from datetime import date, datetime
 from truebrief.arbiter.contradiction import detect_contradiction
 from truebrief.arbiter.temporal import entity_overlap, temporal_overlap
 from truebrief.briefer.briefer import Briefer
-from truebrief.briefer.state_of_play import StateOfPlayGenerator
 from truebrief.models.alpha import Alpha, AlphaDecision, DecisionType
 
 JUN17 = date(2026, 6, 17)
@@ -85,22 +83,6 @@ def test_golden_hormuz_contradiction_flagged():
     assert reason is not None
     assert "open" in reason and "closed" in reason
 
-
-# 5. Missing state-of-play — a grounded board is synthesized from facts.
-def test_golden_state_of_play_present():
-    class _LLM:
-        def call(self, **kwargs):
-            return (
-                '{"situation": "Fragile US-Iran framework signed Jun 17.",'
-                ' "threads": [{"label": "Strait of Hormuz", "status": "contested",'
-                ' "note": "open vs closed claims"}]}'
-            )
-    gen = StateOfPlayGenerator(llm_client=_LLM())
-    facts = [{"alpha_text": "Iran closed Hormuz.", "event_class": "state_change",
-              "event_date": "2026-06-17", "source_domain": "cnn.com"}]
-    block = gen.generate(facts, "Iran War")
-    assert block and block["situation"]
-    assert block["threads"][0]["status"] in ("agreed", "contested", "postponed", "escalating")
 
 
 # 6. Tally is not a contradiction — running totals across days don't false-flag.

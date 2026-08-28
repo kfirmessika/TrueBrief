@@ -1,9 +1,9 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import Link from 'next/link';
-import { RefreshCw, AlertCircle, GitCompare } from 'lucide-react';
+import { RefreshCw, AlertCircle, GitCompare, Pause, Play } from 'lucide-react';
 import { StatCard, STAGE_LABELS, STATUS_COLOR, STATUS_LABELS, stepLabel, RunRowList } from './_shared';
 
 interface QuotaAlert {
@@ -259,6 +259,101 @@ function KeyStatusPanel() {
   );
 }
 
+function FreezeToggle() {
+  const api = useApi();
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery<{ frozen: boolean }>({
+    queryKey: ['admin-automation-freeze'],
+    queryFn: async () => (await api.get('/admin/automation-freeze')).data,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+    retry: 0,
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (frozen: boolean) => {
+      await api.post('/admin/automation-freeze', { frozen });
+      return frozen;
+    },
+    onSuccess: (frozen) => {
+      qc.setQueryData(['admin-automation-freeze'], { frozen });
+    },
+  });
+
+  const frozen = data?.frozen ?? false;
+  const pending = mutation.isPending;
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      background: frozen
+        ? 'linear-gradient(135deg, #1a0a0a 0%, #2d0f0f 100%)'
+        : 'var(--color-background-secondary)',
+      border: `1.5px solid ${frozen ? '#DC2626' : 'var(--color-border-secondary)'}`,
+      borderRadius: 12,
+      padding: '14px 18px',
+      marginBottom: 24,
+      transition: 'all 0.25s ease',
+    }}>
+      {/* Status indicator */}
+      <div style={{
+        width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+        background: frozen ? '#DC2626' : '#16A34A',
+        boxShadow: frozen ? '0 0 8px #DC2626' : '0 0 6px #16A34A',
+        animation: frozen ? 'pulse-red 1.8s ease-in-out infinite' : 'none',
+      }} />
+
+      {/* Label */}
+      <div style={{ flex: 1 }}>
+        <div style={{
+          fontSize: 13, fontWeight: 700,
+          color: frozen ? '#FCA5A5' : 'var(--color-text-primary)',
+        }}>
+          {frozen ? 'Automation FROZEN' : 'Automation running'}
+        </div>
+        <div style={{ fontSize: 11, color: frozen ? '#F87171' : 'var(--color-text-tertiary)', marginTop: 2 }}>
+          {frozen
+            ? 'Scheduler is paused — no topics will auto-run. Manual runs still work.'
+            : 'Scheduler is active — topics run on their configured schedule.'}
+        </div>
+      </div>
+
+      {/* Toggle button */}
+      <button
+        onClick={() => mutation.mutate(!frozen)}
+        disabled={isLoading || pending}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 7,
+          background: frozen ? '#DC2626' : 'var(--color-background-tertiary, #F3F4F6)',
+          border: `1px solid ${frozen ? '#B91C1C' : 'var(--color-border-secondary)'}`,
+          borderRadius: 8, padding: '8px 16px',
+          fontSize: 13, fontWeight: 600,
+          color: frozen ? '#fff' : 'var(--color-text-primary)',
+          cursor: isLoading || pending ? 'not-allowed' : 'pointer',
+          fontFamily: 'inherit',
+          opacity: isLoading || pending ? 0.6 : 1,
+          transition: 'all 0.2s ease',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {frozen
+          ? <><Play size={13} /> Unfreeze</>
+          : <><Pause size={13} /> Freeze automation</>}
+      </button>
+
+      <style>{`
+        @keyframes pulse-red {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.6; transform: scale(0.85); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const api = useApi();
 
@@ -340,6 +435,7 @@ export default function AdminPage() {
         </div>
       </div>
 
+      <FreezeToggle />
       <KeyStatusPanel />
       <QuotaAlertsBanner />
 

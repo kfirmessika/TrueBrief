@@ -53,6 +53,11 @@ def check_and_schedule_topics() -> dict:
     from truebrief.tasks.pipeline_task import run_pipeline_task
 
     try:
+        from truebrief.api.cache import automation_is_frozen
+        if automation_is_frozen():
+            logger.info("Scheduler heartbeat: automation frozen — skipping all topics.")
+            return {"scheduled": [], "skipped": 0, "frozen": True}
+
         db = get_supabase()
 
         # Query topics that are active AND due for a scan
