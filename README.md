@@ -1,5 +1,8 @@
 # TrueBrief
 
+[![Open Web App](https://img.shields.io/badge/Open%20Web%20App-2563EB?style=for-the-badge&logo=google-chrome&logoColor=white)](https://truebrief.up.railway.app)
+[![Download Android APK](https://img.shields.io/badge/Download%20Android%20APK-16A34A?style=for-the-badge&logo=android&logoColor=white)](https://github.com/kfirmessika/TrueBrief/raw/main/docs/truebrief.apk)
+
 A noise-free news intelligence platform.
 
 TrueBrief acts as an intelligent layer between you and the internet, continuously monitoring requested topics, extracting verifiable facts, detecting and discarding duplicates, and delivering concise briefs containing only genuinely novel information.
