@@ -3,5 +3,9 @@
     "allow": [
       "Bash(python -m pytest tests/ -v)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "enableAllProjectMcpServers": true
 }
