@@ -796,19 +796,42 @@ def local_adv():
     return results, summary
 
 
+def _gemini_quota_probe_ok() -> tuple[bool, str]:
+    """One tiny embed. If it 429s, the whole Gemini arm should skip immediately
+    rather than grind through LLMClient's (correct, production) retry+backup-key
+    path 170 times. Run this file deliberately on a paid-tier key to exercise it."""
+    try:
+        import importlib
+        import os
+
+        os.environ["EMBED_PROVIDER"] = "gemini"
+        import config.settings as cs
+        importlib.reload(cs)
+        from truebrief.llm.client import LLMClient
+
+        LLMClient()._gemini_embed_call(
+            LLMClient()._get_gemini_client(), ["probe"], "RETRIEVAL_QUERY"
+        )
+        return True, ""
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)[:160]
+
+
 def _run_gemini_or_skip(pairs, label):
-    """Gemini embedding-2 free tier caps at 100 embed requests/minute; this
-    benchmark fires 100-170 in one batch, so an unattended `pytest tests/` sweep
-    hits RESOURCE_EXHAUSTED. That is an environmental limit, not a quality
-    regression — skip (don't error) so the suite stays green. Run this file
-    deliberately (`pytest tests/test_embedding_benchmark.py -s -v`) on a key with
-    paid-tier embedding quota to actually exercise the Gemini arm."""
+    """Gemini embedding-2 free tier caps at 100 req/min and 1,000 req/day; this
+    benchmark fires 100-170 embeds, so an unattended `pytest tests/` sweep hits
+    RESOURCE_EXHAUSTED. That is an environmental limit, not a quality regression —
+    skip so the suite stays green. Run this file deliberately
+    (`pytest tests/test_embedding_benchmark.py -s -v`) on a paid-tier key."""
+    ok, msg = _gemini_quota_probe_ok()
+    if not ok and ("429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower()):
+        pytest.skip(f"Gemini embedding quota exhausted — {msg}")
     try:
         results, summary = run_benchmark(pairs, "gemini")
-    except Exception as exc:  # noqa: BLE001 — want the message, any exception type
-        msg = str(exc)
-        if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower():
-            pytest.skip(f"Gemini embedding quota exhausted (free-tier 100/min) — {msg[:120]}")
+    except Exception as exc:  # noqa: BLE001
+        m = str(exc)
+        if "429" in m or "RESOURCE_EXHAUSTED" in m or "quota" in m.lower():
+            pytest.skip(f"Gemini embedding quota exhausted mid-run — {m[:120]}")
         raise
     print_report(results, summary, label)
     return results, summary
