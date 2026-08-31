@@ -497,17 +497,30 @@ def build_gemini_search_prompt(
 
 
 def build_search_query(topic_name: str, last_run_date: str = "", today: str = "") -> str:
-    """Compact query string for the API-search grounding providers (Linkup, Brave).
+    """Recency-anchored question for the API-search grounding providers (Linkup, Brave).
 
-    Unlike `build_gemini_search_prompt` (a full instruction block for the Gemini
-    grounding model), Linkup/Brave are search APIs that want a *query*, not an
-    essay — and they take the date window as separate request params
-    (fromDate/toDate, freshness), not in the query text. This is the
-    "if one prompt can't fit every provider, split it in code" split point:
-    tune the API-search phrasing here without touching the Gemini path.
+    NOT just "{topic} latest news" — verified live 2026-08-31 that a bare topic
+    query makes Linkup dredge up month-old releases with no dates. Phrasing it as
+    a dated question ("what was reported between X and Y? give each date; exclude
+    older items") makes Linkup honor the window, attach dates, and honestly answer
+    "nothing significant this week" instead of padding with stale news. The
+    fromDate/toDate request params are also sent, but the query text is what
+    actually steers the sourcedAnswer.
     """
-    topic = (topic_name or "").strip()
-    return f"{topic} latest news" if topic else "latest news"
+    topic = (topic_name or "").strip() or "current events"
+    if last_run_date and today:
+        window = f"between {last_run_date} and {today}"
+    elif today:
+        window = f"in the 7 days up to {today}"
+    else:
+        window = "in the past 7 days"
+    return (
+        f'What genuinely new, newsworthy developments about "{topic}" were reported {window}? '
+        f"For each one, state exactly what happened and its precise date (YYYY-MM-DD). "
+        f"Only include events that actually occurred within that window — exclude older "
+        f"product releases, background, and anything you cannot date. If nothing "
+        f"significant happened in that window, say so plainly."
+    )
 
 
 GEMINI_EXTRACT_SYSTEM = (
@@ -516,7 +529,13 @@ GEMINI_EXTRACT_SYSTEM = (
 )
 
 
-def build_gemini_extract_prompt(cited_text: str, source_legend: str, topic_name: str, today: str) -> str:
+def build_gemini_extract_prompt(
+    cited_text: str,
+    source_legend: str,
+    topic_name: str,
+    today: str,
+    news_window_start: str = "",
+) -> str:
     """Construct the restructuring prompt (call 2 of 2) — ports the harvester's fact-quality
     rules (STRIP THE EDITORIAL CLAUSE, ATTRIBUTION RULE, event_class taxonomy, additive-only
     context) onto multi-source grounded prose instead of a single article.
@@ -527,14 +546,29 @@ def build_gemini_extract_prompt(cited_text: str, source_legend: str, topic_name:
         source_legend: "[0] uniindia.com\\n[1] justsecurity.org\\n..." — numbered index into
             the SAME real, verified grounding_chunks the markers reference.
         topic_name: human-readable topic name, for the TOPIC FILTER.
-        today: "%Y-%m-%d" — the anchor date. Unlike the harvester (anchored to one article's
-            publish date), every fact here anchors to TODAY, since this text was gathered by a
-            live search, not read from one dated article.
+        today: "%Y-%m-%d" — the anchor for RELATIVE phrases ("yesterday") only.
+        news_window_start: "%Y-%m-%d" — start of the reporting window. Events before this
+            are background, not news (Linkup/Brave mix stale releases into "latest news"
+            prose; without this guard the model stamps them all with `today`).
     """
+    window_block = ""
+    if news_window_start:
+        window_block = f"""
+NEWS WINDOW: {news_window_start} to {today}. This brief reports ONLY what is new in
+this window. For any development:
+- If it clearly happened BEFORE {news_window_start} → set "is_background": true if it
+  is essential context for a fresh development, otherwise DROP it.
+- Do NOT assign event_date {today} to an undated item just because the search is
+  "recent". If the text does not let you place the event on a specific date within
+  {news_window_start}–{today}, DROP it (or is_background:true if it is context).
+- A months-old product release described in present tense ("X offers…", "Y is
+  available") is NOT news — drop it.
+"""
     return f"""
 TODAY: {today}
 TOPIC FILTER: {topic_name}
 Only extract facts directly relevant to this topic.
+{window_block}
 
 SOURCE LEGEND (numbered — cite ONLY these numbers, never write a URL yourself):
 {source_legend}

@@ -9,7 +9,7 @@ with a fake LLMClient — no network, no real API calls.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +20,10 @@ from truebrief.collector.gemini_search_collector import (
     _insert_citation_markers,
 )
 from truebrief.llm.client import GroundedResult
+
+# Event date inside every collector freshness window (collect() drops non-background
+# facts dated well before the reporting window; last_run_date=None → 7-day window).
+_RECENT = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def make_support(start, end, text, chunk_indices):
@@ -109,10 +113,10 @@ class FakeLLMClient:
         )
         return self._grounded
 
-    def extract_facts(self, cited_text, source_legend, topic_name, today):
+    def extract_facts(self, cited_text, source_legend, topic_name, today, news_window_start=""):
         self.extract_calls.append(
             dict(cited_text=cited_text, source_legend=source_legend,
-                 topic_name=topic_name, today=today)
+                 topic_name=topic_name, today=today, news_window_start=news_window_start)
         )
         return self._extract_json
 
@@ -149,7 +153,7 @@ class TestCollectEndToEnd:
     def test_invalid_citation_index_falls_back_to_empty_source_not_a_guess(self):
         grounded = GroundedResult(text="Some fact.", chunks=[], supports=[])
         extract_json = (
-            '[{"alpha_text": "Some fact.", "entities": [], "event_date": "2026-07-22", '
+            '[{"alpha_text": "Some fact.", "entities": [], "event_date": "' + _RECENT + '", '
             '"date_basis": "inferred", "is_background": false, "context": "", '
             '"confidence": 0.9, "importance": 0.5, "event_class": "development", '
             '"citation_indices": [5]}]'  # index 5 doesn't exist — 0 real chunks
@@ -166,7 +170,7 @@ class TestCollectEndToEnd:
         grounded = GroundedResult(text="x", chunks=[], supports=[])
         extract_json = (
             '[{"alpha_text": "Low confidence fact.", "entities": [], '
-            '"event_date": "2026-07-22", "confidence": 0.3, "citation_indices": []}]'
+            '"event_date": "' + _RECENT + '", "confidence": 0.3, "citation_indices": []}]'
         )
         llm = FakeLLMClient(grounded, extract_json)
         alphas = GeminiSearchCollector(llm_client=llm).collect("Topic", last_run_date=None)
@@ -205,13 +209,36 @@ class TestCollectEndToEnd:
         """Matches harvester.py's tolerance for a bare dict instead of a list."""
         grounded = GroundedResult(text="x", chunks=[], supports=[])
         extract_json = (
-            '{"alpha_text": "Bare fact.", "entities": [], "event_date": "2026-07-22", '
+            '{"alpha_text": "Bare fact.", "entities": [], "event_date": "' + _RECENT + '", '
             '"confidence": 0.9, "citation_indices": []}'
         )
         llm = FakeLLMClient(grounded, extract_json)
         alphas = GeminiSearchCollector(llm_client=llm).collect("Topic", last_run_date=None)
         assert len(alphas) == 1
         assert alphas[0].alpha_text == "Bare fact."
+
+    def test_stale_fact_dropped_but_stale_background_kept(self):
+        """Linkup/Brave "latest news" prose smuggles month-old releases in; a
+        non-background fact dated well before the window is dropped, a background
+        one is kept (context for something fresh)."""
+        grounded = GroundedResult(text="x", chunks=[], supports=[])
+        old = "2026-05-11"
+        extract_json = (
+            '[{"alpha_text": "Google launched Gemini 3.1 in GA.", "entities": ["Google"], '
+            f'"event_date": "{old}", "is_background": false, "confidence": 0.9, "citation_indices": []}}, '
+            '{"alpha_text": "Gemini 3.1 was first previewed in April.", "entities": ["Google"], '
+            f'"event_date": "{old}", "is_background": true, "confidence": 0.9, "citation_indices": []}}, '
+            '{"alpha_text": "Fresh thing happened.", "entities": [], '
+            f'"event_date": "{_RECENT}", "is_background": false, "confidence": 0.9, "citation_indices": []}}]'
+        )
+        llm = FakeLLMClient(grounded, extract_json)
+        alphas = GeminiSearchCollector(llm_client=llm).collect(
+            "AI", last_run_date=datetime.now() - timedelta(days=1)
+        )
+        texts = [a.alpha_text for a in alphas]
+        assert "Google launched Gemini 3.1 in GA." not in texts   # stale, dropped
+        assert "Gemini 3.1 was first previewed in April." in texts  # stale but background, kept
+        assert "Fresh thing happened." in texts
 
     def test_first_run_with_no_last_run_date_passes_empty_window(self):
         grounded = GroundedResult(text="", chunks=[], supports=[])

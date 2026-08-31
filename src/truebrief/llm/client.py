@@ -486,12 +486,20 @@ class LLMClient:
         raise LLMError(f"no grounding adapter for provider '{provider}'")
 
     def extract_facts(
-        self, cited_text: str, source_legend: str, topic_name: str, today: str
+        self,
+        cited_text: str,
+        source_legend: str,
+        topic_name: str,
+        today: str,
+        news_window_start: str = "",
     ) -> str:
         """STAGE 2 — restructure grounded prose into the Alpha-JSON contract.
-        Any 'llm' provider. Returns the raw JSON string (caller parses)."""
+        Any 'llm' provider. Returns the raw JSON string (caller parses).
+        news_window_start guards against stale prose being dated as today."""
         self._require_capability("gemini_extract", "llm")
-        prompt = build_gemini_extract_prompt(cited_text, source_legend, topic_name, today)
+        prompt = build_gemini_extract_prompt(
+            cited_text, source_legend, topic_name, today, news_window_start=news_window_start
+        )
         return self.call(
             step_name="gemini_extract",
             prompt=prompt,

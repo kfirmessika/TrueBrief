@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, List, Optional
 
 from dateutil.parser import parse as parse_date
@@ -112,6 +112,11 @@ class GeminiSearchCollector:
         today = datetime.now()
         today_str = today.strftime("%Y-%m-%d")
         last_run_str = last_run_date.strftime("%Y-%m-%d") if last_run_date else ""
+        # Start of the reporting window — used to (a) tell the extractor what counts
+        # as "news" vs stale background, and (b) hard-drop clearly-old facts that
+        # slip through. Default to 7 days back on a first-ever run.
+        window_start = last_run_date if last_run_date else today - timedelta(days=7)
+        window_start_str = window_start.strftime("%Y-%m-%d")
 
         # Same-day rescan: pull already-stored facts and inject into the search prompt
         # so Gemini doesn't re-surface them. Skipped when no vector_store is wired or
@@ -150,9 +155,11 @@ class GeminiSearchCollector:
         legend, urls, names = _build_source_legend(grounded.chunks)
 
         # STAGE 2 — restructure prose into the Alpha-JSON contract (any llm provider).
-        raw = self.llm.extract_facts(cited_text, legend, topic_name, today_str)
+        raw = self.llm.extract_facts(
+            cited_text, legend, topic_name, today_str, news_window_start=window_start_str
+        )
 
-        return self._parse_facts(raw, urls, names, topic_id)
+        return self._parse_facts(raw, urls, names, topic_id, window_start=window_start)
 
     def _parse_facts(
         self,
@@ -160,6 +167,7 @@ class GeminiSearchCollector:
         urls: List[Optional[str]],
         names: List[Optional[str]],
         topic_id: Optional[str],
+        window_start: Optional[datetime] = None,
     ) -> List[Alpha]:
         try:
             data = json.loads(raw)
@@ -209,6 +217,24 @@ class GeminiSearchCollector:
             except Exception:
                 continue
 
+            is_background = bool(item.get("is_background", False))
+
+            # Freshness backstop: Linkup/Brave "latest news" prose mixes in month-old
+            # releases; the extractor should have dropped or backgrounded them, but
+            # if a non-background fact is dated well before the reporting window it
+            # is stale — drop it so old news never leads a brief. 3-day grace covers
+            # timezone / "announced late yesterday" slop.
+            if (
+                window_start is not None
+                and not is_background
+                and event_date.date() < (window_start - timedelta(days=3)).date()
+            ):
+                logger.info(
+                    "[gemini_extract] dropping stale fact (event_date=%s, window_start=%s): %s",
+                    event_date.date(), window_start.date(), alpha_text[:80],
+                )
+                continue
+
             raw_class = str(item.get("event_class") or "").strip().lower()
             event_class = raw_class if raw_class in _VALID_EVENT_CLASSES else None
 
@@ -240,7 +266,7 @@ class GeminiSearchCollector:
                 context=item.get("context") or None,
                 confidence=confidence,
                 date_basis=date_basis,
-                is_background=bool(item.get("is_background", False)),
+                is_background=is_background,
                 topic_id=topic_id,
                 event_class=event_class,
                 importance=importance,
