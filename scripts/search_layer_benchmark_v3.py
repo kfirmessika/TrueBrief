@@ -43,7 +43,7 @@ TODAY = datetime.date.today().isoformat()
 TODAY_DT = datetime.datetime.now()
 WEEK_AGO = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
 CALL_TIMEOUT = 120
-JUDGE_MODEL = "gemini-2.5-flash-lite"
+JUDGE_MODEL = "qwen/qwen3.8-27b"  # Groq — Gemini quota exhausted
 
 DEFAULT_TOPICS = [
     "Iran US ceasefire Strait of Hormuz",
@@ -96,40 +96,44 @@ class PipelineResult:
 # ── Step 1: Collect ────────────────────────────────────────────────────────────
 
 def collect_gemini(topic: str) -> CollectResult:
-    """Real GeminiSearchCollector call 1: grounded prose + grounding_chunks."""
+    """Gemini grounded search via Interactions API (different quota pool from models.generate_content).
+    Uses gemini-3.7-flash — better model than production's gemini-3.5-flash-lite.
+    Note: Interactions API returns synthesized prose but no structured grounding_chunks,
+    so source legend is empty — alpha source_attribution will be lower for Gemini by design.
+    """
     t0 = time.monotonic()
     try:
-        from truebrief.llm.client import LLMClient, GroundedResult
-        from truebrief.llm.prompts import (
-            build_gemini_search_prompt,
-            GEMINI_SEARCH_SYSTEM,
-        )
-        from truebrief.collector.gemini_search_collector import (
-            _insert_citation_markers,
-            _build_source_legend,
-        )
+        from google import genai
+        from truebrief.llm.prompts import build_gemini_search_prompt, GEMINI_SEARCH_SYSTEM
 
-        llm = LLMClient()
+        api_key = (
+            os.getenv("GOOGLE_API_KEY_DEV")
+            or os.getenv("GOOGLE_API_KEY")
+            or os.getenv("GOOGLE_API_KEY_BACKUP") or ""
+        )
+        if not api_key:
+            return CollectResult("gemini", topic, error="No GOOGLE_API_KEY", latency_s=0)
+
+        client = genai.Client(api_key=api_key)
         prompt = build_gemini_search_prompt(topic, WEEK_AGO, TODAY)
-        grounded: GroundedResult = llm.call_gemini_with_grounding(
-            step_name="gemini_search",
-            prompt=prompt,
-            system_prompt=GEMINI_SEARCH_SYSTEM,
-        )
-        if not grounded.text.strip():
-            return CollectResult("gemini", topic, error="empty grounding response",
-                                 latency_s=time.monotonic() - t0)
+        full_prompt = f"{GEMINI_SEARCH_SYSTEM}\n\n{prompt}"
 
-        cited = _insert_citation_markers(grounded.text, grounded.supports)
-        legend, urls, names = _build_source_legend(grounded.chunks)
-        real_sources = sum(1 for u in urls if u)
+        interaction = client.interactions.create(
+            model="gemini-3.7-flash",
+            input=full_prompt,
+            tools=[{"type": "google_search"}],
+        )
+        text = (interaction.output_text or "").strip()
+        if not text:
+            return CollectResult("gemini", topic, error="empty response", latency_s=time.monotonic()-t0)
+
         return CollectResult(
             provider="gemini", topic=topic,
-            prose=grounded.text,
-            cited_text=cited,
-            source_legend=legend,
+            prose=text,
+            cited_text=text,          # no citation markers available from Interactions API
+            source_legend="(no source legend — Interactions API does not return grounding_chunks)",
             latency_s=time.monotonic() - t0,
-            n_real_sources=real_sources,
+            n_real_sources=0,         # structurally 0 for Interactions API
         )
     except Exception as exc:
         return CollectResult("gemini", topic, error=str(exc), latency_s=time.monotonic() - t0)
@@ -335,14 +339,11 @@ def extract_alphas(collect: CollectResult) -> tuple[list[AlphaResult], str, floa
 
 # ── Step 3: Judge Alphas ───────────────────────────────────────────────────────
 
-JUDGE_PROMPT = """You are scoring the Alpha extraction output of 3 search providers for a news pipeline.
+JUDGE_PROMPT = """You are scoring the Alpha extraction output of 2 search providers for a news pipeline.
 Today: {today}. Topic: "{topic}"
 
-Each provider ran through the same extraction pipeline. You are judging the RESULTING ALPHA OBJECTS,
-not the raw search text. Score what is actually present in the alpha lists.
-
-=== GEMINI ALPHAS ({n_gemini} facts) ===
-{gemini_alphas}
+Each provider ran through the same 2-call extraction pipeline (collect -> extract with the same prompt).
+You are judging the RESULTING ALPHA OBJECTS, not raw search text. Score what is in the alpha lists.
 
 === LINKUP ALPHAS ({n_linkup} facts) ===
 {linkup_alphas}
@@ -354,56 +355,51 @@ Score each provider 0-3 on each axis. Be strict and literal.
 
 AXES:
 - alpha_quality (0-3): Are alpha_text sentences clean, factual, verifiable, editorial-free?
-  3=all clean factual sentences; 2=mostly clean with minor editorial; 1=mixed; 0=mostly editorializing
+  3=all clean; 2=mostly clean; 1=mixed; 0=mostly editorializing/vague
 - freshness (0-3): Do event_dates fall within the last 7 days (since {week_ago})?
-  3=all dated this week; 2=most this week; 1=mixed old and new; 0=all old or no dates
-- fact_count (0-3): Raw count of non-background alphas with confidence >= 0.7
+  3=all this week; 2=most; 1=mixed; 0=all old or undated
+- fact_count (0-3): Non-background alphas with confidence >= 0.7
   3=6+ fresh facts; 2=4-5; 1=2-3; 0=0-1
-- source_attribution (0-3): Do alphas have real source_url/source_name attribution?
-  3=majority have real URLs from named outlets; 2=some; 1=few; 0=none
-- noise_free (0-3): Are is_background=false facts genuinely new developments (not standing states)?
-  3=no background masquerading as news; 2=minor; 1=some; 0=majority are background noise
-- topic_relevance (0-3): Are the facts actually about the topic, not tangential?
+- noise_free (0-3): is_background=false facts are genuinely new, not standing states
+  3=all fresh developments; 2=minor background noise; 1=some; 0=mostly background
+- topic_relevance (0-3): Facts are actually about the topic, not tangential
   3=all on-topic; 2=mostly; 1=mixed; 0=mostly off-topic
+- specificity (0-3): Facts contain specific names, dates, numbers, organizations
+  3=every fact has 2+ specific details; 2=most do; 1=some; 0=vague only
 
 Respond ONLY with valid JSON (no markdown fences):
 {{
-  "gemini": {{"alpha_quality": N, "freshness": N, "fact_count": N, "source_attribution": N, "noise_free": N, "topic_relevance": N, "notes": "one sentence"}},
-  "linkup": {{"alpha_quality": N, "freshness": N, "fact_count": N, "source_attribution": N, "noise_free": N, "topic_relevance": N, "notes": "one sentence"}},
-  "brave":  {{"alpha_quality": N, "freshness": N, "fact_count": N, "source_attribution": N, "noise_free": N, "topic_relevance": N, "notes": "one sentence"}},
-  "winner": "gemini|linkup|brave|tie",
-  "key_finding": "one sentence about what this topic revealed"
+  "linkup": {{"alpha_quality": N, "freshness": N, "fact_count": N, "noise_free": N, "topic_relevance": N, "specificity": N, "notes": "one sentence"}},
+  "brave":  {{"alpha_quality": N, "freshness": N, "fact_count": N, "noise_free": N, "topic_relevance": N, "specificity": N, "notes": "one sentence"}},
+  "winner": "linkup|brave|tie",
+  "key_finding": "one sentence about what this topic revealed about the two providers"
 }}
 """
 
-AXES = ["alpha_quality", "freshness", "fact_count", "source_attribution", "noise_free", "topic_relevance"]
-PROVIDERS = ["gemini", "linkup", "brave"]
+AXES = ["alpha_quality", "freshness", "fact_count", "noise_free", "topic_relevance", "specificity"]
+PROVIDERS = ["linkup", "brave"]
 
 
 def _format_alphas(alphas: list[AlphaResult]) -> str:
     if not alphas:
         return "(no alphas extracted)"
     lines = []
-    for i, a in enumerate(alphas[:12]):  # cap at 12 to stay in context
-        bg = " [BACKGROUND]" if a.is_background else ""
-        src = f" | src: {a.source_name}" if a.source_name else ""
+    for i, a in enumerate(alphas[:8]):  # cap at 8 to stay within Groq context
+        bg = " BG" if a.is_background else ""
         lines.append(
-            f"{i+1}. [{a.event_date}] [{a.event_class}] conf={a.confidence:.2f} imp={a.importance:.2f}{bg}{src}\n"
-            f"   {a.alpha_text}"
+            f"{i+1}. [{a.event_date}][{a.event_class}] conf={a.confidence:.1f}{bg} | {a.alpha_text[:180]}"
         )
     return "\n".join(lines)
 
 
 def run_judge(topic: str, results: dict[str, PipelineResult]) -> dict:
     try:
-        from google import genai
-        from google.genai import types
-        api_key = (
-            os.getenv("GOOGLE_API_KEY_DEV")
-            or os.getenv("GOOGLE_API_KEY")
-            or os.getenv("GOOGLE_API_KEY_BACKUP") or ""
-        )
-        client = genai.Client(api_key=api_key)
+        from groq import Groq
+
+        api_key = os.getenv("GROQ_API_KEY", "")
+        if not api_key:
+            return {"error": "GROQ_API_KEY not set"}
+        client = Groq(api_key=api_key)
 
         def _alphas_txt(p: str) -> str:
             r = results[p]
@@ -415,19 +411,21 @@ def run_judge(topic: str, results: dict[str, PipelineResult]) -> dict:
             today=TODAY,
             week_ago=WEEK_AGO,
             topic=topic,
-            n_gemini=len(results["gemini"].alphas),
             n_linkup=len(results["linkup"].alphas),
             n_brave=len(results["brave"].alphas),
-            gemini_alphas=_alphas_txt("gemini"),
             linkup_alphas=_alphas_txt("linkup"),
             brave_alphas=_alphas_txt("brave"),
         )
-        response = client.models.generate_content(
+        response = client.chat.completions.create(
             model=JUDGE_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            messages=[
+                {"role": "system", "content": "You are a precise benchmark judge. Output only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0,
         )
-        raw = response.text.strip()
+        raw = response.choices[0].message.content.strip()
         m = re.search(r"\{[\s\S]*\}", raw)
         if not m:
             return {"error": f"no JSON: {raw[:200]}"}
@@ -443,19 +441,16 @@ def run_topic(topic: str, parallel: bool = True) -> dict[str, PipelineResult]:
 
     # Step 1: Collect
     if parallel:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            fg = pool.submit(collect_gemini, topic)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             fl = pool.submit(collect_linkup, topic)
             fb = pool.submit(collect_brave, topic)
-            g_collect = fg.result(timeout=CALL_TIMEOUT)
             l_collect = fl.result(timeout=CALL_TIMEOUT)
             b_collect = fb.result(timeout=CALL_TIMEOUT)
     else:
-        g_collect = collect_gemini(topic)
         l_collect = collect_linkup(topic)
         b_collect = collect_brave(topic)
 
-    for c in [g_collect, l_collect, b_collect]:
+    for c in [l_collect, b_collect]:
         if c.error:
             print(f"    {c.provider}: COLLECT ERROR — {c.error[:80]}")
         else:
@@ -463,20 +458,16 @@ def run_topic(topic: str, parallel: bool = True) -> dict[str, PipelineResult]:
 
     # Step 2: Extract (same for all, can parallelize)
     if parallel:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            fge = pool.submit(extract_alphas, g_collect)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             fle = pool.submit(extract_alphas, l_collect)
             fbe = pool.submit(extract_alphas, b_collect)
-            g_alphas, g_err, g_ext_t = fge.result(timeout=CALL_TIMEOUT)
             l_alphas, l_err, l_ext_t = fle.result(timeout=CALL_TIMEOUT)
             b_alphas, b_err, b_ext_t = fbe.result(timeout=CALL_TIMEOUT)
     else:
-        g_alphas, g_err, g_ext_t = extract_alphas(g_collect)
         l_alphas, l_err, l_ext_t = extract_alphas(l_collect)
         b_alphas, b_err, b_ext_t = extract_alphas(b_collect)
 
     results = {
-        "gemini": PipelineResult("gemini", topic, g_collect, g_alphas, g_err, g_ext_t),
         "linkup": PipelineResult("linkup", topic, l_collect, l_alphas, l_err, l_ext_t),
         "brave":  PipelineResult("brave",  topic, b_collect, b_alphas, b_err, b_ext_t),
     }
@@ -498,11 +489,11 @@ def _score_total(scores: dict) -> int:
 
 
 def print_scorecard(all_runs: list[tuple]) -> None:
-    print(f"\n{'='*72}")
-    print("  PIPELINE SCORECARD (Alpha quality after full extract)")
-    print(f"{'='*72}")
-    print(f"  {'Topic':<40} {'Gem':>5} {'Lnk':>5} {'Bra':>5}  Winner")
-    print(f"  {'-'*70}")
+    print(f"\n{'='*70}")
+    print("  PIPELINE SCORECARD (Alpha quality after full 2-call extract)")
+    print(f"{'='*70}")
+    print(f"  {'Topic':<42} {'Lnk':>5} {'Bra':>5}  Winner")
+    print(f"  {'-'*68}")
 
     totals = {p: 0 for p in PROVIDERS}
     for topic, results, judgment in all_runs:
@@ -510,27 +501,26 @@ def print_scorecard(all_runs: list[tuple]) -> None:
         winner = judgment.get("winner", "?")
         for p in PROVIDERS:
             totals[p] += scores[p]
-        t = topic[:38]
-        print(f"  {t:<40} {scores['gemini']:>5} {scores['linkup']:>5} {scores['brave']:>5}  {winner}")
+        t = topic[:40]
+        print(f"  {t:<42} {scores['linkup']:>5} {scores['brave']:>5}  {winner}")
 
-    print(f"  {'-'*70}")
-    print(f"  {'TOTAL':<40} {totals['gemini']:>5} {totals['linkup']:>5} {totals['brave']:>5}")
+    print(f"  {'-'*68}")
+    print(f"  {'TOTAL':<42} {totals['linkup']:>5} {totals['brave']:>5}")
 
-    print(f"\n  {'Topic':<40} Key finding")
-    print(f"  {'-'*70}")
+    print(f"\n  {'Topic':<42} Key finding")
+    print(f"  {'-'*68}")
     for topic, _, judgment in all_runs:
-        finding = judgment.get("key_finding", "—")[:55]
-        print(f"  {topic[:38]:<40} {finding}")
+        finding = judgment.get("key_finding", "—")[:50]
+        print(f"  {topic[:40]:<42} {finding}")
 
     print(f"\n  Alpha count by topic:")
-    print(f"  {'Topic':<40} {'Gem':>5} {'Lnk':>5} {'Bra':>5}")
+    print(f"  {'Topic':<42} {'Lnk':>5} {'Bra':>5}")
     for topic, results, _ in all_runs:
-        g = len(results["gemini"].alphas)
         l = len(results["linkup"].alphas)
         b = len(results["brave"].alphas)
-        print(f"  {topic[:38]:<40} {g:>5} {l:>5} {b:>5}")
+        print(f"  {topic[:40]:<42} {l:>5} {b:>5}")
 
-    print(f"\n  Cost/call: Gemini 2x grounding ~$0.028 | Linkup ~$0.006 + extract | Brave ~$0.005 + extract")
+    print(f"\n  Cost/call: Linkup ~$0.006 + extract | Brave ~$0.005 + extract")
     print(f"  Max per topic: {len(AXES)*3}  Grand max: {len(AXES)*3*len(all_runs)}")
 
 
@@ -548,31 +538,30 @@ def save_report(all_runs: list[tuple]) -> str:
         f"# Search Layer Benchmark v3 — Pipeline Level",
         f"**Date:** {date_str}  |  **Topics:** {len(all_runs)}  |  **Max score:** {len(AXES)*3*len(all_runs)} per provider",
         "",
-        "All 3 providers run through the same 2-call pipeline (collect -> extract using `build_gemini_extract_prompt`).",
-        "Judge scores the resulting Alpha objects, not raw search output.",
+        "Linkup and Brave run through the same 2-call pipeline (collect -> extract via `build_gemini_extract_prompt`).",
+        "Judge scores the resulting Alpha objects, not raw search output. Gemini excluded — quota exhausted.",
         "",
         "## Summary",
         "",
-        f"| Topic | Gemini | Linkup | Brave | Winner |",
-        f"|---|---|---|---|---|",
+        f"| Topic | Linkup | Brave | Winner |",
+        f"|---|---|---|---|",
     ]
     for topic, _, judgment in all_runs:
         scores = {p: _score_total(judgment.get(p, {})) for p in PROVIDERS}
         winner = judgment.get("winner", "?")
-        lines.append(f"| {topic} | {scores['gemini']} | {scores['linkup']} | {scores['brave']} | **{winner}** |")
+        lines.append(f"| {topic} | {scores['linkup']} | {scores['brave']} | **{winner}** |")
     lines += [
-        f"| **TOTAL** | **{totals['gemini']}** | **{totals['linkup']}** | **{totals['brave']}** | |",
+        f"| **TOTAL** | **{totals['linkup']}** | **{totals['brave']}** | |",
         "",
         "## Alpha counts",
         "",
-        f"| Topic | Gemini | Linkup | Brave |",
-        f"|---|---|---|---|",
+        f"| Topic | Linkup | Brave |",
+        f"|---|---|---|",
     ]
     for topic, results, _ in all_runs:
-        g = len(results["gemini"].alphas)
         l = len(results["linkup"].alphas)
         b = len(results["brave"].alphas)
-        lines.append(f"| {topic} | {g} | {l} | {b} |")
+        lines.append(f"| {topic} | {l} | {b} |")
     lines.append("")
     lines.append("## Per-Topic Results")
     lines.append("")
@@ -581,17 +570,16 @@ def save_report(all_runs: list[tuple]) -> str:
         lines += [
             f"### {topic}",
             "",
-            f"| Axis | Gemini | Linkup | Brave |",
-            f"|---|---|---|---|",
+            f"| Axis | Linkup | Brave |",
+            f"|---|---|",
         ]
         for ax in AXES:
-            g = judgment.get("gemini", {}).get(ax, "?")
             l = judgment.get("linkup", {}).get(ax, "?")
             b = judgment.get("brave", {}).get(ax, "?")
-            lines.append(f"| {ax} | {g} | {l} | {b} |")
+            lines.append(f"| {ax} | {l} | {b} |")
         scores = {p: _score_total(judgment.get(p, {})) for p in PROVIDERS}
         lines += [
-            f"| **TOTAL** | **{scores['gemini']}** | **{scores['linkup']}** | **{scores['brave']}** |",
+            f"| **TOTAL** | **{scores['linkup']}** | **{scores['brave']}** |",
             "",
             f"**Winner:** {judgment.get('winner', '?')}  |  **Finding:** {judgment.get('key_finding', '—')}",
             "",
@@ -649,7 +637,7 @@ def main() -> None:
     print(f"\nSearch Layer Benchmark v3 (Pipeline) — {TODAY}")
     print(f"Topics: {len(topics)} | Parallel: {parallel}")
     print(f"Pipeline: collect x3 -> extract x3 (real prompts) -> judge x1 per topic")
-    print(f"Estimated calls: {len(topics)} x (3 collect + 3 extract + 1 judge) = {len(topics) * 7}")
+    print(f"Estimated calls: {len(topics)} x (2 collect + 2 extract + 1 judge) = {len(topics) * 5}")
 
     all_runs = []
     for topic in topics:
@@ -660,7 +648,7 @@ def main() -> None:
             print(f"    JUDGE ERROR: {judgment['error'][:100]}")
         else:
             scores = {p: _score_total(judgment.get(p, {})) for p in PROVIDERS}
-            print(f"    Scores: gemini={scores['gemini']} linkup={scores['linkup']} brave={scores['brave']} winner={judgment.get('winner')}")
+            print(f"    Scores: linkup={scores['linkup']} brave={scores['brave']} winner={judgment.get('winner')}")
         all_runs.append((topic, results, judgment))
 
     print_scorecard(all_runs)

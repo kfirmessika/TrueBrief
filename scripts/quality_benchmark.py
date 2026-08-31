@@ -195,7 +195,7 @@ def run_gemini_search(topic: str) -> tuple[str, list[dict], str | None]:
     try:
         from google import genai
         from google.genai import types
-        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY", "")
+        api_key = os.getenv("GOOGLE_API_KEY_DEV") or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY", "")
         client = genai.Client(api_key=api_key)
         prompt = GEMINI_SEARCH_PROMPT.format(
             topic=topic, date=datetime.date.today().isoformat()
@@ -223,7 +223,7 @@ def run_judge(topic: str, brief_v4: str, brief_v5: str, brief_reference: str) ->
     try:
         from google import genai
         from google.genai import types
-        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY", "")
+        api_key = os.getenv("GOOGLE_API_KEY_DEV") or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY", "")
         client = genai.Client(api_key=api_key)
         prompt = JUDGE_PROMPT.format(
             topic=topic,
