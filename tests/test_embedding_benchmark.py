@@ -65,6 +65,9 @@ GEMINI_EMBED_COST_PER_TOKEN_PAID = 0.20 / 1_000_000
 GEMINI_EMBED_COST_PER_TOKEN_FREE = 0.0    # current production tier
 CHARS_PER_TOKEN = 4.0
 
+# OpenAI embedding: $0.02/M tokens (text-embedding-3-small)
+OPENAI_EMBED_COST_PER_TOKEN = 0.02 / 1_000_000
+
 # Local CPU: Railway 2 vCPU @ $0.000463/vCPU-min; ~10 ms/text batch-amortised
 RAILWAY_VCPU_COST_PER_MIN = 0.000463
 RAILWAY_VCPU_ALLOC = 2
@@ -79,6 +82,11 @@ def gemini_cost_per_text(text: str, paid_tier: bool = True) -> float:
     """Default to paid tier -- free tier is rate-limited and won't hold at scale."""
     rate = GEMINI_EMBED_COST_PER_TOKEN_PAID if paid_tier else GEMINI_EMBED_COST_PER_TOKEN_FREE
     return (len(text) / CHARS_PER_TOKEN) * rate
+
+
+def openai_cost_per_text(text: str) -> float:
+    """OpenAI text-embedding-3-small cost per text."""
+    return (len(text) / CHARS_PER_TOKEN) * OPENAI_EMBED_COST_PER_TOKEN
 
 
 def pipeline_cost(escalation_rate: float, n_candidates: int = LEDGER_FETCH_LIMIT,
@@ -470,6 +478,22 @@ def get_gemini_client():
             os.environ["EMBED_PROVIDER"] = original
 
 
+def get_openai_client():
+    import importlib
+    original = os.environ.get("EMBED_PROVIDER")
+    os.environ["EMBED_PROVIDER"] = "openai"
+    try:
+        import config.settings as cs
+        importlib.reload(cs)
+        from truebrief.llm.client import LLMClient
+        return LLMClient()
+    finally:
+        if original is None:
+            os.environ.pop("EMBED_PROVIDER", None)
+        else:
+            os.environ["EMBED_PROVIDER"] = original
+
+
 # ── Cosine ────────────────────────────────────────────────────────────────────
 
 def cosine(a: List[float], b: List[float]) -> float:
@@ -518,6 +542,15 @@ def run_benchmark(pairs: List[Pair], provider: str) -> Tuple[List[PairResult], d
             return vecs, ms
         def _cost(text, _ms):
             return gemini_cost_per_text(text, paid_tier=True)
+    elif provider == "openai":
+        client = get_openai_client()
+        def _embed(texts):
+            t0 = time.perf_counter()
+            vecs = client.embed_batch(texts)
+            ms = (time.perf_counter() - t0) * 1000
+            return vecs, ms
+        def _cost(text, _ms):
+            return openai_cost_per_text(text)
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
