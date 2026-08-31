@@ -176,10 +176,13 @@ class Settings(BaseSettings):
     # --- Embedding provider ---
     # "gemini"  → gemini-embedding-2 (768 dim, 100 req/min free tier)
     # "local"   → sentence-transformers BAAI/bge-base-en-v1.5 (768 dim, unlimited, CPU)
-    # Both output 768 dims → pgvector column compatible with no migration.
+    # "openai"  → text-embedding-3-small (768 dim via Matryoshka, $0.02/1M tokens)
+    # All output 768 dims → pgvector column compatible with no migration.
     EMBED_PROVIDER: str = "gemini"
     # Which sentence-transformers model to use when EMBED_PROVIDER=local.
     LOCAL_EMBED_MODEL: str = "BAAI/bge-base-en-v1.5"
+    # Which OpenAI embedding model to use when EMBED_PROVIDER=openai.
+    OPENAI_EMBED_MODEL: str = "text-embedding-3-small"
 
     # --- Pipeline Observability (A.7 admin trace panel) ---
     # When True, every scan records a full per-run trace (pipeline_trace table) AND the
@@ -288,11 +291,12 @@ _ARBITER_MODEL      = "gemini-3.5-flash-lite"   # step: arbiter (dedup judge)
 _BRIEFER_PROVIDER   = "gemini"
 _BRIEFER_MODEL      = "gemini-3.5-flash-lite"   # step: briefer (write final brief)
 _EMBED_PROVIDER     = _norm_provider(getattr(settings, "EMBED_PROVIDER", "gemini")) or "gemini"
-_EMBED_MODEL        = (
-    f"local/{getattr(settings, 'LOCAL_EMBED_MODEL', 'BAAI/bge-base-en-v1.5')}"
-    if _EMBED_PROVIDER == "local"
-    else "models/gemini-embedding-2"
-)
+if _EMBED_PROVIDER == "local":
+    _EMBED_MODEL = f"local/{getattr(settings, 'LOCAL_EMBED_MODEL', 'BAAI/bge-base-en-v1.5')}"
+elif _EMBED_PROVIDER == "openai":
+    _EMBED_MODEL = getattr(settings, "OPENAI_EMBED_MODEL", "text-embedding-3-small")
+else:
+    _EMBED_MODEL = "models/gemini-embedding-2"
 
 LLM_CONFIG: dict[str, dict[str, str]] = {
     # --- V4 steps (not active in V5 — kept so existing telemetry keys don't break) ---

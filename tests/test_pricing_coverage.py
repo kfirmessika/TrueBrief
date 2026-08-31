@@ -21,6 +21,8 @@ _ALL_POSSIBLE_MODELS = {
     "gemini-2.0-flash",
     "llama-3.1-8b-instant",   # dashboard_summary / story_stitch when GROQ_API_KEY is set
     "llama-3.3-70b-versatile",  # signal_scorer when GROQ_API_KEY is set; GROQ_FALLBACK_MODEL
+    "text-embedding-3-small",  # embedding when EMBED_PROVIDER=openai
+    "text-embedding-3-large",
 }
 
 

@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from truebrief.llm.client import EMBED_DIM, GroundedResult, LLMClient, LLMError
+from truebrief.llm.client import EMBED_DIM, GroundedResult, LLMClient, LLMError, _search_window
 
 
 def _client(config: dict, **settings_kw) -> LLMClient:
@@ -81,6 +81,7 @@ def test_require_capability_blocks_incapable_provider(step, provider, cap):
     ("arbiter", "groq", "llm"),
     ("embedding", "gemini", "embed"),
     ("embedding", "local", "embed"),
+    ("embedding", "openai", "embed"),
 ])
 def test_require_capability_allows_capable_provider(step, provider, cap):
     c = _client({step: {"provider": provider, "model": "x"}})
@@ -133,7 +134,54 @@ def test_check_embed_dim():
         LLMClient._check_embed_dim([0.0] * 1536, "openai")
 
 
-# ── 7. config completeness ───────────────────────────────────────────────────
+def test_openai_embed_dispatch():
+    c = _client({"embedding": {"provider": "openai", "model": "text-embedding-3-small"}}, EMBED_PROVIDER="openai")
+    dummy_vec = [0.1] * EMBED_DIM
+    with patch.object(LLMClient, "_embed_openai", return_value=dummy_vec) as m:
+        vec = c.embed("test text")
+        assert len(vec) == EMBED_DIM
+        assert m.called
+
+
+def test_openai_embed_batch_dispatch():
+    c = _client({"embedding": {"provider": "openai", "model": "text-embedding-3-small"}}, EMBED_PROVIDER="openai")
+    dummy_vecs = [[0.1] * EMBED_DIM, [0.2] * EMBED_DIM]
+    with patch.object(LLMClient, "_embed_batch_openai", return_value=dummy_vecs) as m:
+        vecs = c.embed_batch(["text1", "text2"])
+        assert len(vecs) == 2
+        assert len(vecs[0]) == EMBED_DIM
+        assert m.called
+
+
+# ── 8. search window (Linkup/Brave same-day 400 guard) ──────────────────────
+
+def test_search_window_never_zero_width():
+    # same-day rescan (last_run == today) is the case that 400'd Linkup in prod
+    frm, to = _search_window("2026-08-31", "2026-08-31")
+    assert frm < to, f"{frm} not before {to}"
+    assert to == "2026-08-31"
+    assert frm == "2026-08-30"
+
+
+def test_search_window_normal_and_firstrun():
+    assert _search_window("2026-08-24", "2026-08-31") == ("2026-08-24", "2026-08-31")
+    frm, to = _search_window("", "2026-08-31")            # first-ever run
+    assert to == "2026-08-31" and frm == "2026-08-24"
+    frm, to = _search_window("garbage", "also-bad")       # unparseable → safe default
+    assert frm < to
+
+
+def test_collector_search_falls_back_when_configured_provider_errors(monkeypatch):
+    c = _client({"gemini_search": {"provider": "linkup", "model": "x"}}, LINKUP_API_KEY="lk", BRAVE_API_KEY="brv")
+    good = GroundedResult(text="from brave", chunks=[], supports=[])
+    with patch.object(LLMClient, "_grounded_linkup", side_effect=LLMError("Linkup 400")), \
+         patch.object(LLMClient, "_grounded_brave", return_value=good) as brave:
+        out = c.collector_search("Iran War", last_run_str="2026-08-31", today_str="2026-08-31")
+    assert out is good
+    assert brave.called
+
+
+# ── 9. config completeness ───────────────────────────────────────────────────
 
 def test_every_v5_stage_has_a_registry_backed_config_entry():
     from config.settings import LLM_CONFIG, PROVIDER_REGISTRY

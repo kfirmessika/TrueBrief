@@ -39,6 +39,34 @@ logger = logging.getLogger(__name__)
 EMBED_DIM = 768
 
 
+def _search_window(last_run_str: str, today_str: str, default_days: int = 7) -> tuple[str, str]:
+    """Return (fromDate, toDate) as YYYY-MM-DD with fromDate STRICTLY before toDate.
+
+    The Linkup API 400s ("fromDate must be before toDate") and Brave's freshness
+    range misbehaves when the two dates are equal — which is exactly the
+    same-day-rescan case the pipeline hits every run (topics.last_run_at is
+    stamped to "now" before the scan, so last_run_str == today_str). Clamp the
+    window to at least one day so "today's news" still comes back.
+    """
+    import datetime as _dt
+
+    try:
+        to_d = _dt.date.fromisoformat(today_str) if today_str else _dt.date.today()
+    except ValueError:
+        to_d = _dt.date.today()
+    try:
+        from_d = (
+            _dt.date.fromisoformat(last_run_str)
+            if last_run_str
+            else to_d - _dt.timedelta(days=default_days)
+        )
+    except ValueError:
+        from_d = to_d - _dt.timedelta(days=default_days)
+    if from_d >= to_d:
+        from_d = to_d - _dt.timedelta(days=1)
+    return from_d.isoformat(), to_d.isoformat()
+
+
 @dataclass
 class GroundedResult:
     """Result of a Gemini Search-grounded call. See LLMClient.call_gemini_with_grounding.
@@ -393,8 +421,53 @@ class LLMClient:
         'gemini' (Google-Search grounding + rich prompt + citation offsets),
         'linkup' (sourcedAnswer), or 'brave' (web search + summarizer). Returns a
         GroundedResult; .supports is empty for linkup/brave (no per-segment offsets).
-        Raises LLMError if the configured provider has no 'grounding' capability."""
-        provider = self._require_capability("gemini_search", "grounding")
+
+        Falls back through the other grounding providers (that have a key) if the
+        configured one errors or returns nothing — one provider being down
+        (Linkup 4xx/5xx, Gemini quota) must never leave a scan with no brief.
+        Raises LLMError only if the configured provider can't ground at all, or
+        every provider failed."""
+        configured = self._require_capability("gemini_search", "grounding")
+
+        from config.settings import PROVIDER_REGISTRY
+
+        all_grounding = [
+            p for p, r in PROVIDER_REGISTRY.items() if "grounding" in r.get("capabilities", set())
+        ]
+        order = [configured] + [p for p in all_grounding if p != configured]
+
+        errors: List[str] = []
+        for idx, p in enumerate(order):
+            if p != "gemini" and not self._resolve_api_key(p):
+                continue  # no key for this fallback provider
+            try:
+                result = self._grounded_one(
+                    p, topic_name, last_run_str, today_str, known_facts, system_prompt
+                )
+            except Exception as exc:
+                errors.append(f"{p}: {type(exc).__name__}: {str(exc)[:150]}")
+                logger.warning("[collector_search] grounding provider '%s' failed: %s", p, str(exc)[:200])
+                continue
+            if not (result.text or "").strip():
+                errors.append(f"{p}: empty response")
+                logger.warning("[collector_search] grounding provider '%s' returned empty text", p)
+                continue
+            if idx > 0:
+                logger.warning(
+                    "[collector_search] configured provider '%s' unavailable — used fallback '%s'",
+                    configured, p,
+                )
+            return result
+
+        raise LLMError(
+            f"All grounding providers failed for '{topic_name}': " + " | ".join(errors)
+        )
+
+    def _grounded_one(
+        self, provider, topic_name, last_run_str, today_str, known_facts, system_prompt
+    ) -> "GroundedResult":
+        """Single grounded-search call against `provider`. No fallback here — see
+        collector_search."""
         if provider == "gemini":
             prompt = build_gemini_search_prompt(
                 topic_name, last_run_str, today_str, known_facts=known_facts or None
@@ -410,7 +483,7 @@ class LLMClient:
             return self._grounded_linkup(query, last_run_str, today_str)
         if provider == "brave":
             return self._grounded_brave(query, last_run_str, today_str)
-        raise LLMError(f"collector_search: no adapter for grounding provider '{provider}'")
+        raise LLMError(f"no grounding adapter for provider '{provider}'")
 
     def extract_facts(
         self, cited_text: str, source_legend: str, topic_name: str, today: str
@@ -465,7 +538,6 @@ class LLMClient:
     ) -> "GroundedResult":
         """Linkup sourcedAnswer → GroundedResult (.text = sourced prose, .chunks =
         verified source URLs, .supports = [] — Linkup gives no per-segment offsets)."""
-        import datetime as _dt
         from types import SimpleNamespace
 
         import httpx
@@ -476,8 +548,7 @@ class LLMClient:
         if not api_key:
             raise LLMError("LINKUP_API_KEY is not set — cannot use SEARCH_PROVIDER=linkup")
 
-        today = today_str or _dt.date.today().isoformat()
-        from_date = last_run_str or (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+        from_date, to_date = _search_window(last_run_str, today_str)
 
         t0 = time.monotonic()
         resp = httpx.post(
@@ -489,10 +560,12 @@ class LLMClient:
                 "outputType": "sourcedAnswer",
                 "maxResults": 15,
                 "fromDate": from_date,
-                "toDate": today,
+                "toDate": to_date,
             },
             timeout=_GEMINI_GENERATE_TIMEOUT,
         )
+        if resp.status_code >= 400:
+            raise LLMError(f"Linkup {resp.status_code} for q={query!r}: {resp.text[:300]}")
         resp.raise_for_status()
         data = resp.json()
 
@@ -517,7 +590,6 @@ class LLMClient:
         """Brave web search (summary=true) → GroundedResult. Uses the AI summary as
         .text when present, else concatenated result snippets; .chunks from web
         results; .supports = []."""
-        import datetime as _dt
         from types import SimpleNamespace
 
         import httpx
@@ -528,8 +600,7 @@ class LLMClient:
         if not api_key:
             raise LLMError("BRAVE_API_KEY is not set — cannot use SEARCH_PROVIDER=brave")
 
-        today = today_str or _dt.date.today().isoformat()
-        from_date = last_run_str or (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+        from_date, to_date = _search_window(last_run_str, today_str)
 
         t0 = time.monotonic()
         resp = httpx.get(
@@ -542,7 +613,7 @@ class LLMClient:
             params={
                 "q": query,
                 "count": 10,
-                "freshness": f"{from_date}to{today}",
+                "freshness": f"{from_date}to{to_date}",
                 "country": "US",
                 "search_lang": "en",
                 "text_decorations": "false",
@@ -551,6 +622,8 @@ class LLMClient:
             },
             timeout=_GEMINI_GENERATE_TIMEOUT,
         )
+        if resp.status_code >= 400:
+            raise LLMError(f"Brave {resp.status_code} for q={query!r}: {resp.text[:300]}")
         resp.raise_for_status()
         data = resp.json()
 
@@ -589,6 +662,7 @@ class LLMClient:
                    "RETRIEVAL_QUERY" for search queries and topic labels.
         Delegates to the provider set by EMBED_PROVIDER:
           "local"  → sentence-transformers (one batched CPU call, no quota; task_type ignored)
+          "openai" → text-embedding-3-small (768 dim via Matryoshka; task_type ignored)
           "gemini" → gemini-embedding-2 (768 dim, 100 req/min free tier)
         """
         if not text or not text.strip():
@@ -600,6 +674,9 @@ class LLMClient:
         if provider == "local":
             result = self._get_local_embedder().embed(text)
             model = self._local_embed_model_label()
+        elif provider == "openai":
+            model = getattr(self._settings, "OPENAI_EMBED_MODEL", "text-embedding-3-small")
+            result = self._embed_openai(text, model=model)
         else:
             result = self._embed_gemini(text, task_type=task_type)
             model = "models/gemini-embedding-2"
@@ -620,6 +697,7 @@ class LLMClient:
 
         task_type: "RETRIEVAL_DOCUMENT" for facts (default), "RETRIEVAL_QUERY" for queries.
         "local"  → ONE batched forward pass, <500ms for 100 titles, no quota; task_type ignored.
+        "openai" → ONE batched API call with dimensions=768; task_type ignored.
         "gemini" → N parallel API calls via ThreadPoolExecutor (8 workers).
                    Free tier: 100 req/min — bursts >100 titles will hit quota.
         """
@@ -631,6 +709,9 @@ class LLMClient:
         if provider == "local":
             result = self._get_local_embedder().embed_batch(texts)
             model = self._local_embed_model_label()
+        elif provider == "openai":
+            model = getattr(self._settings, "OPENAI_EMBED_MODEL", "text-embedding-3-small")
+            result = self._embed_batch_openai(texts, model=model)
         else:
             result = self._embed_batch_gemini(texts, task_type=task_type)
             model = "models/gemini-embedding-2"
@@ -646,6 +727,51 @@ class LLMClient:
             prompt="\n".join(texts),
         )
         return result
+
+    # ------------------------------------------------------------------
+    # OpenAI embedding internals
+    # ------------------------------------------------------------------
+
+    def _embed_openai(self, text: str, model: str | None = None) -> List[float]:
+        client = self._get_openai_client()
+        model_name = model or getattr(self._settings, "OPENAI_EMBED_MODEL", "text-embedding-3-small")
+        try:
+            res = self._call_with_timeout(
+                lambda: client.embeddings.create(
+                    input=text,
+                    model=model_name,
+                    dimensions=EMBED_DIM,  # 768
+                ),
+                _GEMINI_EMBED_TIMEOUT,
+            )
+            if not res or not res.data:
+                raise LLMError("OpenAI returned no embeddings for the provided text.")
+            return res.data[0].embedding
+        except Exception as e:
+            logger.error(f"OpenAI embedding failed: {e}")
+            raise LLMError(f"OpenAI embedding failed: {e}") from e
+
+    def _embed_batch_openai(self, texts: List[str], model: str | None = None) -> List[List[float]]:
+        valid_texts = [t if (t and t.strip()) else "[empty]" for t in texts]
+        client = self._get_openai_client()
+        model_name = model or getattr(self._settings, "OPENAI_EMBED_MODEL", "text-embedding-3-small")
+        try:
+            res = self._call_with_timeout(
+                lambda: client.embeddings.create(
+                    input=valid_texts,
+                    model=model_name,
+                    dimensions=EMBED_DIM,  # 768
+                ),
+                _GEMINI_EMBED_TIMEOUT * 2,
+            )
+            if not res or not res.data:
+                raise LLMError("OpenAI returned no embeddings for batch.")
+            # Preserve input ordering
+            sorted_data = sorted(res.data, key=lambda x: x.index)
+            return [item.embedding for item in sorted_data]
+        except Exception as e:
+            logger.error(f"OpenAI batch embedding failed: {e}")
+            raise LLMError(f"OpenAI batch embedding failed: {e}") from e
 
     # ------------------------------------------------------------------
     # Gemini embedding internals (kept intact — switch back via settings)
@@ -1025,7 +1151,7 @@ class LLMClient:
             raise LLMError(
                 f"Embedding provider '{provider}' returned a {len(vec)}-dim vector; "
                 f"known_facts.alpha_embedding requires {EMBED_DIM}. Point EMBED_PROVIDER "
-                f"at a {EMBED_DIM}-dim model (gemini / local) or run a pgvector migration first."
+                f"at a {EMBED_DIM}-dim model (gemini / local / openai) or run a pgvector migration first."
             )
 
     def _get_gemini_client_backup(self) -> Optional[Any]:

@@ -43,6 +43,13 @@ GEMINI_EMBEDDING_PER_TOKEN = 0.0
 # still resolves to $0 via compute_cost_usd's unknown-model fallback below.
 LOCAL_EMBEDDING_PER_TOKEN = 0.0
 
+# OpenAI text-embedding-3-small ($0.02 per 1M tokens)
+OPENAI_EMBED_3_SMALL_PER_TOKEN = 0.000_000_020
+# OpenAI text-embedding-3-large ($0.13 per 1M tokens)
+OPENAI_EMBED_3_LARGE_PER_TOKEN = 0.000_000_130
+# OpenAI text-embedding-ada-002 ($0.10 per 1M tokens)
+OPENAI_EMBED_ADA_002_PER_TOKEN = 0.000_000_100
+
 # Groq — Llama 3.1 8B Instant. Used for story_stitch and dashboard_summary steps.
 # Source: Groq pricing (llama-3.1-8b-instant), as of 2026-07.
 GROQ_LLAMA8B_INPUT_PER_TOKEN = 0.000_000_050   # $0.05 per 1M tokens
@@ -68,6 +75,9 @@ _INPUT_RATES: dict[str, float] = {
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
     "local/BAAI/bge-base-en-v1.5": LOCAL_EMBEDDING_PER_TOKEN,
+    "text-embedding-3-small": OPENAI_EMBED_3_SMALL_PER_TOKEN,
+    "text-embedding-3-large": OPENAI_EMBED_3_LARGE_PER_TOKEN,
+    "text-embedding-ada-002": OPENAI_EMBED_ADA_002_PER_TOKEN,
     "llama-3.1-8b-instant": GROQ_LLAMA8B_INPUT_PER_TOKEN,
     "llama-3.3-70b-versatile": GROQ_LLAMA70B_INPUT_PER_TOKEN,
     "gemini-2.5-flash-lite": GEMINI_25_FLASH_LITE_INPUT_PER_TOKEN,
@@ -85,6 +95,9 @@ _OUTPUT_RATES: dict[str, float] = {
     "models/gemini-embedding-2": GEMINI_EMBEDDING_PER_TOKEN,
     "models/text-embedding-004": GEMINI_EMBEDDING_PER_TOKEN,
     "local/BAAI/bge-base-en-v1.5": LOCAL_EMBEDDING_PER_TOKEN,
+    "text-embedding-3-small": OPENAI_EMBED_3_SMALL_PER_TOKEN,
+    "text-embedding-3-large": OPENAI_EMBED_3_LARGE_PER_TOKEN,
+    "text-embedding-ada-002": OPENAI_EMBED_ADA_002_PER_TOKEN,
     "llama-3.1-8b-instant": GROQ_LLAMA8B_OUTPUT_PER_TOKEN,
     "llama-3.3-70b-versatile": GROQ_LLAMA70B_OUTPUT_PER_TOKEN,
     "gemini-2.5-flash-lite": GEMINI_25_FLASH_LITE_OUTPUT_PER_TOKEN,
