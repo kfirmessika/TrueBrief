@@ -173,12 +173,46 @@ def test_search_window_normal_and_firstrun():
 
 def test_collector_search_falls_back_when_configured_provider_errors(monkeypatch):
     c = _client({"gemini_search": {"provider": "linkup", "model": "x"}}, LINKUP_API_KEY="lk", BRAVE_API_KEY="brv")
-    good = GroundedResult(text="from brave", chunks=[], supports=[])
+    good = GroundedResult(text="from brave " * 30, chunks=[], supports=[])
     with patch.object(LLMClient, "_grounded_linkup", side_effect=LLMError("Linkup 400")), \
          patch.object(LLMClient, "_grounded_brave", return_value=good) as brave:
         out = c.collector_search("Iran War", last_run_str="2026-08-31", today_str="2026-08-31")
     assert out is good
     assert brave.called
+
+
+def test_collector_search_no_news_falls_through_then_returns_cleanly():
+    """A provider answering 'nothing happened' should let the next provider try;
+    if EVERY provider says nothing, return that (pipeline → no_update), don't raise."""
+    from truebrief.llm.client import _looks_like_no_news
+    assert _looks_like_no_news("No newsworthy developments were reported in this window.")
+    assert not _looks_like_no_news("The US struck Iran. " * 40)  # long real answer
+
+    c = _client({"gemini_search": {"provider": "linkup", "model": "x"}}, LINKUP_API_KEY="lk", BRAVE_API_KEY="brv")
+    quiet = GroundedResult(text="No newsworthy developments about this topic were reported.", chunks=[], supports=[])
+    real = GroundedResult(text="Something real happened on 2026-08-31. " * 20, chunks=[], supports=[])
+
+    # linkup quiet -> brave real -> return brave
+    with patch.object(LLMClient, "_grounded_linkup", return_value=quiet), \
+         patch.object(LLMClient, "_grounded_brave", return_value=real):
+        out = c.collector_search("T", last_run_str="2026-08-30", today_str="2026-08-31")
+    assert out is real
+
+    # linkup quiet -> brave quiet -> gemini errors -> return the quiet result, no raise
+    with patch.object(LLMClient, "_grounded_linkup", return_value=quiet), \
+         patch.object(LLMClient, "_grounded_brave", return_value=quiet), \
+         patch.object(LLMClient, "call_gemini_with_grounding", side_effect=LLMError("quota")):
+        out = c.collector_search("T", last_run_str="2026-08-30", today_str="2026-08-31")
+    assert _looks_like_no_news(out.text)
+
+
+def test_brave_query_is_short_keywords_not_the_long_question():
+    from truebrief.llm.prompts import build_search_query
+    long_topic = "Confirmed player transfers, injury reports, and official squad changes in top football leagues"
+    kw = build_search_query(long_topic, "2026-08-30", "2026-08-31", style="keywords")
+    q = build_search_query(long_topic, "2026-08-30", "2026-08-31", style="question")
+    assert len(kw) < 300 and kw.endswith("news")       # Brave q param is length-limited
+    assert "between 2026-08-30 and 2026-08-31" in q     # Linkup gets the dated question
 
 
 # ── 9. config completeness ───────────────────────────────────────────────────

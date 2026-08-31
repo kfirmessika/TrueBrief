@@ -67,6 +67,31 @@ def _search_window(last_run_str: str, today_str: str, default_days: int = 7) -> 
     return from_d.isoformat(), to_d.isoformat()
 
 
+_NO_NEWS_MARKERS = (
+    "no newsworthy developments",
+    "no genuinely new",
+    "does not contain",
+    "no recent",
+    "no new developments",
+    "nothing significant happened",
+    "no significant developments",
+    "no confirmed",
+    "no relevant news",
+    "there were no",
+    "no updates",
+)
+
+
+def _looks_like_no_news(text: str) -> bool:
+    """A search provider (esp. Linkup/Brave) answering "nothing happened in this
+    window" — short + formulaic. Distinguish from a real short brief by length:
+    a genuine multi-fact answer is longer than a one-line "no news" sentence."""
+    t = (text or "").strip().lower()
+    if len(t) > 400:
+        return False
+    return any(m in t for m in _NO_NEWS_MARKERS)
+
+
 @dataclass
 class GroundedResult:
     """Result of a Gemini Search-grounded call. See LLMClient.call_gemini_with_grounding.
@@ -437,6 +462,7 @@ class LLMClient:
         order = [configured] + [p for p in all_grounding if p != configured]
 
         errors: List[str] = []
+        no_news: Optional["GroundedResult"] = None  # first "nothing happened" answer seen
         for idx, p in enumerate(order):
             if p != "gemini" and not self._resolve_api_key(p):
                 continue  # no key for this fallback provider
@@ -448,9 +474,20 @@ class LLMClient:
                 errors.append(f"{p}: {type(exc).__name__}: {str(exc)[:150]}")
                 logger.warning("[collector_search] grounding provider '%s' failed: %s", p, str(exc)[:200])
                 continue
-            if not (result.text or "").strip():
+            text = (result.text or "").strip()
+            if not text:
                 errors.append(f"{p}: empty response")
                 logger.warning("[collector_search] grounding provider '%s' returned empty text", p)
+                continue
+            if _looks_like_no_news(text):
+                # Provider's index has nothing fresh for this topic (common for
+                # Linkup/Brave on fast-moving niches). Try the next provider —
+                # Gemini's live search often does have it. Remember this answer so
+                # that if EVERY provider says "nothing", we still return cleanly
+                # (pipeline → "no_update") instead of raising.
+                no_news = no_news or result
+                errors.append(f"{p}: no fresh results")
+                logger.info("[collector_search] provider '%s' has no fresh results — trying next", p)
                 continue
             if idx > 0:
                 logger.warning(
@@ -458,6 +495,10 @@ class LLMClient:
                     configured, p,
                 )
             return result
+
+        if no_news is not None:
+            logger.info("[collector_search] all providers report nothing new for '%s'", topic_name)
+            return no_news
 
         raise LLMError(
             f"All grounding providers failed for '{topic_name}': " + " | ".join(errors)
@@ -477,12 +518,14 @@ class LLMClient:
                 prompt=prompt,
                 system_prompt=system_prompt or GEMINI_SEARCH_SYSTEM,
             )
-        # linkup / brave want a compact query string, not the gemini essay prompt.
-        query = build_search_query(topic_name, last_run_str, today_str)
+        # linkup takes a full dated question; brave's q param 422s on that length
+        # and uses its `freshness` param for the window — give it short keywords.
         if provider == "linkup":
-            return self._grounded_linkup(query, last_run_str, today_str)
+            q = build_search_query(topic_name, last_run_str, today_str, style="question")
+            return self._grounded_linkup(q, last_run_str, today_str)
         if provider == "brave":
-            return self._grounded_brave(query, last_run_str, today_str)
+            q = build_search_query(topic_name, last_run_str, today_str, style="keywords")
+            return self._grounded_brave(q, last_run_str, today_str)
         raise LLMError(f"no grounding adapter for provider '{provider}'")
 
     def extract_facts(
@@ -697,6 +740,24 @@ class LLMClient:
             output_tokens=0,
             duration_ms=duration_ms,
             prompt=text,
+        )
+        return result
+
+    def embed_local(self, text: str) -> List[float]:
+        """Embed text with the on-device model, independent of EMBED_PROVIDER.
+
+        Public-topic autocomplete deliberately uses its own local vector space for
+        low latency. The production pipeline continues to use ``embed()`` and its
+        configured Gemini/OpenAI provider unchanged.
+        """
+        if not text or not text.strip():
+            return [0.0] * EMBED_DIM
+        t0 = time.monotonic()
+        result = self._get_local_embedder().embed(text)
+        self._check_embed_dim(result, "local")
+        logger.debug(
+            "Local public-topic search embedding completed in %dms",
+            int((time.monotonic() - t0) * 1000),
         )
         return result
 

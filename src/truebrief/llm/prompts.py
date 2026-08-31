@@ -496,18 +496,24 @@ def build_gemini_search_prompt(
     return prompt
 
 
-def build_search_query(topic_name: str, last_run_date: str = "", today: str = "") -> str:
-    """Recency-anchored question for the API-search grounding providers (Linkup, Brave).
+def build_search_query(
+    topic_name: str, last_run_date: str = "", today: str = "", style: str = "question"
+) -> str:
+    """Recency-anchored query for the API-search grounding providers.
 
-    NOT just "{topic} latest news" — verified live 2026-08-31 that a bare topic
-    query makes Linkup dredge up month-old releases with no dates. Phrasing it as
-    a dated question ("what was reported between X and Y? give each date; exclude
-    older items") makes Linkup honor the window, attach dates, and honestly answer
-    "nothing significant this week" instead of padding with stale news. The
-    fromDate/toDate request params are also sent, but the query text is what
-    actually steers the sourcedAnswer.
+    style="question" (Linkup `sourcedAnswer`): a full dated question. Verified live
+      2026-08-31 that a bare "{topic} latest news" makes Linkup dredge up month-old
+      releases; phrasing it as "what was reported between X and Y? give each date;
+      exclude older items; say so if nothing happened" makes Linkup honour the
+      window, attach dates, and admit "nothing this week" instead of padding.
+    style="keywords" (Brave web search): Brave's `q` param 422s on a long question
+      and works best with short keywords — it takes the date window via the
+      `freshness` request param instead, so the text just needs the topic + "news".
     """
     topic = (topic_name or "").strip() or "current events"
+    if style == "keywords":
+        # Brave caps the query length; keep it short, lead with the topic.
+        return (topic[:280] + " news").strip()
     if last_run_date and today:
         window = f"between {last_run_date} and {today}"
     elif today:
