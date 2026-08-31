@@ -87,7 +87,13 @@ class TestBuildSourceLegend:
 # ── Fact parsing / Alpha construction ────────────────────────────────────────
 
 class FakeLLMClient:
-    """Records calls; returns pre-set grounded result + extract JSON."""
+    """Records calls; returns pre-set grounded result + extract JSON.
+
+    Mirrors the LLMClient named-stage API the collector actually uses
+    (collector_search / extract_facts) — provider selection + key resolution +
+    prompt-splitting all live inside the real methods and are tested separately
+    (tests/test_provider_switch.py).
+    """
 
     def __init__(self, grounded: GroundedResult, extract_json: str):
         self._grounded = grounded
@@ -95,12 +101,19 @@ class FakeLLMClient:
         self.grounding_calls = []
         self.extract_calls = []
 
-    def call_gemini_with_grounding(self, step_name, prompt, system_prompt=None):
-        self.grounding_calls.append((step_name, prompt, system_prompt))
+    def collector_search(self, topic_name, last_run_str="", today_str="",
+                         known_facts=None, system_prompt=None):
+        self.grounding_calls.append(
+            dict(topic_name=topic_name, last_run_str=last_run_str,
+                 today_str=today_str, known_facts=known_facts, system_prompt=system_prompt)
+        )
         return self._grounded
 
-    def call(self, step_name, prompt, json_mode=False, system_prompt=None):
-        self.extract_calls.append((step_name, prompt, json_mode, system_prompt))
+    def extract_facts(self, cited_text, source_legend, topic_name, today):
+        self.extract_calls.append(
+            dict(cited_text=cited_text, source_legend=source_legend,
+                 topic_name=topic_name, today=today)
+        )
         return self._extract_json
 
 
@@ -129,8 +142,9 @@ class TestCollectEndToEnd:
         assert a.source_name == "Reuters"
         assert a.event_class == "development"
         assert a.topic_id == "t1"
-        assert llm.grounding_calls[0][0] == "gemini_search"
-        assert llm.extract_calls[0][0] == "gemini_extract"
+        assert llm.grounding_calls[0]["topic_name"] == "Iran War"
+        assert llm.grounding_calls[0]["system_prompt"]  # GEMINI_SEARCH_SYSTEM passed through
+        assert llm.extract_calls[0]["topic_name"] == "Iran War"
 
     def test_invalid_citation_index_falls_back_to_empty_source_not_a_guess(self):
         grounded = GroundedResult(text="Some fact.", chunks=[], supports=[])
@@ -199,9 +213,15 @@ class TestCollectEndToEnd:
         assert len(alphas) == 1
         assert alphas[0].alpha_text == "Bare fact."
 
-    def test_first_run_with_no_last_run_date_uses_seven_day_window(self):
+    def test_first_run_with_no_last_run_date_passes_empty_window(self):
         grounded = GroundedResult(text="", chunks=[], supports=[])
         llm = FakeLLMClient(grounded, extract_json="[]")
         GeminiSearchCollector(llm_client=llm).collect("New Topic", last_run_date=None)
-        _, prompt, _ = llm.grounding_calls[0]
-        assert "last 7 days" in prompt
+        # first-ever run → no last_run_str; collector_search / build_gemini_search_prompt
+        # turn that into the "last 7 days" window (asserted directly below).
+        assert llm.grounding_calls[0]["last_run_str"] == ""
+
+    def test_build_gemini_search_prompt_first_run_uses_seven_day_window(self):
+        from truebrief.llm.prompts import build_gemini_search_prompt
+        assert "last 7 days" in build_gemini_search_prompt("T", "", "2026-07-22")
+        assert "from 2026-07-20 to 2026-07-22" in build_gemini_search_prompt("T", "2026-07-20", "2026-07-22")

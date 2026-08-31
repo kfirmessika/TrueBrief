@@ -55,11 +55,19 @@ def make_alpha(text: str, entities=None) -> Alpha:
 # ── Fakes ───────────────────────────────────────────────────────────────────
 
 class QueueLLM:
-    """Returns canned responses in order; records every call."""
+    """Returns canned responses in order; records every call.
+
+    JudgeLLM now calls the named stage method llm.judge(prompt, system_prompt);
+    `call` is kept for any legacy caller.
+    """
 
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = []
+
+    def judge(self, prompt, system_prompt=None):
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        return self.responses.pop(0)
 
     def call(self, **kwargs):
         self.calls.append(kwargs)
@@ -87,6 +95,9 @@ class FakeVectorStore:
 
     class _LLM:
         def embed(self, text):
+            return [0.1] * 8
+
+        def embed_fact(self, text, task_type="RETRIEVAL_DOCUMENT"):
             return [0.1] * 8
 
     def __init__(self, matches):
