@@ -777,61 +777,106 @@ class LLMClient:
     # Gemini embedding internals (kept intact — switch back via settings)
     # ------------------------------------------------------------------
 
-    def _embed_gemini(self, text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
-        client = self._get_gemini_client()
+    def _gemini_embed_call(self, client: Any, contents: Any, task_type: str) -> Any:
+        """One raw embed_content call. Raises the SDK exception unchanged so the
+        retry driver can inspect it for 429/quota."""
         from google.genai import types
+
+        cfg = types.EmbedContentConfig(output_dimensionality=768, task_type=task_type)
+        res = self._call_with_timeout(
+            lambda: client.models.embed_content(
+                model="models/gemini-embedding-2", contents=contents, config=cfg
+            ),
+            _GEMINI_EMBED_TIMEOUT,
+        )
+        if not res or not res.embeddings:
+            raise LLMError("Gemini returned no embeddings.")
+        return res
+
+    def _gemini_embed_retry(self, contents: Any, task_type: str, label: str):
+        """Run a gemini embed_content call with the same quota resilience as
+        call(): per-minute 429 → wait 65s and retry; per-day 429 → switch to the
+        backup key. Embeddings are the one Gemini call that had NO retry, so a
+        transient rate limit was silently dropping facts (arbiter._ensure_embedding
+        / vector_store.add_fact both swallow the error)."""
+        picked, other = self._pick_gemini_client()
         try:
-            embed_config = types.EmbedContentConfig(
-                output_dimensionality=768,
-                task_type=task_type,
-            )
-            res = self._call_with_timeout(
-                lambda: client.models.embed_content(
-                    model="models/gemini-embedding-2",
-                    contents=[text],
-                    config=embed_config,
-                ),
-                _GEMINI_EMBED_TIMEOUT,
-            )
-            if not res or not res.embeddings:
-                raise LLMError("Gemini returned no embeddings for the provided text.")
-            return res.embeddings[0].values
-        except Exception as e:
-            logger.error(f"Embedding failed: {e}")
-            raise LLMError(f"Embedding failed: {e}") from e
+            return self._gemini_embed_call(picked, contents, task_type)
+        except Exception as exc:
+            if not self._is_quota_exhausted(exc):
+                logger.error("%s failed: %s", label, exc)
+                raise LLMError(f"{label} failed: {exc}") from exc
+            if self._is_per_minute_limit(exc):
+                logger.warning("[embed] per-minute rate limit (%s) — waiting 65s", label)
+                self._flag_quota("yellow", "embedding", "models/gemini-embedding-2", "rpm", exc)
+                time.sleep(65)
+                try:
+                    return self._gemini_embed_call(picked, contents, task_type)
+                except Exception as exc2:
+                    exc = exc2
+            if other is not None and self._is_quota_exhausted(exc):
+                logger.warning("[embed] key quota exhausted (%s) — trying backup key", label)
+                self._flag_quota("yellow", "embedding", "models/gemini-embedding-2", "primary", exc)
+                try:
+                    return self._gemini_embed_call(other, contents, task_type)
+                except Exception as exc3:
+                    self._flag_quota("red", "embedding", "models/gemini-embedding-2", "backup", exc3)
+                    raise LLMError(f"{label} failed on both keys: {exc3}") from exc3
+            self._flag_quota("red", "embedding", "models/gemini-embedding-2", "primary", exc)
+            raise LLMError(f"{label} failed (quota): {exc}") from exc
+
+    def _embed_gemini(self, text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
+        res = self._gemini_embed_retry([text], task_type, "Embedding")
+        return list(res.embeddings[0].values)
 
     def _embed_batch_gemini(self, texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT") -> List[List[float]]:
-        """Gemini batch embed via ThreadPoolExecutor (N separate API calls)."""
+        """Gemini batch embed via ThreadPoolExecutor (N separate API calls). On a
+        429 anywhere in the pool, retry the whole batch once through the
+        quota-resilient path (backup key / cooldown)."""
         valid_texts = [t if (t and t.strip()) else "[empty]" for t in texts]
-        _client = self._get_gemini_client()
-        from google.genai import types
 
-        embed_config = types.EmbedContentConfig(
-            output_dimensionality=768,
-            task_type=task_type,
-        )
+        def _run(client_getter) -> List[List[float]]:
+            from google.genai import types
 
-        def _one(text: str) -> List[float]:
-            res = self._call_with_timeout(
-                lambda: _client.models.embed_content(
-                    model="models/gemini-embedding-2",
-                    contents=text,
-                    config=embed_config,
-                ),
-                _GEMINI_EMBED_TIMEOUT,
-            )
-            if not res or not res.embeddings:
-                raise LLMError("Gemini returned no embedding for text.")
-            return list(res.embeddings[0].values)
+            client = client_getter()
+            cfg = types.EmbedContentConfig(output_dimensionality=768, task_type=task_type)
 
-        try:
+            def _one(text: str) -> List[float]:
+                res = self._call_with_timeout(
+                    lambda: client.models.embed_content(
+                        model="models/gemini-embedding-2", contents=text, config=cfg
+                    ),
+                    _GEMINI_EMBED_TIMEOUT,
+                )
+                if not res or not res.embeddings:
+                    raise LLMError("Gemini returned no embedding for text.")
+                return list(res.embeddings[0].values)
+
             workers = min(8, len(valid_texts))
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-                embeddings = list(pool.map(_one, valid_texts))
-            return embeddings
+                return list(pool.map(_one, valid_texts))
+
+        try:
+            return _run(self._get_gemini_client)
         except Exception as e:
-            logger.error(f"Batch embedding failed: {e}")
-            raise LLMError(f"Batch embedding failed: {e}") from e
+            if not self._is_quota_exhausted(e):
+                logger.error(f"Batch embedding failed: {e}")
+                raise LLMError(f"Batch embedding failed: {e}") from e
+            backup = self._get_gemini_client_backup()
+            if self._is_per_minute_limit(e):
+                logger.warning("[embed] batch per-minute limit — waiting 65s")
+                time.sleep(65)
+                try:
+                    return _run(self._get_gemini_client)
+                except Exception as e2:
+                    e = e2
+            if backup is not None and self._is_quota_exhausted(e):
+                logger.warning("[embed] batch key quota exhausted — retrying on backup key")
+                try:
+                    return _run(self._get_gemini_client_backup)
+                except Exception as e3:
+                    raise LLMError(f"Batch embedding failed on both keys: {e3}") from e3
+            raise LLMError(f"Batch embedding failed (quota): {e}") from e
 
     # -------------------------------------------------------------------------
     # Internal: instrumented call methods (return text + token counts)
