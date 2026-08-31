@@ -50,13 +50,16 @@ def _search_window(last_run_str: str, today_str: str, default_days: int = 7) -> 
     """
     import datetime as _dt
 
+    # Callers may pass a full "YYYY-MM-DD HH:MM UTC" timestamp (used verbatim in the
+    # Linkup query text, which honours hour-precision); the fromDate/toDate API
+    # params are date-granular only, so slice the date off.
     try:
-        to_d = _dt.date.fromisoformat(today_str) if today_str else _dt.date.today()
+        to_d = _dt.date.fromisoformat(today_str[:10]) if today_str else _dt.date.today()
     except ValueError:
         to_d = _dt.date.today()
     try:
         from_d = (
-            _dt.date.fromisoformat(last_run_str)
+            _dt.date.fromisoformat(last_run_str[:10])
             if last_run_str
             else to_d - _dt.timedelta(days=default_days)
         )

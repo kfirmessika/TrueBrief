@@ -84,15 +84,43 @@ class GeminiSearchRunner:
 
     @staticmethod
     def _get_last_run_date(topic_id: str) -> Optional[datetime]:
-        """Read topics.last_run_at so the collector searches only what's new since then."""
+        """When did the PREVIOUS scan of this topic actually run? The collector uses
+        it to bound the search window ("news since <then>", hour-precise for Linkup).
+
+        Reads pipeline_run history, not topics.last_run_at: the scheduler stamps
+        topics.last_run_at = now() BEFORE enqueuing the scan (to advance next_run_at),
+        so by the time this runs it just says "a few seconds ago". pipeline_run rows
+        are written per scan; the most recent one that isn't THIS run is the real
+        previous scan time. Falls back to topics.last_run_at, then None (first run).
+        """
         try:
             from dateutil.parser import parse as parse_date
 
             from truebrief.ledger.database import get_supabase
-            res = get_supabase().table("topics").select("last_run_at").eq("id", topic_id).execute()
+            from truebrief.llm.client import pipeline_run_id_var
+
+            db = get_supabase()
+            current_run_id = pipeline_run_id_var.get()
+
+            hist = (
+                db.table("pipeline_run")
+                .select("id, started_at")
+                .eq("topic_id", topic_id)
+                .order("started_at", desc=True)
+                .limit(5)
+                .execute()
+            )
+            for row in hist.data or []:
+                if current_run_id and str(row.get("id")) == str(current_run_id):
+                    continue  # skip this scan's own row
+                if row.get("started_at"):
+                    dt = parse_date(row["started_at"])
+                    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
+            res = db.table("topics").select("last_run_at").eq("id", topic_id).execute()
             if res.data and res.data[0].get("last_run_at"):
                 dt = parse_date(res.data[0]["last_run_at"])
                 return dt.replace(tzinfo=None) if dt.tzinfo else dt
         except Exception as exc:
-            logger.warning("[V5] Could not read last_run_at (treating as first run): %s", exc)
+            logger.warning("[V5] Could not determine last run time (treating as first run): %s", exc)
         return None

@@ -109,9 +109,13 @@ class GeminiSearchCollector:
         is available, injects already-known facts into the search prompt so Gemini skips
         re-surfacing facts the prior same-day scan already produced.
         """
-        today = datetime.now()
-        today_str = today.strftime("%Y-%m-%d")
-        last_run_str = last_run_date.strftime("%Y-%m-%d") if last_run_date else ""
+        # UTC throughout — pipeline_run.started_at (the source of last_run_date) is
+        # UTC, and the production worker runs UTC. Timestamps (not just dates) so
+        # the Linkup query can say "since 2026-09-01 09:14 UTC" — verified that
+        # Linkup honours hour-precision in the query text.
+        today = datetime.utcnow()
+        today_str = today.strftime("%Y-%m-%d %H:%M UTC")
+        last_run_str = last_run_date.strftime("%Y-%m-%d %H:%M UTC") if last_run_date else ""
         # Start of the reporting window — used to (a) tell the extractor what counts
         # as "news" vs stale background, and (b) hard-drop clearly-old facts that
         # slip through. Default to 7 days back on a first-ever run.

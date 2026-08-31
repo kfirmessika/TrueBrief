@@ -209,10 +209,11 @@ def test_collector_search_no_news_falls_through_then_returns_cleanly():
 def test_brave_query_is_short_keywords_not_the_long_question():
     from truebrief.llm.prompts import build_search_query
     long_topic = "Confirmed player transfers, injury reports, and official squad changes in top football leagues"
-    kw = build_search_query(long_topic, "2026-08-30", "2026-08-31", style="keywords")
-    q = build_search_query(long_topic, "2026-08-30", "2026-08-31", style="question")
-    assert len(kw) < 300 and kw.endswith("news")       # Brave q param is length-limited
-    assert "between 2026-08-30 and 2026-08-31" in q     # Linkup gets the dated question
+    kw = build_search_query(long_topic, "2026-09-01 09:14 UTC", "2026-09-01 21:00 UTC", style="keywords")
+    q = build_search_query(long_topic, "2026-09-01 09:14 UTC", "2026-09-01 21:00 UTC", style="question")
+    assert len(kw) < 300 and kw.endswith("news")           # Brave q param is length-limited
+    assert "since 2026-09-01 09:14 UTC" in q                # Linkup gets the precise lower bound
+    assert "present moment" in q                            # upper bound left open on purpose
 
 
 # ── 9. config completeness ───────────────────────────────────────────────────

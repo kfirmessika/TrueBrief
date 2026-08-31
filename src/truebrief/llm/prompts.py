@@ -502,30 +502,35 @@ def build_search_query(
     """Recency-anchored query for the API-search grounding providers.
 
     style="question" (Linkup `sourcedAnswer`): a full dated question. Verified live
-      2026-08-31 that a bare "{topic} latest news" makes Linkup dredge up month-old
-      releases; phrasing it as "what was reported between X and Y? give each date;
-      exclude older items; say so if nothing happened" makes Linkup honour the
-      window, attach dates, and admit "nothing this week" instead of padding.
+      2026-08-31/09-01 that (a) a bare "{topic} latest news" makes Linkup dredge up
+      month-old releases, and (b) Linkup DOES follow a precise "since <timestamp>"
+      instruction in the query text — including hours ("since 2026-09-01 09:14
+      UTC", "in the last 6 hours") — and honestly answers "nothing that fresh"
+      when its index has nothing newer. The fromDate/toDate API params are only a
+      weak date-granular hint; the query TEXT is what Linkup reasons with.
+      last_run_date / today may be "YYYY-MM-DD" or "YYYY-MM-DD HH:MM UTC".
     style="keywords" (Brave web search): Brave's `q` param 422s on a long question
       and works best with short keywords — it takes the date window via the
-      `freshness` request param instead, so the text just needs the topic + "news".
+      `freshness` request param instead (date-granular; no hour support), so the
+      text just needs the topic + "news".
     """
     topic = (topic_name or "").strip() or "current events"
     if style == "keywords":
         # Brave caps the query length; keep it short, lead with the topic.
         return (topic[:280] + " news").strip()
-    if last_run_date and today:
-        window = f"between {last_run_date} and {today}"
-    elif today:
-        window = f"in the 7 days up to {today}"
+    if last_run_date:
+        # Precise lower bound; upper bound left OPEN ("now") on purpose — pinning
+        # "it is now <timestamp>" makes Linkup exclude anything a minute newer if
+        # its clock/index is ahead of ours.
+        window = f"since {last_run_date}, up to the present moment"
     else:
-        window = "in the past 7 days"
+        window = "in the past 7 days, up to the present moment"
     return (
         f'What genuinely new, newsworthy developments about "{topic}" were reported {window}? '
-        f"For each one, state exactly what happened and its precise date (YYYY-MM-DD). "
-        f"Only include events that actually occurred within that window — exclude older "
-        f"product releases, background, and anything you cannot date. If nothing "
-        f"significant happened in that window, say so plainly."
+        f"For each one, state exactly what happened and its precise date and time. "
+        f"Only include events from that window — exclude older product releases, "
+        f"background, and anything you cannot date. If nothing significant happened "
+        f"in that window, say so plainly."
     )
 
 
