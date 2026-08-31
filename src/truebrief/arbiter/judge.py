@@ -98,12 +98,7 @@ class JudgeLLM:
 
         for attempt in range(1, self.MAX_PARSE_RETRIES + 1):
             try:
-                raw = self.llm.call(
-                    step_name="arbiter",
-                    prompt=prompt,
-                    json_mode=True,
-                    system_prompt=ARBITER_SYSTEM,
-                )
+                raw = self.llm.judge(prompt, ARBITER_SYSTEM)
                 return self._parse_response(raw)
 
             except (json.JSONDecodeError, KeyError, ValueError) as parse_err:
@@ -149,12 +144,7 @@ class JudgeLLM:
 
         prompt = self._build_batch_prompt(cases)
         try:
-            raw = self.llm.call(
-                step_name="arbiter",
-                prompt=prompt,
-                json_mode=True,
-                system_prompt=ARBITER_SYSTEM,
-            )
+            raw = self.llm.judge(prompt, ARBITER_SYSTEM)
             parsed = self._parse_batch_response(raw, len(cases))
             if parsed is not None:
                 return parsed

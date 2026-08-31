@@ -496,6 +496,20 @@ def build_gemini_search_prompt(
     return prompt
 
 
+def build_search_query(topic_name: str, last_run_date: str = "", today: str = "") -> str:
+    """Compact query string for the API-search grounding providers (Linkup, Brave).
+
+    Unlike `build_gemini_search_prompt` (a full instruction block for the Gemini
+    grounding model), Linkup/Brave are search APIs that want a *query*, not an
+    essay — and they take the date window as separate request params
+    (fromDate/toDate, freshness), not in the query text. This is the
+    "if one prompt can't fit every provider, split it in code" split point:
+    tune the API-search phrasing here without touching the Gemini path.
+    """
+    topic = (topic_name or "").strip()
+    return f"{topic} latest news" if topic else "latest news"
+
+
 GEMINI_EXTRACT_SYSTEM = (
     "You are a precision intelligence analyst. Extract every atomic, verifiable fact from "
     "this cited text into a structured JSON list."

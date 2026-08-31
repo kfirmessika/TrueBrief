@@ -24,8 +24,19 @@ _GEMINI_GENERATE_TIMEOUT = 60   # seconds; 60s covers long-form briefs
 _GEMINI_EMBED_TIMEOUT = 30      # seconds; embeddings should be fast
 
 from truebrief.llm.pricing import compute_cost_usd
+from truebrief.llm.prompts import (
+    GEMINI_EXTRACT_SYSTEM,
+    GEMINI_SEARCH_SYSTEM,
+    build_gemini_extract_prompt,
+    build_gemini_search_prompt,
+    build_search_query,
+)
 
 logger = logging.getLogger(__name__)
+
+# pgvector column width for known_facts.alpha_embedding — every embedding provider
+# MUST return exactly this many dimensions or similarity search silently breaks.
+EMBED_DIM = 768
 
 
 @dataclass
@@ -362,6 +373,215 @@ class LLMClient:
         )
         return result
 
+    # =====================================================================
+    # Named pipeline-stage methods — one per V5 call. Each reads its provider +
+    # model from LLM_CONFIG[step], resolves the API key via PROVIDER_REGISTRY,
+    # and refuses (LLMError) a step pointed at a provider that can't serve it.
+    # Switch any stage by editing its one line in config/settings.py — no code
+    # change here. See config/settings.py PROVIDER_REGISTRY / LLM_CONFIG.
+    # =====================================================================
+
+    def collector_search(
+        self,
+        topic_name: str,
+        last_run_str: str = "",
+        today_str: str = "",
+        known_facts: Optional[List[str]] = None,
+        system_prompt: Optional[str] = None,
+    ) -> "GroundedResult":
+        """STAGE 1 — grounded web search. Provider from LLM_CONFIG['gemini_search']:
+        'gemini' (Google-Search grounding + rich prompt + citation offsets),
+        'linkup' (sourcedAnswer), or 'brave' (web search + summarizer). Returns a
+        GroundedResult; .supports is empty for linkup/brave (no per-segment offsets).
+        Raises LLMError if the configured provider has no 'grounding' capability."""
+        provider = self._require_capability("gemini_search", "grounding")
+        if provider == "gemini":
+            prompt = build_gemini_search_prompt(
+                topic_name, last_run_str, today_str, known_facts=known_facts or None
+            )
+            return self.call_gemini_with_grounding(
+                step_name="gemini_search",
+                prompt=prompt,
+                system_prompt=system_prompt or GEMINI_SEARCH_SYSTEM,
+            )
+        # linkup / brave want a compact query string, not the gemini essay prompt.
+        query = build_search_query(topic_name, last_run_str, today_str)
+        if provider == "linkup":
+            return self._grounded_linkup(query, last_run_str, today_str)
+        if provider == "brave":
+            return self._grounded_brave(query, last_run_str, today_str)
+        raise LLMError(f"collector_search: no adapter for grounding provider '{provider}'")
+
+    def extract_facts(
+        self, cited_text: str, source_legend: str, topic_name: str, today: str
+    ) -> str:
+        """STAGE 2 — restructure grounded prose into the Alpha-JSON contract.
+        Any 'llm' provider. Returns the raw JSON string (caller parses)."""
+        self._require_capability("gemini_extract", "llm")
+        prompt = build_gemini_extract_prompt(cited_text, source_legend, topic_name, today)
+        return self.call(
+            step_name="gemini_extract",
+            prompt=prompt,
+            json_mode=True,
+            system_prompt=GEMINI_EXTRACT_SYSTEM,
+        )
+
+    def judge(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """STAGE 3 — arbiter dedup judge (single case OR batch; caller builds the
+        prompt). Any 'llm' provider. Returns the raw JSON string."""
+        self._require_capability("arbiter", "llm")
+        return self.call(
+            step_name="arbiter", prompt=prompt, json_mode=True, system_prompt=system_prompt
+        )
+
+    def write_brief(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """STAGE 4 — final brief markdown (caller builds the prompt). Any 'llm' provider."""
+        self._require_capability("briefer", "llm")
+        return self.call(
+            step_name="briefer", prompt=prompt, json_mode=False, system_prompt=system_prompt
+        )
+
+    # STAGE 5 (embedding) is embed() / embed_batch() below — already stage-named,
+    # provider from LLM_CONFIG['embedding'] (EMBED_PROVIDER env: 'gemini' | 'local'),
+    # output width enforced to EMBED_DIM. embed_fact / embed_facts are aliases kept
+    # for naming symmetry with the other stage methods.
+    def embed_fact(self, text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
+        """Alias of embed() — the embedding stage entry point."""
+        return self.embed(text, task_type=task_type)
+
+    def embed_facts(
+        self, texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT"
+    ) -> List[List[float]]:
+        """Alias of embed_batch() — the embedding stage entry point."""
+        return self.embed_batch(texts, task_type=task_type)
+
+    # ------------------------------------------------------------------
+    # Grounding adapters (linkup / brave). The gemini adapter is
+    # call_gemini_with_grounding above. All return the same GroundedResult shape.
+    # ------------------------------------------------------------------
+
+    def _grounded_linkup(
+        self, query: str, last_run_str: str = "", today_str: str = ""
+    ) -> "GroundedResult":
+        """Linkup sourcedAnswer → GroundedResult (.text = sourced prose, .chunks =
+        verified source URLs, .supports = [] — Linkup gives no per-segment offsets)."""
+        import datetime as _dt
+        from types import SimpleNamespace
+
+        import httpx
+
+        from config.settings import PROVIDER_REGISTRY
+
+        api_key = self._resolve_api_key("linkup")
+        if not api_key:
+            raise LLMError("LINKUP_API_KEY is not set — cannot use SEARCH_PROVIDER=linkup")
+
+        today = today_str or _dt.date.today().isoformat()
+        from_date = last_run_str or (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+
+        t0 = time.monotonic()
+        resp = httpx.post(
+            PROVIDER_REGISTRY["linkup"]["endpoint"],
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "q": query,
+                "depth": "standard",
+                "outputType": "sourcedAnswer",
+                "maxResults": 15,
+                "fromDate": from_date,
+                "toDate": today,
+            },
+            timeout=_GEMINI_GENERATE_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        text = data.get("answer", "") or ""
+        raw_sources = data.get("sources", []) or []
+        chunks = [
+            SimpleNamespace(web=SimpleNamespace(uri=s.get("url", ""), title=s.get("title", s.get("url", ""))))
+            for s in raw_sources
+            if s.get("url")
+        ]
+        logger.info("[linkup] returned %d sources for: %s", len(chunks), query[:80])
+        self._log_call(
+            stage="gemini_search", model="linkup/sourcedAnswer",
+            input_tokens=0, output_tokens=0,
+            duration_ms=int((time.monotonic() - t0) * 1000), prompt=query, response=text,
+        )
+        return GroundedResult(text=text, chunks=chunks, supports=[])
+
+    def _grounded_brave(
+        self, query: str, last_run_str: str = "", today_str: str = ""
+    ) -> "GroundedResult":
+        """Brave web search (summary=true) → GroundedResult. Uses the AI summary as
+        .text when present, else concatenated result snippets; .chunks from web
+        results; .supports = []."""
+        import datetime as _dt
+        from types import SimpleNamespace
+
+        import httpx
+
+        from config.settings import PROVIDER_REGISTRY
+
+        api_key = self._resolve_api_key("brave")
+        if not api_key:
+            raise LLMError("BRAVE_API_KEY is not set — cannot use SEARCH_PROVIDER=brave")
+
+        today = today_str or _dt.date.today().isoformat()
+        from_date = last_run_str or (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+
+        t0 = time.monotonic()
+        resp = httpx.get(
+            PROVIDER_REGISTRY["brave"]["endpoint"],
+            headers={
+                "X-Subscription-Token": api_key,
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
+            },
+            params={
+                "q": query,
+                "count": 10,
+                "freshness": f"{from_date}to{today}",
+                "country": "US",
+                "search_lang": "en",
+                "text_decorations": "false",
+                "summary": "true",
+                "extra_snippets": "true",
+            },
+            timeout=_GEMINI_GENERATE_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        ai_summary = ((data.get("summarizer") or {}).get("answer") or "").strip()
+        web_results = (data.get("web", {}) or {}).get("results", []) or []
+        chunks: list = []
+        snippet_lines: list = []
+        for r in web_results[:15]:
+            url = r.get("url", "")
+            if not url:
+                continue
+            title = r.get("title", "") or url
+            chunks.append(SimpleNamespace(web=SimpleNamespace(uri=url, title=title)))
+            extras = " ".join((r.get("extra_snippets") or [])[:2])
+            snippet_lines.append(f"{title}: {r.get('description', '')} {extras}".strip())
+
+        text = ai_summary or "\n".join(snippet_lines)
+        logger.info("[brave] returned %d sources for: %s", len(chunks), query[:80])
+        self._log_call(
+            stage="gemini_search", model="brave/web-summary",
+            input_tokens=0, output_tokens=0,
+            duration_ms=int((time.monotonic() - t0) * 1000), prompt=query, response=text,
+        )
+        return GroundedResult(text=text, chunks=chunks, supports=[])
+
+    def call_with_lookup(
+        self, prompt: str, last_run_str: str = "", today_str: str = ""
+    ) -> "GroundedResult":
+        """Back-compat shim → _grounded_linkup. Prefer collector_search()."""
+        return self._grounded_linkup(prompt, last_run_str, today_str)
+
     def embed(self, text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
         """Generate a vector embedding for a single text string.
 
@@ -373,9 +593,9 @@ class LLMClient:
         """
         if not text or not text.strip():
             logger.warning("Attempted to embed empty text. Returning zero vector.")
-            return [0.0] * 768
+            return [0.0] * EMBED_DIM
 
-        provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
+        provider = self._embed_provider()
         t0 = time.monotonic()
         if provider == "local":
             result = self._get_local_embedder().embed(text)
@@ -383,6 +603,7 @@ class LLMClient:
         else:
             result = self._embed_gemini(text, task_type=task_type)
             model = "models/gemini-embedding-2"
+        self._check_embed_dim(result, provider)
         duration_ms = int((time.monotonic() - t0) * 1000)
         self._log_call(
             stage="embedding",
@@ -405,7 +626,7 @@ class LLMClient:
         if not texts:
             return []
 
-        provider = getattr(self._settings, "EMBED_PROVIDER", "gemini")
+        provider = self._embed_provider()
         t0 = time.monotonic()
         if provider == "local":
             result = self._get_local_embedder().embed_batch(texts)
@@ -413,6 +634,8 @@ class LLMClient:
         else:
             result = self._embed_batch_gemini(texts, task_type=task_type)
             model = "models/gemini-embedding-2"
+        if result:
+            self._check_embed_dim(result[0], provider)
         duration_ms = int((time.monotonic() - t0) * 1000)
         self._log_call(
             stage="embedding",
@@ -537,6 +760,17 @@ class LLMClient:
                 return ("{}" if json_mode else "Content blocked by safety filters.", 0, 0)
             raise e
 
+    @staticmethod
+    def _json_object_messages(
+        messages: list, system_prompt: Optional[str], prompt: str
+    ) -> None:
+        """OpenAI / Groq response_format={"type":"json_object"} 400s unless the
+        literal token 'json' appears somewhere in the messages (Gemini has no such
+        rule). If the caller's prompt + system text doesn't already contain it,
+        append a minimal instruction to the last (user) message in place."""
+        if "json" not in f"{system_prompt or ''} {prompt}".lower():
+            messages[-1]["content"] += "\n\nRespond with a valid JSON object only."
+
     def _call_openai_instrumented(
         self,
         model: str,
@@ -554,6 +788,7 @@ class LLMClient:
         kwargs: dict = {"model": model, "messages": messages}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+            self._json_object_messages(messages, system_prompt, prompt)
 
         response = client.chat.completions.create(**kwargs)
         text = response.choices[0].message.content.strip()
@@ -726,9 +961,76 @@ class LLMClient:
         else:
             return backup, self._get_gemini_client()
 
+    # ------------------------------------------------------------------
+    # Provider key / capability resolution — the "one switch" plumbing.
+    # PROVIDER_REGISTRY (config/settings.py) is the single source of which
+    # settings field holds each provider's key and what it can do.
+    # ------------------------------------------------------------------
+
+    def _resolve_api_key(self, provider: str, *, want_backup: bool = False) -> str:
+        """Return the API key for `provider`, per PROVIDER_REGISTRY. Applies the
+        ENV=development → GOOGLE_API_KEY_DEV override for gemini. Empty string when
+        nothing is configured (or the provider needs no key, e.g. 'local')."""
+        from config.settings import PROVIDER_REGISTRY
+
+        reg = PROVIDER_REGISTRY.get(provider, {})
+        key_fields = list(reg.get("key_settings", []))
+        if not key_fields:
+            return ""
+        if want_backup:
+            return getattr(self._settings, key_fields[1], "") if len(key_fields) > 1 else ""
+        dev_field = reg.get("dev_key_setting")
+        if dev_field and getattr(self._settings, "ENV", "production") == "development":
+            dev_key = getattr(self._settings, dev_field, "")
+            if dev_key:
+                return dev_key
+        return getattr(self._settings, key_fields[0], "")
+
+    def _require_capability(self, step_name: str, capability: str) -> str:
+        """Return the provider configured for `step_name`, raising LLMError if it
+        lacks `capability` ("llm" | "embed" | "grounding"). This is what stops a
+        stage from being pointed at a provider that can't serve it."""
+        from config.settings import PROVIDER_REGISTRY
+
+        cfg = self._config.get(step_name)
+        if not cfg:
+            raise LLMError(f"No LLM config found for step '{step_name}'.")
+        provider = cfg["provider"]
+        caps = PROVIDER_REGISTRY.get(provider, {}).get("capabilities", set())
+        if capability not in caps:
+            capable = sorted(
+                p for p, r in PROVIDER_REGISTRY.items()
+                if capability in r.get("capabilities", set())
+            )
+            raise LLMError(
+                f"Step '{step_name}' is set to provider '{provider}', which has no "
+                f"'{capability}' capability. Use one of {capable} — fix "
+                f"config/settings.py LLM_CONFIG['{step_name}'] or the env var feeding it."
+            )
+        return provider
+
+    def _embed_provider(self) -> str:
+        """Provider for the embedding stage. EMBED_PROVIDER env is the live control
+        (scripts mutate it at runtime); LLM_CONFIG['embedding'] mirrors it."""
+        rt = getattr(self._settings, "EMBED_PROVIDER", "") or ""
+        if rt:
+            return rt.strip().lower()
+        return self._config.get("embedding", {}).get("provider", "gemini")
+
+    @staticmethod
+    def _check_embed_dim(vec: List[float], provider: str) -> None:
+        """Fail loudly instead of silently writing a wrong-width vector into the
+        known_facts.alpha_embedding pgvector column (EMBED_DIM)."""
+        if vec is not None and len(vec) != EMBED_DIM:
+            raise LLMError(
+                f"Embedding provider '{provider}' returned a {len(vec)}-dim vector; "
+                f"known_facts.alpha_embedding requires {EMBED_DIM}. Point EMBED_PROVIDER "
+                f"at a {EMBED_DIM}-dim model (gemini / local) or run a pgvector migration first."
+            )
+
     def _get_gemini_client_backup(self) -> Optional[Any]:
         """Return a Gemini client using GOOGLE_API_KEY_BACKUP, or None if not configured."""
-        backup_key = getattr(self._settings, "GOOGLE_API_KEY_BACKUP", "")
+        backup_key = self._resolve_api_key("gemini", want_backup=True)
         if not backup_key:
             return None
         if self._gemini_client_backup is None:
@@ -739,11 +1041,9 @@ class LLMClient:
     def _get_gemini_client(self) -> Any:
         if self._gemini_client is None:
             from google import genai
-            # In development, prefer GOOGLE_API_KEY_DEV so prod quota is never
-            # consumed by local benchmark runs or experiments.
-            dev_key = getattr(self._settings, "GOOGLE_API_KEY_DEV", "")
-            is_dev = getattr(self._settings, "ENV", "production") == "development"
-            api_key = (dev_key if (is_dev and dev_key) else None) or self._settings.GOOGLE_API_KEY
+            # _resolve_api_key applies the ENV=development → GOOGLE_API_KEY_DEV override
+            # so prod quota is never consumed by local benchmark runs or experiments.
+            api_key = self._resolve_api_key("gemini")
             if not api_key:
                 raise LLMError("GOOGLE_API_KEY not set.")
             self._gemini_client = genai.Client(api_key=api_key)
@@ -752,7 +1052,7 @@ class LLMClient:
     def _get_openai_client(self) -> Any:
         if self._openai_client is None:
             from openai import OpenAI
-            api_key = getattr(self._settings, "OPENAI_API_KEY", None)
+            api_key = self._resolve_api_key("openai")
             if not api_key:
                 raise LLMError("OPENAI_API_KEY not set.")
             self._openai_client = OpenAI(api_key=api_key)
@@ -762,10 +1062,12 @@ class LLMClient:
         """Return (and lazily init) an OpenAI-compatible client pointed at Groq's API."""
         if self._groq_client is None:
             from openai import OpenAI
-            api_key = getattr(self._settings, "GROQ_API_KEY", "")
+            from config.settings import PROVIDER_REGISTRY
+            api_key = self._resolve_api_key("groq")
             if not api_key:
                 raise LLMError("GROQ_API_KEY not set. Add it to .env to use Groq.")
-            self._groq_client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+            base_url = PROVIDER_REGISTRY["groq"].get("base_url", "https://api.groq.com/openai/v1")
+            self._groq_client = OpenAI(api_key=api_key, base_url=base_url)
         return self._groq_client
 
     def _call_groq_instrumented(
@@ -785,6 +1087,7 @@ class LLMClient:
         kwargs: dict = {"model": model, "messages": messages}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+            self._json_object_messages(messages, system_prompt, prompt)
 
         response = self._call_with_timeout(
             lambda: client.chat.completions.create(**kwargs), 30.0

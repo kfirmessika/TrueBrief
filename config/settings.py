@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     # Groq API key — unlocks near-unlimited cheap inference for dashboard_summary/story_stitch.
     # When set, those steps automatically route to Groq (llama-3.1-8b-instant) instead of Gemini.
     GROQ_API_KEY: str = ""
+    # OpenAI API key — optional. Any LLM_CONFIG step whose provider is "openai" uses this.
+    # Empty by default (no OpenAI usage in production); the provider path is wired and
+    # capability-checked but only exercised when a step is explicitly switched to it.
+    OPENAI_API_KEY: str = ""
+    # Which grounded-search provider the collector uses. Feeds LLM_CONFIG["gemini_search"]
+    # (the one dict that shows every stage's provider). One of:
+    #   'gemini' / 'gemini_grounding' — Gemini Google-Search grounding (free tier, quota-limited)
+    #   'linkup'                      — Linkup sourcedAnswer (paid, no quota; LINKUP_API_KEY)
+    #   'brave'                       — Brave web search + summarizer (BRAVE_API_KEY)
+    SEARCH_PROVIDER: str = "gemini"
     # Model used when BOTH Gemini keys are quota-exhausted and a call falls back to Groq.
     # 70b class: strong enough for harvester/arbiter-grade work in emergencies.
     GROQ_FALLBACK_MODEL: str = "llama-3.3-70b-versatile"
@@ -48,10 +58,6 @@ class Settings(BaseSettings):
     # --- Search layer candidates (V5 benchmark) ---
     BRAVE_API_KEY: str = ""    # Search Plan — $5/1k, auth: X-Subscription-Token header
     LINKUP_API_KEY: str = ""   # Standard depth — $0.006/call with sourcedAnswer
-
-    # --- V4 collector keys (frozen — not used by V5 pipeline) ---
-    TAVILY_API_KEY: str = ""
-    EXA_API_KEY: str = ""
 
     # --- Database (Supabase) ---
     SUPABASE_URL: str = ""
@@ -202,42 +208,110 @@ if not settings.SUPABASE_ISSUER and settings.SUPABASE_URL:
 
 
 # ---------------------------------------------------------------------------
+# Provider registry — the ONE place that says, for each provider TrueBrief can
+# call: which settings field holds its API key, its endpoint/base_url, and what
+# it is capable of. llm/client.py reads this to auto-select the right key when a
+# step is switched to a different provider, and to refuse a step that is pointed
+# at a provider that cannot serve it (e.g. arbiter → linkup, gemini_search → groq).
+#
+# capabilities: "llm"       plain/JSON text generation (call(), extract/judge/brief)
+#               "embed"     vector embeddings
+#               "grounding" grounded web search (collector_search)
+#
+# To add a provider: one entry here + its key field on Settings above + a branch
+# in the matching llm/client.py method. Nothing else in the codebase changes.
+# ---------------------------------------------------------------------------
+PROVIDER_REGISTRY: dict[str, dict] = {
+    "gemini": {
+        "key_settings": ["GOOGLE_API_KEY", "GOOGLE_API_KEY_BACKUP"],
+        "dev_key_setting": "GOOGLE_API_KEY_DEV",
+        "capabilities": {"llm", "embed", "grounding"},
+    },
+    "groq": {
+        "key_settings": ["GROQ_API_KEY"],
+        "base_url": "https://api.groq.com/openai/v1",
+        "capabilities": {"llm"},
+    },
+    "openai": {
+        "key_settings": ["OPENAI_API_KEY"],
+        "capabilities": {"llm", "embed"},
+    },
+    "linkup": {
+        "key_settings": ["LINKUP_API_KEY"],
+        "endpoint": "https://api.linkup.so/v1/search",
+        "capabilities": {"grounding"},
+    },
+    "brave": {
+        "key_settings": ["BRAVE_API_KEY"],
+        "endpoint": "https://api.search.brave.com/res/v1/web/search",
+        "capabilities": {"grounding"},
+    },
+    "local": {
+        "key_settings": [],
+        "capabilities": {"embed"},
+    },
+}
+
+_PROVIDER_ALIASES = {"gemini_grounding": "gemini", "google": "gemini", "lookup": "linkup"}
+
+
+def _norm_provider(name: str) -> str:
+    """Map provider aliases (e.g. legacy SEARCH_PROVIDER='gemini_grounding') to a
+    canonical PROVIDER_REGISTRY key."""
+    n = (name or "").strip().lower()
+    return _PROVIDER_ALIASES.get(n, n)
+
+
+# ---------------------------------------------------------------------------
 # LLM Configuration
 # ---------------------------------------------------------------------------
-# Maps each pipeline step → provider + model.
-# To change a single step's model, edit ONE line here.
-# To add a new provider, add a new `elif` in llm/client.py.
-
-# Auto-select provider/model for cheap steps: Groq when key is present, Gemini otherwise.
-# Only dashboard_summary and story_stitch auto-switch; all other steps stay on Gemini.
+# LLM_CONFIG below is the single dict that shows every pipeline stage's
+# provider + model. Each V5 stage has ONE control (a constant here, or the
+# matching env var that feeds it) — change that one line to switch the stage.
+# llm/client.py exposes a named method per stage (collector_search, extract_facts,
+# judge_case/judge_batch, write_brief, embed_fact/embed_facts) that reads its
+# entry here and resolves the key via PROVIDER_REGISTRY.
+# ---------------------------------------------------------------------------
 _cheap_provider = "groq" if settings.GROQ_API_KEY else "gemini"
 _cheap_model = "llama-3.1-8b-instant" if settings.GROQ_API_KEY else "gemini-3.5-flash-lite"
 
+# V5 active steps — one constant per step, change here (or the env var) to swap.
+# gemini_search + embedding take their provider from env (SEARCH_PROVIDER /
+# EMBED_PROVIDER) so a benchmark/script can flip them without a code edit; the
+# other stages are set directly here.
+_COLLECTOR_PROVIDER = _norm_provider(settings.SEARCH_PROVIDER) or "gemini"
+_COLLECTOR_MODEL    = "gemini-3.5-flash-lite"   # step: gemini_search — only used by the gemini provider
+_EXTRACT_PROVIDER   = "gemini"
+_EXTRACT_MODEL      = "gemini-3.5-flash-lite"   # step: gemini_extract (structure facts from prose)
+_ARBITER_PROVIDER   = "gemini"
+_ARBITER_MODEL      = "gemini-3.5-flash-lite"   # step: arbiter (dedup judge)
+_BRIEFER_PROVIDER   = "gemini"
+_BRIEFER_MODEL      = "gemini-3.5-flash-lite"   # step: briefer (write final brief)
+_EMBED_PROVIDER     = _norm_provider(getattr(settings, "EMBED_PROVIDER", "gemini")) or "gemini"
+_EMBED_MODEL        = (
+    f"local/{getattr(settings, 'LOCAL_EMBED_MODEL', 'BAAI/bge-base-en-v1.5')}"
+    if _EMBED_PROVIDER == "local"
+    else "models/gemini-embedding-2"
+)
+
 LLM_CONFIG: dict[str, dict[str, str]] = {
-    # Query Builder: Low token usage, simple reasoning.
-    "query_builder":  {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-
-    # Harvester: High token usage (reads full articles), strict JSON output.
-    "harvester":      {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-
-    # Arbiter (Delta/Decision): Low tokens, high reasoning.
-    "arbiter":        {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-
-    # Briefer: Writes the final markdown report. High reasoning needed.
-    "briefer":        {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-
-    # Garbage Filter: Trivial classification, low tokens.
-    "garbage_filter": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-
-    # Query Rotator: Generates fresh search queries when variants underperform.
-    "query_rotator":  {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-
-    # Story Summarizer: Merges previous summary + new fact → updated summary (Phase 3, Task 3.3).
+    # --- V4 steps (not active in V5 — kept so existing telemetry keys don't break) ---
+    "query_builder":    {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "harvester":        {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "garbage_filter":   {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "query_rotator":    {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
     "story_summarizer": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "state_of_play":    {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
 
-    # State of Play (IC7): synthesizes the topic-level status block from stored facts.
-    # High reasoning (must rank threads + assign statuses), strict JSON output.
-    "state_of_play":  {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    # --- V5 active steps — controlled by the constants above ---
+    "arbiter":        {"provider": _ARBITER_PROVIDER,   "model": _ARBITER_MODEL},
+    "briefer":        {"provider": _BRIEFER_PROVIDER,   "model": _BRIEFER_MODEL},
+
+    # Embedding stage (arbiter dedup + vector store writes + query-side search).
+    # provider from EMBED_PROVIDER env: "gemini" (models/gemini-embedding-2, 768d) or
+    # "local" (sentence-transformers, 768d, $0). Output MUST be 768d — the
+    # known_facts.alpha_embedding pgvector column width; llm/client.py enforces it.
+    "embedding":      {"provider": _EMBED_PROVIDER,     "model": _EMBED_MODEL},
 
     # Dashboard summary (V4-3): 2-3 sentence executive summary of the most recent facts.
     # Routes to Groq (llama-3.1-8b-instant) when GROQ_API_KEY is set; falls back to Gemini.
@@ -256,16 +330,16 @@ LLM_CONFIG: dict[str, dict[str, str]] = {
         "model": "llama-3.3-70b-versatile" if settings.GROQ_API_KEY else "gemini-2.0-flash",
     },
 
-    # V5 Gemini Search collector (docs/core/architecture_v5.md). gemini-3.5-flash-lite is the
-    # current grounding model (switched 2026-08-12 — Google's API console confirmed
-    # gemini-3.5-flash-lite has a 500/day request limit vs gemini-2.5-flash-lite's 20/day;
-    # forcing JSON mode on other models suppressed grounding_chunks/supports entirely, so this
-    # call must stay plain prose — see call_gemini_with_grounding's docstring).
-    "gemini_search": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    # V5 grounded-search collector (docs/core/architecture_v5.md). provider from
+    # SEARCH_PROVIDER env: "gemini" (Google-Search grounding — free tier 5,000
+    # queries/month, plain-prose only or grounding_chunks are suppressed), "linkup"
+    # (sourcedAnswer, paid, no quota), or "brave" (web search + summarizer). model is
+    # only consulted for the gemini provider; linkup/brave are flat-fee HTTP APIs.
+    "gemini_search": {"provider": _COLLECTOR_PROVIDER, "model": _COLLECTOR_MODEL},
 
     # Restructures the grounded prose into the alpha+context JSON contract. Plain (non-grounded)
     # extraction call.
-    "gemini_extract": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    "gemini_extract": {"provider": _EXTRACT_PROVIDER, "model": _EXTRACT_MODEL},
 
     # --- Topic Finisher experiment (scripts/topic_finisher_experiment.py) ---
     # Candidate topics.raw_query cleanup step, NOT wired into production yet. Same

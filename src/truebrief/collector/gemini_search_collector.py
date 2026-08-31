@@ -21,12 +21,7 @@ from typing import TYPE_CHECKING, List, Optional
 from dateutil.parser import parse as parse_date
 
 from truebrief.llm.client import GroundedResult, LLMClient
-from truebrief.llm.prompts import (
-    GEMINI_EXTRACT_SYSTEM,
-    GEMINI_SEARCH_SYSTEM,
-    build_gemini_extract_prompt,
-    build_gemini_search_prompt,
-)
+from truebrief.llm.prompts import GEMINI_SEARCH_SYSTEM
 from truebrief.models.alpha import Alpha
 
 if TYPE_CHECKING:
@@ -136,10 +131,14 @@ class GeminiSearchCollector:
                     topic_name, len(known_facts),
                 )
 
-        search_prompt = build_gemini_search_prompt(topic_name, last_run_str, today_str, known_facts=known_facts or None)
-        grounded: GroundedResult = self.llm.call_gemini_with_grounding(
-            step_name="gemini_search",
-            prompt=search_prompt,
+        # STAGE 1 — grounded search. The provider (gemini / linkup / brave) and its
+        # API key are resolved inside collector_search from LLM_CONFIG["gemini_search"];
+        # this call site is provider-agnostic.
+        grounded: GroundedResult = self.llm.collector_search(
+            topic_name,
+            last_run_str=last_run_str,
+            today_str=today_str,
+            known_facts=known_facts or None,
             system_prompt=GEMINI_SEARCH_SYSTEM,
         )
 
@@ -150,13 +149,8 @@ class GeminiSearchCollector:
         cited_text = _insert_citation_markers(grounded.text, grounded.supports)
         legend, urls, names = _build_source_legend(grounded.chunks)
 
-        extract_prompt = build_gemini_extract_prompt(cited_text, legend, topic_name, today_str)
-        raw = self.llm.call(
-            step_name="gemini_extract",
-            prompt=extract_prompt,
-            json_mode=True,
-            system_prompt=GEMINI_EXTRACT_SYSTEM,
-        )
+        # STAGE 2 — restructure prose into the Alpha-JSON contract (any llm provider).
+        raw = self.llm.extract_facts(cited_text, legend, topic_name, today_str)
 
         return self._parse_facts(raw, urls, names, topic_id)
 

@@ -48,12 +48,7 @@ class Briefer:
         
         try:
             logger.info(f"Generating brief for topic: {topic_name}")
-            response_text = self.llm.call(
-                step_name="briefer",
-                prompt=prompt,
-                json_mode=False,
-                system_prompt=BRIEFER_SYSTEM,
-            )
+            response_text = self.llm.write_brief(prompt, BRIEFER_SYSTEM)
             return response_text.strip()
         except Exception as e:
             logger.error(f"Failed to generate brief: {e}")
