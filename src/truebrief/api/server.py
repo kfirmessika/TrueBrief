@@ -52,10 +52,15 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # The interactive docs publish the full API surface — every route, parameter and schema.
-# Useful in dev, an enumeration aid in production. Fail secure: docs are exposed only
-# when ENV *explicitly* says development, so a missing or mistyped ENV closes them
-# rather than opening them.
-_docs_enabled = os.getenv("ENV", "").strip().lower() in ("development", "dev", "local", "test")
+# Useful in dev, an enumeration aid in production. Fail secure: they open ONLY when
+# ENABLE_API_DOCS is explicitly truthy. This is deliberately a dedicated switch and not
+# tied to ENV — prod carried ENV=development for unrelated reasons and silently exposed
+# the docs for weeks. Local devs set ENABLE_API_DOCS=1 in .env (see .env.example).
+def _docs_flag_enabled(raw: str | None) -> bool:
+    return (raw or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+_docs_enabled = _docs_flag_enabled(os.getenv("ENABLE_API_DOCS"))
 
 
 @asynccontextmanager

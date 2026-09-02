@@ -72,6 +72,18 @@ class PortalRequest(BaseModel):
 # Routes
 # ---------------------------------------------------------------------------
 
+_DISPLAY_PRICE_USD = {
+    "free": 0.0,
+    "pro": lambda: float(settings.PRICE_PRO_USD or 0.0),
+    "power": lambda: float(settings.PRICE_POWER_USD or 0.0),
+}
+
+
+def _price_for(tier_value: str) -> float:
+    p = _DISPLAY_PRICE_USD.get(tier_value, 0.0)
+    return p() if callable(p) else p
+
+
 @router.get("/tiers")
 def get_tiers():
     """Return tier definitions — public, no auth needed."""
@@ -82,6 +94,8 @@ def get_tiers():
             "sources": limits.sources,
             "private_topics": limits.private_topics,
             "api_calls_per_day": limits.api_calls_per_day,
+            "max_scans_per_day": limits.max_scans_per_day,
+            "price_usd_month": _price_for(tier.value),
         }
         for tier, limits in TIER_LIMITS.items()
     }
@@ -153,14 +167,22 @@ async def paddle_webhook(
 @router.get("/status")
 def get_subscription_status(user: User = Depends(get_current_user)):
     """Return the current tier, Paddle status, and enforced limits for a user."""
+    from truebrief.billing.tiers import resolve_effective_tier
+
     sub = _paddle.get_subscription(user.id)
-    tier_str = sub.get("tier", "free") if sub else "free"
-    limits = TIER_LIMITS[Tier(tier_str)]
+    billed_tier = sub.get("tier", "free") if sub else "free"
+    status = sub.get("status", "active") if sub else "active"
+    # Limits follow the *effective* tier: a past-due-beyond-grace or canceled
+    # subscription is enforced as free even while `tier` still reads "pro".
+    effective_tier = resolve_effective_tier(sub)
+    limits = TIER_LIMITS[Tier(effective_tier)]
 
     return {
         "user_id": user.id,
-        "tier": tier_str,
-        "status": sub.get("status", "active") if sub else "active",
+        "tier": effective_tier,
+        "billed_tier": billed_tier,
+        "status": status,
+        "past_due_since": sub.get("past_due_since") if sub else None,
         "paddle_customer_id": sub.get("paddle_customer_id") if sub else None,
         "current_period_end": sub.get("current_period_end") if sub else None,
         "limits": {
@@ -169,5 +191,7 @@ def get_subscription_status(user: User = Depends(get_current_user)):
             "sources": limits.sources,
             "private_topics": limits.private_topics,
             "api_calls_per_day": limits.api_calls_per_day,
+            "max_scans_per_day": limits.max_scans_per_day,
+            "price_usd_month": _price_for(effective_tier),
         },
     }

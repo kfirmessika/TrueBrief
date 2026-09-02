@@ -60,6 +60,7 @@ celery_app = Celery(
         "truebrief.tasks.scheduler",
         "truebrief.tasks.digest_task",
         "truebrief.tasks.push_task",
+        "truebrief.tasks.retention_task",
     ],
 )
 
@@ -87,6 +88,11 @@ celery_app.conf.beat_schedule = {
     "daily-digest": {
         "task": "truebrief.tasks.digest_task.send_digest_task",
         "schedule": crontab(hour=8, minute=0),  # every day at 08:00 UTC
+        "options": {"queue": "celery"},
+    },
+    "telemetry-retention": {
+        "task": "truebrief.tasks.retention_task.prune_telemetry_task",
+        "schedule": crontab(hour=3, minute=30),  # every day at 03:30 UTC
         "options": {"queue": "celery"},
     },
 }

@@ -111,3 +111,25 @@ class TestBillingRedirectGuard:
         monkeypatch.setenv("FRONTEND_URL", "https://app.truebrief.com")
         # should not raise
         billing_routes._require_same_origin("https://app.truebrief.com/settings", "success_url")
+
+
+# ── Interactive API docs are closed unless explicitly enabled ─────────────────
+
+class TestApiDocsGating:
+    """`/docs`, `/redoc`, `/openapi.json` must be OFF unless ENABLE_API_DOCS is
+    explicitly truthy — not tied to ENV (prod ran ENV=development and leaked them)."""
+
+    def test_closed_when_unset(self):
+        from truebrief.api.server import _docs_flag_enabled
+        assert _docs_flag_enabled(None) is False
+        assert _docs_flag_enabled("") is False
+
+    def test_closed_on_dev_ish_or_garbage_values(self):
+        from truebrief.api.server import _docs_flag_enabled
+        for v in ("development", "dev", "maybe", "0", "false", "off"):
+            assert _docs_flag_enabled(v) is False
+
+    def test_open_only_on_explicit_true(self):
+        from truebrief.api.server import _docs_flag_enabled
+        for v in ("1", "true", "YES", " on "):
+            assert _docs_flag_enabled(v) is True

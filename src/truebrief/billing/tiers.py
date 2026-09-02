@@ -121,6 +121,59 @@ def enforce_speed_limit(
         )
 
 
+def resolve_effective_tier(sub_row: Optional[dict]) -> str:
+    """The tier to actually enforce for a user, given their subscription row.
+
+    Enforcement everywhere reads *this*, never the raw `tier` column — a failed
+    payment used to leave `tier` untouched, so a past-due or refunded customer
+    kept full paid access until Paddle's own dunning finished days later.
+
+      - no row / status active / trialing        -> stored tier (or "free")
+      - status "canceled"                          -> "free"
+      - status "past_due":
+          within PADDLE_PAST_DUE_GRACE_DAYS of past_due_since -> stored tier
+          beyond that (or no past_due_since stamp)            -> "free"
+    """
+    if not sub_row:
+        return "free"
+
+    tier = (sub_row.get("tier") or "free").strip().lower()
+    status = (sub_row.get("status") or "active").strip().lower()
+
+    if tier == "free":
+        return "free"
+    if status in ("canceled", "cancelled"):
+        return "free"
+    if status != "past_due":
+        return tier
+
+    since_raw = sub_row.get("past_due_since")
+    if not since_raw:
+        # past_due with no timestamp — treat the grace window as already expired.
+        logger.info("resolve_effective_tier: past_due with no past_due_since — downgrading to free")
+        return "free"
+
+    try:
+        since = datetime.datetime.fromisoformat(str(since_raw).replace("Z", "+00:00"))
+    except ValueError:
+        return "free"
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=datetime.timezone.utc)
+
+    try:
+        from config.settings import settings
+        grace_days = int(settings.PADDLE_PAST_DUE_GRACE_DAYS)
+    except Exception:
+        grace_days = 3
+
+    deadline = since + datetime.timedelta(days=grace_days)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if now <= deadline:
+        return tier
+    logger.info("resolve_effective_tier: past_due grace expired (since=%s) — downgrading to free", since_raw)
+    return "free"
+
+
 def get_allowed_sources(tier_str: str) -> list[str]:
     """
     Return the list of source plugin names this tier may access.

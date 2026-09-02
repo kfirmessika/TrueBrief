@@ -189,6 +189,10 @@ class PaddleService:
             self._mark_past_due(data)
         elif event_type == "transaction.completed":
             logger.info("Transaction completed: %s", data.get("id"))
+        elif event_type == "adjustment.created":
+            self._handle_adjustment(data)
+        else:
+            logger.info("Paddle webhook: no handler for event_type=%s", event_type)
 
     _WEBHOOK_MAX_AGE_SECONDS = 300  # Reject webhooks older than 5 minutes
 
@@ -225,6 +229,7 @@ class PaddleService:
         tier = _price_to_tier(price_id).value if price_id else "free"
 
         period_end = sub.get("current_billing_period", {}).get("ends_at")
+        status = sub.get("status", "active")
 
         res = (
             self._db()
@@ -238,21 +243,28 @@ class PaddleService:
             return
 
         user_id = res.data[0]["user_id"]
-        self._db().table("user_subscriptions").upsert(
-            {
-                "user_id": user_id,
-                "paddle_customer_id": customer_id,
-                "paddle_subscription_id": sub["id"],
-                "tier": tier,
-                "status": sub.get("status", "active"),
-                "current_period_end": period_end,
-            },
-            on_conflict="user_id",
-        ).execute()
-        logger.info(
-            "Subscription synced: user=%s tier=%s status=%s",
-            user_id, tier, sub.get("status"),
-        )
+        record = {
+            "user_id": user_id,
+            "paddle_customer_id": customer_id,
+            "paddle_subscription_id": sub["id"],
+            "tier": tier,
+            "status": status,
+            "current_period_end": period_end,
+        }
+        # A recovered payment (status back to active/trialing) clears the past-due
+        # grace clock so the paid tier is enforced again in full.
+        if status in ("active", "trialing"):
+            record["past_due_since"] = None
+        try:
+            self._db().table("user_subscriptions").upsert(
+                record, on_conflict="user_id"
+            ).execute()
+        except Exception:
+            record.pop("past_due_since", None)  # migration 036 not applied
+            self._db().table("user_subscriptions").upsert(
+                record, on_conflict="user_id"
+            ).execute()
+        logger.info("Subscription synced: user=%s tier=%s status=%s", user_id, tier, status)
 
     def _cancel_subscription(self, sub: dict) -> None:
         customer_id = sub.get("customer_id")
@@ -263,7 +275,52 @@ class PaddleService:
 
     def _mark_past_due(self, data: dict) -> None:
         customer_id = data.get("customer_id")
-        self._db().table("user_subscriptions").update(
-            {"status": "past_due"}
-        ).eq("paddle_customer_id", customer_id).execute()
-        logger.info("Subscription past_due for customer %s", customer_id)
+        try:
+            row = (
+                self._db()
+                .table("user_subscriptions")
+                .select("past_due_since")
+                .eq("paddle_customer_id", customer_id)
+                .execute()
+            )
+            already = row.data[0].get("past_due_since") if row.data else None
+        except Exception:
+            already = None  # migration 036 not applied yet
+        update = {"status": "past_due"}
+        # The FIRST failed payment starts the grace clock; later dunning retries
+        # for the same lapse must not keep pushing the deadline out.
+        if not already:
+            update["past_due_since"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            self._db().table("user_subscriptions").update(update).eq(
+                "paddle_customer_id", customer_id
+            ).execute()
+        except Exception:
+            # migration 036 not applied — at least record the status
+            self._db().table("user_subscriptions").update({"status": "past_due"}).eq(
+                "paddle_customer_id", customer_id
+            ).execute()
+        logger.warning(
+            "Subscription past_due for customer %s (grace started %s)",
+            customer_id, update.get("past_due_since", already),
+        )
+
+    def _handle_adjustment(self, data: dict) -> None:
+        """Paddle `adjustment.created` — refunds, credits, chargebacks. Downgrade on a
+        refund/chargeback and log loudly (goes to the error stream) so a real dispute
+        is never silent, matching the audit's 'at minimum alert on them'."""
+        action = (data.get("action") or "").lower()
+        customer_id = data.get("customer_id")
+        adj_id = data.get("id")
+        if action in ("refund", "chargeback", "chargeback_reverse", "credit_reverse"):
+            logger.error(
+                "Paddle adjustment %s=%s for customer %s — downgrading to free. "
+                "Review in the Paddle dashboard.",
+                action, adj_id, customer_id,
+            )
+            if customer_id:
+                self._db().table("user_subscriptions").update(
+                    {"tier": "free", "status": "canceled"}
+                ).eq("paddle_customer_id", customer_id).execute()
+        else:
+            logger.info("Paddle adjustment %s=%s (customer %s) — no tier change", action, adj_id, customer_id)

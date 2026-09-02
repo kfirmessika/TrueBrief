@@ -43,6 +43,30 @@ from truebrief.llm.prompts import (
 from config.settings import settings
 
 
+def _effective_tier(db, user_id: str) -> str:
+    """The tier to enforce for this user — accounts for canceled / past-due status
+    (see billing.tiers.resolve_effective_tier), not just the raw `tier` column.
+
+    Falls back to `tier, status` if migration 036 (past_due_since) hasn't run yet,
+    so deploying this before the migration can't 500 every scan/create."""
+    from truebrief.billing.tiers import resolve_effective_tier
+    try:
+        res = (
+            db.table("user_subscriptions")
+            .select("tier, status, past_due_since")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        res = (
+            db.table("user_subscriptions")
+            .select("tier, status")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    return resolve_effective_tier(res.data[0] if res.data else None)
+
+
 def _require_subscription(db, topic_id: str, user_id: str) -> None:
     """Raise 403 if the user is not subscribed to the topic."""
     sub = (
@@ -216,13 +240,7 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
     val_uuid = user.id
 
     # --- Tier Enforcement: topic cap ---
-    sub_res = (
-        db.table("user_subscriptions")
-        .select("tier")
-        .eq("user_id", val_uuid)
-        .execute()
-    )
-    tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
+    tier_str = _effective_tier(db, val_uuid)
 
     # Count topics this user is already subscribed to
     count_res = (
@@ -651,8 +669,7 @@ def put_topic_schedule(
     from truebrief.ledger.alarm_schedule import min_spacing_hours_ok, set_schedule_times
     from truebrief.tasks.scheduler import set_next_run
 
-    sub_res = db.table("user_subscriptions").select("tier").eq("user_id", user.id).execute()
-    tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
+    tier_str = _effective_tier(db, user.id)
     floor_hours = _get_limits(tier_str).min_interval_hours
 
     times = [(t.hour, t.minute) for t in body.times]
@@ -748,13 +765,7 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
         logger.info("Admin %s — bypassing scan speed limit.", user.email)
     else:
         try:
-            sub_res = (
-                db.table("user_subscriptions")
-                .select("tier")
-                .eq("user_id", val_uuid)
-                .execute()
-            )
-            tier_str = sub_res.data[0]["tier"] if sub_res.data else "free"
+            tier_str = _effective_tier(db, val_uuid)
 
             last_scan_at: Optional[datetime] = None
             raw_last = topic_row.get("last_run_at")
@@ -777,11 +788,7 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
     )
     enforce_global_spend_ceiling(db, user.email)
     if not is_admin(user.email):
-        _tier_res = (
-            db.table("user_subscriptions").select("tier").eq("user_id", val_uuid).execute()
-        )
-        _tier_str = _tier_res.data[0]["tier"] if _tier_res.data else "free"
-        enforce_and_record_scan_cap(val_uuid, _tier_str, user.email)
+        enforce_and_record_scan_cap(val_uuid, _effective_tier(db, val_uuid), user.email)
 
     from truebrief.tasks.pipeline_task import enqueue_pipeline
     task = enqueue_pipeline(topic_id=topic_id, raw_query=raw_query)
@@ -1060,6 +1067,13 @@ def delete_account(user: User = Depends(get_current_user)):
     except Exception as exc:
         logger.error("Failed to delete user %s: %s", user.id, exc)
         raise HTTPException(status_code=500, detail="Account deletion failed")
+    # Drop the cached User immediately — the JWT stays valid for a while and would
+    # otherwise resolve from cache for up to the TTL after the row is gone.
+    try:
+        from truebrief.auth.user_repo import invalidate_user_cache
+        invalidate_user_cache(user.auth_uid)
+    except Exception:
+        pass
     return {"status": "deleted"}
 
 
@@ -2654,8 +2668,7 @@ def get_admin_user_detail(user_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="User not found")
     profile = profile_res.data[0]
 
-    tier_res = db.table("user_subscriptions").select("tier").eq("user_id", user_id).execute()
-    tier = tier_res.data[0]["tier"] if tier_res.data else "free"
+    tier = _effective_tier(db, user_id)
 
     created_res = (
         db.table("topics")

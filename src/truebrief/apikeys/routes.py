@@ -38,8 +38,22 @@ class CreateKeyRequest(BaseModel):
 
 
 def _user_tier(db, user_id: str) -> str:
-    res = db.table("user_subscriptions").select("tier").eq("user_id", user_id).execute()
-    return (res.data[0].get("tier") if res.data else None) or "free"
+    from truebrief.billing.tiers import resolve_effective_tier
+    try:
+        res = (
+            db.table("user_subscriptions")
+            .select("tier, status, past_due_since")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        res = (
+            db.table("user_subscriptions")
+            .select("tier, status")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    return resolve_effective_tier(res.data[0] if res.data else None)
 
 
 @router.post("")

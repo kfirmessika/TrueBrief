@@ -197,9 +197,35 @@ def test_webhook_payment_failed_marks_past_due(paddle_service, mock_settings):
     sig = _make_signature(payload, "test_secret")
 
     paddle_service._already_processed = MagicMock(return_value=False)
+    # No prior past_due_since -> the first failure stamps the grace clock.
+    select_chain = paddle_service._db().table().select().eq()
+    select_chain.execute.return_value = MagicMock(data=[{"past_due_since": None}])
 
     paddle_service.handle_webhook(payload, sig)
 
-    paddle_service._db().table("user_subscriptions").update.assert_called_with(
-        {"status": "past_due"}
-    )
+    (called_args, _), = [
+        c for c in paddle_service._db().table("user_subscriptions").update.call_args_list
+    ][-1:]
+    update_arg = called_args[0]
+    assert update_arg["status"] == "past_due"
+    assert "past_due_since" in update_arg and update_arg["past_due_since"]
+
+
+def test_webhook_payment_failed_keeps_original_grace_start(paddle_service, mock_settings):
+    """A later dunning retry must not push the grace deadline out."""
+    existing = "2026-01-01T00:00:00+00:00"
+    data = {"customer_id": MOCK_CUSTOMER_ID}
+    payload = json.dumps({
+        "notification_id": MOCK_EVENT_ID,
+        "event_type": "transaction.payment_failed",
+        "data": data,
+    }).encode()
+    sig = _make_signature(payload, "test_secret")
+    paddle_service._already_processed = MagicMock(return_value=False)
+    select_chain = paddle_service._db().table().select().eq()
+    select_chain.execute.return_value = MagicMock(data=[{"past_due_since": existing}])
+
+    paddle_service.handle_webhook(payload, sig)
+
+    last_update = paddle_service._db().table("user_subscriptions").update.call_args_list[-1][0][0]
+    assert last_update == {"status": "past_due"}  # no past_due_since key -> not overwritten

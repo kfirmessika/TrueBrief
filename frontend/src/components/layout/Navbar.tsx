@@ -75,6 +75,12 @@ export default function Navbar() {
 
           {/* Right side */}
           <div className="flex items-center gap-2">
+            <Link
+              href="/pricing"
+              className="hidden sm:block text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors px-3 py-2"
+            >
+              Pricing
+            </Link>
             <ThemeToggle />
 
             {isLoaded && !isSignedIn && (
@@ -120,6 +126,13 @@ export default function Navbar() {
       {/* Mobile drawer */}
       {menuOpen && (
         <div className="md:hidden border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 flex flex-col gap-1">
+          <Link
+            href="/pricing"
+            onClick={() => setMenuOpen(false)}
+            className="px-3 py-3 rounded-xl text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-overlay)] hover:text-[var(--color-text)] transition-colors"
+          >
+            Pricing
+          </Link>
           {isLoaded && isSignedIn && NAV_LINKS.map((link) => (
             <Link
               key={link.href}

@@ -61,8 +61,9 @@ export default function PrivacyPage() {
         <Section title="Where it lives">
           <p>
             Data is stored with our infrastructure providers: Supabase (database and
-            authentication), Railway (application hosting), and Paddle (billing). Each processes
-            data under their own security and compliance programs.
+            authentication), Railway (application hosting), Paddle (billing), and Resend
+            (transactional and digest email delivery). Each processes data under their own
+            security and compliance programs.
           </p>
         </Section>
 

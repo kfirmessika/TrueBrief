@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     PADDLE_PRICE_PRO: str = ""      # Price ID from Paddle dashboard (e.g. pri_xxx)
     PADDLE_PRICE_POWER: str = ""    # Price ID from Paddle dashboard
 
+    # Display prices (USD / month) shown on /pricing and the upgrade buttons. These
+    # are DISPLAY ONLY — the amount actually charged is whatever the Paddle price ID
+    # above is set to. Keep them in sync with Paddle. 0 = not set → the UI shows no
+    # number (avoid shipping a wrong price).
+    PRICE_PRO_USD: float = 0.0
+    PRICE_POWER_USD: float = 0.0
+
     # --- Supabase Auth ---
     # Derived from SUPABASE_URL by default (see below); overridable via env var for
     # non-standard setups (e.g. a custom auth domain).
@@ -86,6 +93,17 @@ class Settings(BaseSettings):
     # breaker entirely. Tune to your real budget — the default is deliberately generous
     # headroom over normal usage, tight enough to stop a runaway loop.
     GLOBAL_DAILY_SPEND_CEILING_USD: float = 25.0
+
+    # Days a past-due subscription keeps its paid tier before it falls back to free.
+    # Enforced on read (resolve_effective_tier) — no scheduled job needed. A recovered
+    # payment restores the tier via Paddle's subscription.updated webhook.
+    PADDLE_PAST_DUE_GRACE_DAYS: int = 3
+
+    # --- Telemetry retention (tasks/retention_task.py, daily) ---
+    # llm_call_log keeps its cost/latency columns forever; the heavy prompt/response
+    # TEXT is dropped after this many days. pipeline_trace rows are deleted outright.
+    TELEMETRY_PAYLOAD_RETENTION_DAYS: int = 14
+    PIPELINE_TRACE_RETENTION_DAYS: int = 14
 
     # --- V3 Feature Flags (all False = V1 behaviour; flip in .env to enable V3 changes) ---
     # 1a.1 — harvester year guard: clamp event_date to [publish_date−1y, today]

@@ -91,8 +91,19 @@ function BillingSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const { data: tiers } = useQuery<Record<string, { price_usd_month?: number }>>({
+    queryKey: ['billing-tiers'],
+    queryFn: async () => (await api.get('/billing/tiers')).data,
+    staleTime: 60 * 60 * 1000,
+  });
+
   const tier = billing?.tier ?? 'free';
   const isPaid = tier === 'pro' || tier === 'power';
+  const isPastDue = billing?.status === 'past_due';
+  const priceLabel = (t: 'pro' | 'power') => {
+    const p = tiers?.[t]?.price_usd_month;
+    return p ? ` · $${p}/mo` : '';
+  };
 
   const startCheckout = async (target: 'pro' | 'power') => {
     setBusy(true); setError('');
@@ -136,15 +147,29 @@ function BillingSection() {
           {tier}
         </span>
       </div>
+      {isPastDue && (
+        <div style={row}>
+          <span style={{ ...label, color: '#B45309' }}>
+            Payment failed. Update your card to keep {billing?.billed_tier ?? 'your'} access —
+            it drops to Free after a short grace period.
+          </span>
+          <button disabled={busy} onClick={openPortal} style={primaryBtn}>
+            {busy ? '…' : 'Fix payment'}
+          </button>
+        </div>
+      )}
       {!isPaid && (
         <div style={row}>
-          <span style={label}>Upgrade for more topics, faster scans, and API access</span>
+          <span style={label}>
+            Upgrade for more topics, faster scans, and API access.{' '}
+            <a href="/pricing" style={{ color: 'var(--tb-green)', textDecoration: 'none' }}>Compare plans →</a>
+          </span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button disabled={busy} onClick={() => startCheckout('pro')} style={primaryBtn}>
-              {busy ? '…' : 'Go Pro'}
+              {busy ? '…' : `Go Pro${priceLabel('pro')}`}
             </button>
             <button disabled={busy} onClick={() => startCheckout('power')} style={smallBtn}>
-              Go Power
+              {`Go Power${priceLabel('power')}`}
             </button>
           </div>
         </div>
@@ -183,7 +208,7 @@ function ApiKeysSection() {
 
   const hasApiAccess = (billing?.limits?.api_calls_per_day ?? 0) !== 0;
 
-  const { data: keysData } = useQuery<{ keys: ApiKey[] }>({
+  const { data: keysData, isError: keysError } = useQuery<{ keys: ApiKey[] }>({
     queryKey: ['api-keys'],
     queryFn: async () => (await api.get('/api-keys')).data,
     enabled: hasApiAccess,
@@ -225,6 +250,23 @@ function ApiKeysSection() {
   };
 
   const activeKeys = (keysData?.keys ?? []).filter((k) => !k.revoked_at);
+
+  if (hasApiAccess && keysError) {
+    return (
+      <div style={card}>
+        <div style={{ ...row, borderBottom: 'none' }}>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 2px' }}>
+              Developer API
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>
+              Being set up — check back shortly. Your plan includes API access.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!hasApiAccess) {
     return (

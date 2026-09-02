@@ -30,6 +30,12 @@ export interface TierLimits {
   sources: string[];
   private_topics: boolean;
   api_calls_per_day: number;
+  max_scans_per_day?: number;
+  price_usd_month?: number;
+}
+
+export interface TierDefs {
+  [tier: string]: TierLimits;
 }
 
 // API Key Types
@@ -52,7 +58,9 @@ export interface ApiKeyUsage {
 export interface BillingStatus {
   user_id: string;
   tier: string;
+  billed_tier?: string;
   status: string;
+  past_due_since?: string | null;
   paddle_customer_id: string | null;
   current_period_end: number | null;
   limits: TierLimits;
