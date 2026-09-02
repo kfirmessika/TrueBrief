@@ -125,7 +125,7 @@ class TestCollectEndToEnd:
     def test_valid_facts_with_citation_get_real_source_url(self):
         grounded = GroundedResult(
             text="Iran proposed a ceasefire.",
-            chunks=[make_chunk("https://reuters.com/a", "Reuters")],
+            chunks=[make_chunk("https://reuters.com/world/mideast/iran-proposes-ceasefire-2026-07-22/", "Reuters")],
             supports=[make_support(0, 26, "Iran proposed a ceasefire.", [0])],
         )
         extract_json = (
@@ -142,7 +142,7 @@ class TestCollectEndToEnd:
         assert len(alphas) == 1
         a = alphas[0]
         assert a.alpha_text == "Iran proposed a ceasefire."
-        assert a.source_url == "https://reuters.com/a"  # from grounding_chunks, not the LLM
+        assert a.source_url == "https://reuters.com/world/mideast/iran-proposes-ceasefire-2026-07-22/"
         assert a.source_name == "Reuters"
         assert a.event_class == "development"
         assert a.topic_id == "t1"
@@ -150,7 +150,7 @@ class TestCollectEndToEnd:
         assert llm.grounding_calls[0]["system_prompt"]  # GEMINI_SEARCH_SYSTEM passed through
         assert llm.extract_calls[0]["topic_name"] == "Iran War"
 
-    def test_invalid_citation_index_falls_back_to_empty_source_not_a_guess(self):
+    def test_invalid_citation_index_drops_fact_instead_of_storing_without_evidence(self):
         grounded = GroundedResult(text="Some fact.", chunks=[], supports=[])
         extract_json = (
             '[{"alpha_text": "Some fact.", "entities": [], "event_date": "' + _RECENT + '", '
@@ -163,11 +163,12 @@ class TestCollectEndToEnd:
 
         alphas = collector.collect("Iran War", last_run_date=None)
 
-        assert len(alphas) == 1
-        assert alphas[0].source_url == ""  # never fabricates one
+        assert alphas == []  # evidence is mandatory; never fabricate or store sourceless facts
 
     def test_fact_below_confidence_floor_is_dropped(self):
-        grounded = GroundedResult(text="x", chunks=[], supports=[])
+        grounded = GroundedResult(
+            text="x", chunks=[make_chunk("https://reuters.com/a", "Reuters")], supports=[]
+        )
         extract_json = (
             '[{"alpha_text": "Low confidence fact.", "entities": [], '
             '"event_date": "' + _RECENT + '", "confidence": 0.3, "citation_indices": []}]'
@@ -207,38 +208,79 @@ class TestCollectEndToEnd:
 
     def test_bare_single_fact_object_is_wrapped(self):
         """Matches harvester.py's tolerance for a bare dict instead of a list."""
-        grounded = GroundedResult(text="x", chunks=[], supports=[])
+        grounded = GroundedResult(
+            text="x", chunks=[make_chunk("https://reuters.com/a", "Reuters")], supports=[]
+        )
         extract_json = (
             '{"alpha_text": "Bare fact.", "entities": [], "event_date": "' + _RECENT + '", '
-            '"confidence": 0.9, "citation_indices": []}'
+            '"confidence": 0.9, "citation_indices": [0]}'
         )
         llm = FakeLLMClient(grounded, extract_json)
         alphas = GeminiSearchCollector(llm_client=llm).collect("Topic", last_run_date=None)
         assert len(alphas) == 1
         assert alphas[0].alpha_text == "Bare fact."
 
-    def test_stale_fact_dropped_but_stale_background_kept(self):
-        """Linkup/Brave "latest news" prose smuggles month-old releases in; a
-        non-background fact dated well before the window is dropped, a background
-        one is kept (context for something fresh)."""
-        grounded = GroundedResult(text="x", chunks=[], supports=[])
-        old = "2026-05-11"
-        extract_json = (
-            '[{"alpha_text": "Google launched Gemini 3.1 in GA.", "entities": ["Google"], '
-            f'"event_date": "{old}", "is_background": false, "confidence": 0.9, "citation_indices": []}}, '
-            '{"alpha_text": "Gemini 3.1 was first previewed in April.", "entities": ["Google"], '
-            f'"event_date": "{old}", "is_background": true, "confidence": 0.9, "citation_indices": []}}, '
-            '{"alpha_text": "Fresh thing happened.", "entities": [], '
-            f'"event_date": "{_RECENT}", "is_background": false, "confidence": 0.9, "citation_indices": []}}]'
-        )
+    def test_stale_fact_dropped_recent_background_kept_ancient_background_dropped(self):
+        """Linkup/Brave "latest news" prose smuggles old items in. Non-background
+        before the window → dropped (3-day grace). Background within ~30 days →
+        kept (frames a fresh fact). Months-old "background" → dropped (it's the
+        same stale context re-surfacing every scan)."""
+        import json as _json
+        art = "https://reuters.com/world/x-2026-08/"
+        grounded = GroundedResult(text="x", chunks=[make_chunk(art, "Reuters")], supports=[])
+        now = datetime.utcnow()
+        old = (now - timedelta(days=120)).strftime("%Y-%m-%d")       # ancient
+        recent_bg = (now - timedelta(days=10)).strftime("%Y-%m-%d")  # within 30d
+        fresh = (now - timedelta(hours=6)).strftime("%Y-%m-%d")
+        extract_json = _json.dumps([
+            {"alpha_text": "Old event, not flagged.", "entities": [], "event_date": old,
+             "is_background": False, "confidence": 0.9, "citation_indices": [0]},
+            {"alpha_text": "Ancient thing flagged background.", "entities": [], "event_date": old,
+             "is_background": True, "confidence": 0.9, "citation_indices": [0]},
+            {"alpha_text": "Recent context.", "entities": [], "event_date": recent_bg,
+             "is_background": True, "confidence": 0.9, "citation_indices": [0]},
+            {"alpha_text": "Fresh thing.", "entities": [], "event_date": fresh,
+             "is_background": False, "confidence": 0.9, "citation_indices": [0]},
+        ])
         llm = FakeLLMClient(grounded, extract_json)
-        alphas = GeminiSearchCollector(llm_client=llm).collect(
-            "AI", last_run_date=datetime.now() - timedelta(days=1)
+        texts = [a.alpha_text for a in GeminiSearchCollector(llm_client=llm).collect(
+            "AI", last_run_date=now - timedelta(days=1))]
+        assert "Old event, not flagged." not in texts
+        assert "Ancient thing flagged background." not in texts
+        assert "Recent context." in texts
+        assert "Fresh thing." in texts
+
+    def test_hub_url_link_dropped_fact_kept_with_attribution(self):
+        """foxnews.com/category/... , washingtonpost.com/donald-trump/ etc. can't
+        verify a claim — keep the fact + 'per <domain>', drop the dead link."""
+        fresh = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
+        grounded = GroundedResult(
+            text="x",
+            chunks=[make_chunk("https://www.foxnews.com/category/politics/wars/war-with-iran", "Fox News")],
+            supports=[],
         )
-        texts = [a.alpha_text for a in alphas]
-        assert "Google launched Gemini 3.1 in GA." not in texts   # stale, dropped
-        assert "Gemini 3.1 was first previewed in April." in texts  # stale but background, kept
-        assert "Fresh thing happened." in texts
+        import json as _json
+        extract_json = _json.dumps([{
+            "alpha_text": "Trump warned Iran against retaliation.", "entities": ["Trump"],
+            "event_date": fresh, "is_background": False, "confidence": 0.9, "citation_indices": [0],
+        }])
+        alphas = GeminiSearchCollector(llm_client=FakeLLMClient(grounded, extract_json)).collect(
+            "Iran War", last_run_date=datetime.utcnow() - timedelta(days=1))
+        assert len(alphas) == 1
+        assert alphas[0].source_url == ""                 # dead link dropped
+        assert alphas[0].source_name                      # attribution kept
+
+    def test_no_source_at_all_drops_the_fact(self):
+        fresh = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
+        grounded = GroundedResult(text="Some claim.", chunks=[], supports=[])
+        import json as _json
+        extract_json = _json.dumps([{
+            "alpha_text": "Some claim.", "entities": [], "event_date": fresh,
+            "confidence": 0.9, "citation_indices": [7],  # no chunk 7 exists
+        }])
+        alphas = GeminiSearchCollector(llm_client=FakeLLMClient(grounded, extract_json)).collect(
+            "T", last_run_date=None)
+        assert alphas == []
 
     def test_first_run_with_no_last_run_date_passes_empty_window(self):
         grounded = GroundedResult(text="", chunks=[], supports=[])

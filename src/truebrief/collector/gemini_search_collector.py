@@ -38,6 +38,47 @@ _VALID_EVENT_CLASSES = {
 }
 _VALID_DATE_BASES = {"explicit", "relative", "inferred"}
 
+# Path fragments that mark a section / topic / tag / live-blog landing page rather
+# than a specific article. Linkup & Brave frequently return these — they can't
+# verify a claim and the page's content drifts over time, so they read as
+# "link to nowhere" in a brief.
+_HUB_URL_FRAGMENTS = (
+    "/hub/", "/tag/", "/tags/", "/topic/", "/topics/", "/section/", "/sections/",
+    "/category/", "/categories/", "/spotlight/", "/author/", "/authors/",
+)
+
+
+def _looks_like_hub_url(url: str) -> bool:
+    """True for a section / topic / front page (no verifiable article behind it).
+
+    A real article URL is a headline slug: long last segment, several hyphens,
+    and/or an id in the path or query. A section is short: /world/iran,
+    /israel-news, /donald-trump/, a bare domain, or a /tag/ /category/ path.
+    """
+    if not url:
+        return False
+    from urllib.parse import urlparse
+
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    path = (p.path or "").strip("/")
+    if not path:
+        return True  # bare domain / front page
+    low = "/" + path.lower() + "/"
+    if any(frag in low for frag in _HUB_URL_FRAGMENTS):
+        return True
+    if p.query and any(c.isdigit() for c in p.query):
+        return False  # ?id=12345 → a real article
+    segs = path.split("/")
+    last = segs[-1]
+    if any(c.isdigit() for c in last):
+        return False  # article id in the slug
+    if last.count("-") >= 3 or len(last) >= 25:
+        return False  # long headline slug
+    return len(segs) <= 2  # short 1-2-segment path with a stubby tail → section
+
 
 def _insert_citation_markers(text: str, supports: list) -> str:
     """Insert [i] or [i,j] markers at each grounding_supports segment's end_index.
@@ -223,21 +264,21 @@ class GeminiSearchCollector:
 
             is_background = bool(item.get("is_background", False))
 
-            # Freshness backstop: Linkup/Brave "latest news" prose mixes in month-old
-            # releases; the extractor should have dropped or backgrounded them, but
-            # if a non-background fact is dated well before the reporting window it
-            # is stale — drop it so old news never leads a brief. 3-day grace covers
-            # timezone / "announced late yesterday" slop.
-            if (
-                window_start is not None
-                and not is_background
-                and event_date.date() < (window_start - timedelta(days=3)).date()
-            ):
-                logger.info(
-                    "[gemini_extract] dropping stale fact (event_date=%s, window_start=%s): %s",
-                    event_date.date(), window_start.date(), alpha_text[:80],
-                )
-                continue
+            # Freshness backstop: Linkup/Brave "latest news" prose mixes in old
+            # items. A non-background fact dated before the window is stale — drop
+            # it (3-day grace for timezone / "announced late yesterday" slop).
+            # Background context is allowed to be a bit older since it frames a
+            # fresh fact, BUT a months-old event flagged is_background every scan
+            # (e.g. a Feb M&A deal on a "corporate news" topic) is just noise —
+            # drop it past ~30 days before the window too.
+            if window_start is not None and event_date.date() < window_start.date():
+                grace = timedelta(days=30 if is_background else 3)
+                if event_date.date() < (window_start - grace).date():
+                    logger.info(
+                        "[gemini_extract] dropping stale fact (event_date=%s, window_start=%s, bg=%s): %s",
+                        event_date.date(), window_start.date(), is_background, alpha_text[:80],
+                    )
+                    continue
 
             raw_class = str(item.get("event_class") or "").strip().lower()
             event_class = raw_class if raw_class in _VALID_EVENT_CLASSES else None
@@ -254,6 +295,26 @@ class GeminiSearchCollector:
                     source_url = urls[ci]
                     source_name = names[ci] or source_url
                     break
+
+            # A section/topic/front page can't verify the claim and reads as a
+            # dead link in the brief — keep the fact + attribution, drop the URL.
+            if source_url and _looks_like_hub_url(source_url):
+                logger.info("[gemini_extract] hub/section URL, dropping link: %s", source_url)
+                if not source_name or source_name == source_url:
+                    try:
+                        from urllib.parse import urlparse
+                        source_name = urlparse(source_url).netloc.replace("www.", "")
+                    except Exception:
+                        pass
+                source_url = ""
+
+            # Evidence is mandatory: a fact we can neither link nor attribute to a
+            # named source is not storable (never fabricate or store sourceless facts).
+            if not source_url and not source_name:
+                logger.info(
+                    "[gemini_extract] dropping fact with no verifiable source: %s", alpha_text[:80]
+                )
+                continue
 
             importance = item.get("importance")
             try:

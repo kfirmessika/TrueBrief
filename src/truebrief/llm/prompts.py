@@ -567,13 +567,17 @@ def build_gemini_extract_prompt(
         window_block = f"""
 NEWS WINDOW: {news_window_start} to {today}. This brief reports ONLY what is new in
 this window. For any development:
-- If it clearly happened BEFORE {news_window_start} → set "is_background": true if it
-  is essential context for a fresh development, otherwise DROP it.
+- If it has an explicit date CLEARLY before {news_window_start} (e.g. "in February",
+  "back in June", "last year") → DROP it. Do NOT keep it as is_background. Old
+  events are not news even as "context" — the reader already knows them.
+- Only set "is_background": true for something within ~3-4 weeks of the window that
+  a fresh fact directly builds on. If in doubt, DROP rather than background.
 - Do NOT assign event_date {today} to an undated item just because the search is
   "recent". If the text does not let you place the event on a specific date within
-  {news_window_start}–{today}, DROP it (or is_background:true if it is context).
-- A months-old product release described in present tense ("X offers…", "Y is
-  available") is NOT news — drop it.
+  {news_window_start}–{today}, DROP it.
+- A months-old announcement, deal, appointment, death, or release described in
+  present/perfect tense ("X has acquired Y", "Z is now CEO", "A was killed") is
+  NOT news — check the date; if it predates the window, DROP it.
 """
     return f"""
 TODAY: {today}
