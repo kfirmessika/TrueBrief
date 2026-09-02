@@ -10,6 +10,7 @@ Public contract: GeminiSearchRunner().run(topic_input, topic_id) -> brief text.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -36,6 +37,8 @@ class GeminiSearchRunner:
     def run(self, topic_input: str, topic_id: Optional[str] = None) -> str:
         """Run one V5 pass for a topic. Returns brief markdown, or "" if nothing new."""
         last_run_date = self._get_last_run_date(topic_id) if topic_id else None
+        self._trace(10, "collect", "Grounded collection started", {"topic": topic_input})
+        collect_started = time.monotonic()
 
         logger.info(
             "[V5] Collecting for '%s' (last_run=%s)",
@@ -43,12 +46,18 @@ class GeminiSearchRunner:
         )
         alphas = self.collector.collect(topic_input, last_run_date=last_run_date, topic_id=topic_id)
         self.last_run_stats["alphas_extracted"] = len(alphas)
+        self._trace(20, "collect", "Grounded collection finished", {
+            "alphas_extracted": len(alphas),
+            "duration_ms": int((time.monotonic() - collect_started) * 1000),
+        })
 
         if not alphas:
+            self._trace(30, "brief", "No new facts — no brief generated")
             logger.info("[V5] No new facts found for '%s'.", topic_input)
             return ""
 
         logger.info("[V5] Judging %d candidate facts.", len(alphas))
+        dedup_started = time.monotonic()
         judged = self.arbiter.judge_alphas(alphas, topic_id=topic_id)
 
         decisions = []
@@ -73,14 +82,43 @@ class GeminiSearchRunner:
             "decisions_update": update_count,
             "decisions_duplicate": duplicate_count,
         })
+        self._trace(30, "dedup", "Memory and dedup finished", {
+            "new": new_count,
+            "update": update_count,
+            "duplicate": duplicate_count,
+            "duration_ms": int((time.monotonic() - dedup_started) * 1000),
+        })
         logger.info(
             "[V5] Decisions: %d NEW, %d UPDATE, %d DUPLICATE.",
             new_count, update_count, duplicate_count,
         )
 
+        brief_started = time.monotonic()
         brief_text = self.briefer.generate(decisions, topic_input)
+        self._trace(40, "brief", "Brief generation finished", {
+            "characters": len(brief_text),
+            "duration_ms": int((time.monotonic() - brief_started) * 1000),
+        })
         logger.info("[V5] Brief generated (%d chars).", len(brief_text))
         return brief_text
+
+    @staticmethod
+    def _trace(seq: int, stage: str, label: str, data: Optional[dict] = None) -> None:
+        """Write the V5 stage map when a pipeline run has telemetry enabled.
+
+        This never changes pipeline behaviour: trace storage is observability only.
+        """
+        try:
+            from truebrief.ledger.telemetry import get_telemetry
+            from truebrief.llm.client import pipeline_run_id_var
+
+            telemetry = get_telemetry()
+            if telemetry:
+                telemetry.log_trace(
+                    pipeline_run_id_var.get(), seq=seq, stage=stage, label=label, data=data,
+                )
+        except Exception:
+            pass
 
     @staticmethod
     def _get_last_run_date(topic_id: str) -> Optional[datetime]:

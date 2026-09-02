@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Tab bar shared across every /admin/* screen (Overview, Topics, Users, Compare).
+ * Tab bar shared across every /admin/* screen.
  * Each tab is a real route (its own page.tsx) — this layout only renders the
  * nav chrome and {children} below it. Admin-ness is enforced per-page (each
  * page's own query 403s and shows "Access denied" if the caller isn't an
@@ -13,9 +13,11 @@ import { usePathname } from 'next/navigation';
 
 const TABS: Array<{ href: string; label: string }> = [
   { href: '/admin', label: 'Overview' },
+  { href: '/admin/activity', label: 'Activity' },
+  { href: '/admin/services', label: 'Services' },
+  { href: '/admin/costs', label: 'Costs' },
   { href: '/admin/topics', label: 'Topics' },
   { href: '/admin/users', label: 'Users' },
-  { href: '/admin/compare', label: 'Compare' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

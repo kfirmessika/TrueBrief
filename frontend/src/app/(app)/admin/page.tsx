@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/useApi';
 import Link from 'next/link';
-import { RefreshCw, AlertCircle, GitCompare, Pause, Play } from 'lucide-react';
+import { RefreshCw, AlertCircle, DollarSign, Pause, Play } from 'lucide-react';
 import { StatCard, STAGE_LABELS, STATUS_COLOR, STATUS_LABELS, stepLabel, RunRowList } from './_shared';
 
 interface QuotaAlert {
@@ -167,12 +167,12 @@ function KeyStatusPanel() {
   const stateColor = (s: KeyStatus['state']) =>
     s === 'ok' ? '#16A34A' : s === 'rpm_limited' ? '#B45309' : s === 'rpd_exhausted' ? '#DC2626' : '#6B7280';
   const stateLabel = (s: KeyStatus['state']) =>
-    s === 'ok' ? 'OK' : s === 'rpm_limited' ? 'RPM limit (retrying)' : s === 'rpd_exhausted' ? 'RPD exhausted' : 'Unknown';
+    s === 'ok' ? 'No recent quota error' : s === 'rpm_limited' ? 'RPM limit (retrying)' : s === 'rpd_exhausted' ? 'RPD exhausted' : 'Unknown';
   const stateDesc = (s: KeyStatus) =>
     s.state === 'rpm_limited'
       ? 'Per-minute rate limit hit — auto-retries after 65s, no action needed'
       : s.state === 'rpd_exhausted'
-      ? `Daily quota exhausted${s.last_event_at ? ' since ' + new Date(s.last_event_at).toLocaleTimeString() : ''} — will recover at midnight UTC`
+      ? `Daily quota exhausted${s.last_event_at ? ' since ' + new Date(s.last_event_at).toLocaleTimeString() : ''} — reset time is provider-specific; verify it in the provider console`
       : null;
 
   const MODEL_LABELS: Record<string, string> = {
@@ -185,8 +185,8 @@ function KeyStatusPanel() {
   return (
     <section style={{ marginBottom: 28 }}>
       <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
-        API Key Health
-        <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12, marginLeft: 8 }}>live · refreshes every 60s</span>
+        Gemini quota signals
+        <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12, marginLeft: 8 }}>recorded by TrueBrief · refreshes every 60s</span>
       </h2>
 
       {/* Key status cards */}
@@ -224,7 +224,7 @@ function KeyStatusPanel() {
       {Object.keys(data.model_usage_today).length > 0 && (
         <div style={{ background: 'var(--color-background-secondary)', border: '1px solid var(--color-border-secondary)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
-            Today&apos;s calls (UTC) — limits are ×2 keys combined
+            Recorded calls today (UTC)
           </div>
           {Object.entries(data.model_usage_today)
             .filter(([m]) => !m.startsWith('local/'))
@@ -354,6 +354,40 @@ function FreezeToggle() {
   );
 }
 
+function CostSnapshot() {
+  const api = useApi();
+  const { data } = useQuery<{
+    telemetry_ready: boolean;
+    summary: { cost_usd: number; calls: number; average_cost_per_day_usd: number; average_cost_per_call_usd: number } | null;
+  }>({
+    queryKey: ['admin-cost-snapshot'],
+    queryFn: async () => (await api.get('/admin/costs', { params: { days: 30 } })).data,
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  if (!data?.telemetry_ready || !data.summary) return null;
+  const s = data.summary;
+  const money = (value: number) => `$${value.toFixed(value < 0.01 ? 5 : 2)}`;
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Cost snapshot</h2>
+          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '4px 0 0' }}>Last 30 days · successful calls recorded by TrueBrief</p>
+        </div>
+        <Link href="/admin/costs" style={{ fontSize: 12, color: 'var(--tb-green-dark)' }}>See all history</Link>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <StatCard label="Recorded cost" value={money(s.cost_usd)} />
+        <StatCard label="Successful calls" value={s.calls.toLocaleString()} />
+        <StatCard label="Average / day" value={money(s.average_cost_per_day_usd)} />
+        <StatCard label="Average / call" value={money(s.average_cost_per_call_usd)} />
+      </div>
+    </section>
+  );
+}
+
 export default function AdminPage() {
   const api = useApi();
 
@@ -403,7 +437,7 @@ export default function AdminPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Link
-            href="/admin/compare"
+            href="/admin/costs"
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               background: 'var(--color-background-secondary)',
@@ -413,8 +447,8 @@ export default function AdminPage() {
               cursor: 'pointer', textDecoration: 'none',
             }}
           >
-            <GitCompare size={13} />
-            Compare briefs
+            <DollarSign size={13} />
+            Costs and usage
           </Link>
           <button
             onClick={() => refetch()}
@@ -438,6 +472,7 @@ export default function AdminPage() {
       <FreezeToggle />
       <KeyStatusPanel />
       <QuotaAlertsBanner />
+      <CostSnapshot />
 
       {/* Stat grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>

@@ -87,6 +87,7 @@ export interface AdminRunRow {
   started_at: string | null;
   duration_s: number | null;
   exit_status: string | null;
+  brief_length?: number;
   new: number;
   update: number;
   dupe: number;

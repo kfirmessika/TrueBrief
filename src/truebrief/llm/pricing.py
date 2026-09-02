@@ -50,6 +50,14 @@ OPENAI_EMBED_3_LARGE_PER_TOKEN = 0.000_000_130
 # OpenAI text-embedding-ada-002 ($0.10 per 1M tokens)
 OPENAI_EMBED_ADA_002_PER_TOKEN = 0.000_000_100
 
+# Grounding providers bill per successful request rather than per LLM token.  These
+# are intentionally separate from the token-rate dictionaries below: the adapter
+# does not receive provider token counts, but the admin still needs a truthful
+# TrueBrief spend estimate.  Credits/free tiers are handled by the admin display;
+# this is the gross usage price, not an invoice balance.
+LINKUP_SOURCED_ANSWER_PER_CALL = 0.006
+BRAVE_WEB_SEARCH_PER_CALL = 0.005
+
 # Groq — Llama 3.1 8B Instant. Used for story_stitch and dashboard_summary steps.
 # Source: Groq pricing (llama-3.1-8b-instant), as of 2026-07.
 GROQ_LLAMA8B_INPUT_PER_TOKEN = 0.000_000_050   # $0.05 per 1M tokens
@@ -108,6 +116,11 @@ _OUTPUT_RATES: dict[str, float] = {
 # When we move these to real Groq, drop the override — the model name will price itself.
 _COST_AS_GROQ_STEPS: set[str] = {"dashboard_summary", "story_stitch"}
 
+_FIXED_CALL_RATES: dict[str, float] = {
+    "linkup/sourcedAnswer": LINKUP_SOURCED_ANSWER_PER_CALL,
+    "brave/web-summary": BRAVE_WEB_SEARCH_PER_CALL,
+}
+
 
 def compute_cost_usd(
     model: str, input_tokens: int, output_tokens: int, stage: str | None = None
@@ -125,4 +138,4 @@ def compute_cost_usd(
         )
     in_rate = _INPUT_RATES.get(model, 0.0)
     out_rate = _OUTPUT_RATES.get(model, 0.0)
-    return input_tokens * in_rate + output_tokens * out_rate
+    return _FIXED_CALL_RATES.get(model, 0.0) + input_tokens * in_rate + output_tokens * out_rate

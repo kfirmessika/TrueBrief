@@ -142,7 +142,7 @@ export default function AdminTopicsPage() {
               fontSize: 13, color: 'var(--color-text-primary)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              {t.name}
+              {t.raw_query}
             </span>
             <span style={{
               fontSize: 12, color: 'var(--color-text-secondary)',

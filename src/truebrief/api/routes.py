@@ -1829,7 +1829,9 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
 
     # ── Pipeline runs ────────────────────────────────────────────────────────
     runs: list = []
+    total_pipeline_runs = 0
     try:
+        total_pipeline_runs = (db.table("pipeline_run").select("id", count="exact").execute().count or 0)
         runs_res = (
             db.table("pipeline_run")
             .select("id, topic_id, started_at, duration_ms, exit_status, brief_length, "
@@ -1920,7 +1922,7 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
             "topics": total_topics,
             "briefs": total_briefs,
             "facts": total_facts,
-            "pipeline_runs": len(runs),
+            "pipeline_runs": total_pipeline_runs,
             "total_cost_usd": round(total_cost_usd, 4),
             "total_tokens": total_tokens,
             "avg_duration_s": round(avg_duration_ms / 1000, 1),
@@ -2030,13 +2032,10 @@ def get_admin_key_status(user: User = Depends(get_current_user)):
     except Exception:
         model_calls = {}
 
-    # Known free-tier RPD per model (×2 for two keys)
-    RPD_LIMITS = {
-        "gemini-3.5-flash-lite": 1000,   # 500/key × 2
-        "gemini-3.1-flash-lite": 1000,
-        "gemini-2.5-flash-lite": 40,      # 20/key × 2
-        "models/gemini-embedding-2": 2000,
-    }
+    # Do not guess quota limits. Gemini applies limits per project and the active
+    # tier is available in AI Studio, not through this application's API key.
+    # An empty map tells the UI to show measured calls only.
+    RPD_LIMITS: dict[str, int] = {}
 
     embed_provider = getattr(settings, "EMBED_PROVIDER", "gemini")
     backup_configured = bool(getattr(settings, "GOOGLE_API_KEY_BACKUP", ""))
@@ -2047,6 +2046,215 @@ def get_admin_key_status(user: User = Depends(get_current_user)):
         "model_usage_today": model_calls,
         "rpd_limits": RPD_LIMITS,
         "embed_provider": embed_provider,
+    }
+
+
+# ---------------------------------------------------------------------------
+# V5 admin system map and costs
+# ---------------------------------------------------------------------------
+
+_V5_SERVICE_META: dict[str, dict[str, str]] = {
+    "gemini_search": {
+        "label": "Web collection", "capability": "grounding",
+        "description": "Finds current, sourced news for a topic.",
+    },
+    "gemini_extract": {
+        "label": "Fact extraction", "capability": "llm",
+        "description": "Restructures sourced prose into TrueBrief facts.",
+    },
+    "embedding": {
+        "label": "Pipeline embeddings", "capability": "embed",
+        "description": "Powers memory and dedup. Changing it requires re-indexing facts.",
+    },
+    "arbiter": {
+        "label": "Dedup judge", "capability": "llm",
+        "description": "Only runs for ambiguous similarity matches.",
+    },
+    "briefer": {
+        "label": "Brief writer", "capability": "llm",
+        "description": "Turns new and updated facts into the final brief.",
+    },
+}
+
+
+def _provider_for_model(model: str) -> str:
+    """Normalize the model label stored in telemetry to a provider name."""
+    value = (model or "").lower()
+    if value.startswith("linkup/"):
+        return "linkup"
+    if value.startswith("brave/"):
+        return "brave"
+    if value.startswith("local/"):
+        return "local"
+    if value.startswith("llama-"):
+        return "groq"
+    if value.startswith("text-embedding") or value.startswith("gpt-"):
+        return "openai"
+    if "gemini" in value:
+        return "gemini"
+    return "unknown"
+
+
+def _provider_has_credentials(provider: str) -> bool:
+    """Report only whether credentials exist; never expose their values."""
+    if provider == "local":
+        return True
+    from config.settings import PROVIDER_REGISTRY
+    fields = PROVIDER_REGISTRY.get(provider, {}).get("key_settings", [])
+    return any(bool(getattr(settings, field, "")) for field in fields)
+
+
+@router.get("/admin/services")
+def get_admin_services(user: User = Depends(get_current_user)):
+    """The V5 service map: configured route, observed route, and honest health."""
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    from config.settings import LLM_CONFIG, PROVIDER_REGISTRY
+
+    db = get_supabase()
+    services: list[dict] = []
+    for stage, meta in _V5_SERVICE_META.items():
+        cfg = LLM_CONFIG.get(stage, {})
+        provider = cfg.get("provider", "unknown")
+        observed = None
+        try:
+            result = (
+                db.table("llm_call_log")
+                .select("model, created_at, duration_ms, cost_usd")
+                .eq("stage", stage)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if result.data:
+                row = result.data[0]
+                observed = {
+                    "provider": _provider_for_model(row.get("model", "")),
+                    "model": row.get("model"),
+                    "at": row.get("created_at"),
+                    "duration_ms": row.get("duration_ms"),
+                    "cost_usd": float(row.get("cost_usd") or 0),
+                }
+        except Exception:
+            # The map remains useful before telemetry tables exist.
+            pass
+
+        fallback_order: list[str] = []
+        if stage == "gemini_search":
+            fallback_order = [
+                candidate for candidate, registry in PROVIDER_REGISTRY.items()
+                if candidate != provider
+                and "grounding" in registry.get("capabilities", set())
+                and _provider_has_credentials(candidate)
+            ]
+
+        services.append({
+            "stage": stage,
+            **meta,
+            "configured_provider": provider,
+            "configured_model": cfg.get("model", "—"),
+            "credentials_configured": _provider_has_credentials(provider),
+            "fallback_order": fallback_order,
+            "last_observed": observed,
+            "provider_usage_source": "TrueBrief call log — provider balance is not available through this API",
+        })
+
+    return {
+        "services": services,
+        "topic_search": {
+            "label": "Public-topic autocomplete embedding",
+            "provider": "local",
+            "model": getattr(settings, "LOCAL_EMBED_MODEL", "BAAI/bge-base-en-v1.5"),
+            "description": "A separate local vector space for topic autocomplete; it never uses the pipeline embedding provider.",
+        },
+    }
+
+
+@router.get("/admin/costs")
+def get_admin_costs(days: int = 30, user: User = Depends(get_current_user)):
+    """Cost and volume aggregated in Postgres, never from a capped client query."""
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    days = min(max(days, 0), 3650)  # 0 means all history.
+    db = get_supabase()
+    try:
+        response = db.rpc("admin_v5_cost_breakdown", {"days_back": days}).execute()
+        rows = response.data or []
+        # Credit estimates always use the whole calendar month, independently of
+        # the viewing window ("Today" must not make $19.99 look remaining after
+        # earlier calls this month).
+        month_response = db.rpc("admin_v5_cost_breakdown", {"days_back": 31}).execute()
+        month_rows_all = month_response.data or []
+    except Exception as exc:
+        logger.warning("admin cost breakdown RPC unavailable: %s", exc)
+        return {
+            "telemetry_ready": False,
+            "message": "Cost aggregation migration 036 is not installed yet.",
+            "days": days,
+            "summary": None,
+            "daily": [],
+            "by_provider": [],
+            "by_stage": [],
+            "credits": [],
+        }
+
+    by_day: dict[str, dict] = {}
+    providers: dict[str, dict] = {}
+    stages: dict[str, dict] = {}
+    total_cost = total_calls = total_tokens = 0
+
+    for row in rows:
+        cost = float(row.get("recorded_cost_usd") or 0)
+        calls = int(row.get("calls") or 0)
+        tokens = int(row.get("input_tokens") or 0) + int(row.get("output_tokens") or 0)
+        provider = _provider_for_model(row.get("model") or "")
+        day = str(row.get("occurred_on"))
+
+        day_bucket = by_day.setdefault(day, {"date": day, "cost_usd": 0.0, "calls": 0, "tokens": 0})
+        provider_bucket = providers.setdefault(provider, {"provider": provider, "cost_usd": 0.0, "calls": 0, "tokens": 0})
+        stage_name = row.get("stage") or "unknown"
+        stage_bucket = stages.setdefault(stage_name, {"stage": stage_name, "cost_usd": 0.0, "calls": 0, "tokens": 0})
+        for bucket in (day_bucket, provider_bucket, stage_bucket):
+            bucket["cost_usd"] += cost
+            bucket["calls"] += calls
+            bucket["tokens"] += tokens
+        total_cost += cost
+        total_calls += calls
+        total_tokens += tokens
+
+    now = datetime.utcnow()
+    month_rows = [r for r in month_rows_all if str(r.get("occurred_on", "")).startswith(now.strftime("%Y-%m"))]
+    month_cost = {"linkup": 0.0, "brave": 0.0}
+    for row in month_rows:
+        provider = _provider_for_model(row.get("model") or "")
+        if provider in month_cost:
+            month_cost[provider] += float(row.get("recorded_cost_usd") or 0)
+    credits = [
+        {"provider": "linkup", "monthly_credit_usd": 20.0, "estimated_used_usd": round(month_cost["linkup"], 4), "estimated_remaining_usd": round(max(20.0 - month_cost["linkup"], 0), 4)},
+        {"provider": "brave", "monthly_credit_usd": 5.0, "estimated_used_usd": round(month_cost["brave"], 4), "estimated_remaining_usd": round(max(5.0 - month_cost["brave"], 0), 4)},
+    ]
+    if days:
+        divisor = days
+    elif by_day:
+        first_day = min(by_day)
+        divisor = max((now.date() - datetime.fromisoformat(first_day).date()).days + 1, 1)
+    else:
+        divisor = 1
+    return {
+        "telemetry_ready": True,
+        "days": days,
+        "summary": {
+            "cost_usd": round(total_cost, 6), "calls": total_calls, "tokens": total_tokens,
+            "average_cost_per_day_usd": round(total_cost / divisor, 6),
+            "average_cost_per_call_usd": round(total_cost / total_calls, 6) if total_calls else 0.0,
+        },
+        "daily": [{**bucket, "cost_usd": round(bucket["cost_usd"], 6)} for _, bucket in sorted(by_day.items(), reverse=True)],
+        "by_provider": [{**bucket, "cost_usd": round(bucket["cost_usd"], 6)} for bucket in sorted(providers.values(), key=lambda item: -item["cost_usd"])],
+        "by_stage": [{**bucket, "cost_usd": round(bucket["cost_usd"], 6)} for bucket in sorted(stages.values(), key=lambda item: -item["cost_usd"])],
+        "credits": credits,
+        "cost_note": "Recorded from successful TrueBrief calls. Linkup and Brave are request-price estimates; provider account balances and Gemini grounding charges are not available from this API.",
     }
 
 
@@ -2069,6 +2277,7 @@ def _topic_names(db, topic_ids: list) -> dict:
 @router.get("/admin/runs")
 def list_pipeline_runs(
     limit: int = 50,
+    offset: int = 0,
     topic_id: Optional[str] = None,
     status: Optional[str] = None,
     user: User = Depends(get_current_user),
@@ -2082,13 +2291,15 @@ def list_pipeline_runs(
 
     db = get_supabase()
     try:
+        limit = min(max(limit, 1), 100)
+        offset = max(offset, 0)
         q = (
             db.table("pipeline_run")
             .select("id, topic_id, started_at, duration_ms, exit_status, brief_length, "
                     "articles_collected, articles_selected, alphas_extracted, "
                     "decisions_new, decisions_update, decisions_duplicate, error_message")
             .order("started_at", desc=True)
-            .limit(min(max(limit, 1), 200))
+            .range(offset, offset + limit - 1)
         )
         if topic_id:
             q = q.eq("topic_id", topic_id)
@@ -2118,7 +2329,9 @@ def list_pipeline_runs(
                 "error": r.get("error_message"),
             }
             for r in runs
-        ]
+        ],
+        "offset": offset,
+        "next_offset": offset + len(runs) if len(runs) == limit else None,
     }
 
 

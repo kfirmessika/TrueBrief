@@ -59,3 +59,9 @@ def test_compute_cost_usd_is_nonzero_for_a_real_call_shape():
 
     cost = pricing.compute_cost_usd("llama-3.3-70b-versatile", input_tokens=1000, output_tokens=200)
     assert cost > 0, "compute_cost_usd returned 0 for llama-3.3-70b-versatile — the exact bug this file guards against."
+
+
+def test_request_priced_grounding_providers_are_not_logged_as_free():
+    """Linkup and Brave report request pricing, not token usage."""
+    assert pricing.compute_cost_usd("linkup/sourcedAnswer", 0, 0) == 0.006
+    assert pricing.compute_cost_usd("brave/web-summary", 0, 0) == 0.005
