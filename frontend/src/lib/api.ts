@@ -77,6 +77,7 @@ export interface UserStats {
   total_briefs: number;
   articles_scanned: number;
   time_saved_minutes: number;
+  is_admin?: boolean;
 }
 
 export const statsApi = {

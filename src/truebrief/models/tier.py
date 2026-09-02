@@ -21,6 +21,7 @@ class TierLimits:
     sources: list[str] = field(default_factory=list)
     private_topics: bool = False
     api_calls_per_day: int = 0  # developer API quota; 0 = no API access, -1 = unlimited
+    max_scans_per_day: int = -1  # user-initiated pipeline scans / 24h (UTC day); -1 = unlimited
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,7 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         sources=["rss", "tavily"],
         private_topics=False,
         api_calls_per_day=0,     # no developer API on free
+        max_scans_per_day=25,    # kills the create→scan→delete→recreate spend loop
     ),
     Tier.PRO: TierLimits(
         max_topics=15,
@@ -40,6 +42,7 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         sources=["rss", "tavily", "google_news", "brave", "exa"],
         private_topics=True,
         api_calls_per_day=500,
+        max_scans_per_day=200,
     ),
     Tier.POWER: TierLimits(
         max_topics=-1,          # unlimited
@@ -47,5 +50,6 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         sources=["__all__"],    # pipeline interprets as: enable everything
         private_topics=True,
         api_calls_per_day=5000,
+        max_scans_per_day=-1,   # unlimited (still subject to the global spend breaker)
     ),
 }

@@ -2,14 +2,15 @@
 
 /**
  * Tab bar shared across every /admin/* screen.
- * Each tab is a real route (its own page.tsx) — this layout only renders the
- * nav chrome and {children} below it. Admin-ness is enforced per-page (each
- * page's own query 403s and shows "Access denied" if the caller isn't an
- * admin), same as admin/page.tsx already did — no gating logic added here.
+ * Each tab is a real route (its own page.tsx). Every /admin/* API is still
+ * independently gated server-side by _is_admin — this layout adds a client gate
+ * on top so a non-admin who navigates to any /admin/* URL directly sees
+ * "Access denied", not an empty tool shell.
  */
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useStats } from '@/hooks/useStats';
 
 const TABS: Array<{ href: string; label: string }> = [
   { href: '/admin', label: 'Overview' },
@@ -22,6 +23,15 @@ const TABS: Array<{ href: string; label: string }> = [
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { data: stats, isLoading } = useStats();
+
+  if (!isLoading && stats && !stats.is_admin) {
+    return (
+      <div style={{ maxWidth: 1000, margin: '0 auto', padding: '48px 24px', color: 'var(--color-text-secondary)' }}>
+        Access denied. This area is for administrators only.
+      </div>
+    );
+  }
 
   return (
     <div>

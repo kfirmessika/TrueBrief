@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import re
+from collections import Counter
 from datetime import datetime
 from uuid import UUID
 
@@ -96,6 +97,22 @@ def _finish_topic_fields(raw_query: str) -> tuple[str, str]:
             raw_query, exc,
         )
         return raw_query, raw_query
+
+
+def _topic_search_text(topic: dict) -> str:
+    """Stable text used exclusively by the local public-topic search index."""
+    name = (topic.get("name") or "").strip()
+    raw_query = (topic.get("raw_query") or "").strip()
+    return f"{name}: {raw_query}" if name and name != raw_query else raw_query
+
+
+def _write_topic_search_embedding(db, topic: dict) -> None:
+    """Write the local autocomplete vector without touching pipeline embeddings."""
+    text = _topic_search_text(topic)
+    if not text:
+        return
+    embedding = LLMClient().embed_local(text)
+    db.table("topics").update({"topic_search_embedding": embedding}).eq("id", topic["id"]).execute()
 
 
 def _require_founder(user: User) -> None:
@@ -226,6 +243,16 @@ def create_topic(request: Request, topic: TopicCreate, user: User = Depends(get_
         topic_record = existing.data[0]
         logger.info(f"Topic '{normalized_query}' already exists. Subscribing user.")
     else:
+        # A brand-new topic fires an immediate pipeline scan below. Gate that spend
+        # before it happens: global daily ceiling first, then this user's daily cap
+        # (which INCRs a counter, so only call it when we're sure we'll enqueue).
+        from truebrief.billing.spend_guard import (
+            enforce_and_record_scan_cap,
+            enforce_global_spend_ceiling,
+        )
+        enforce_global_spend_ceiling(db, user.email)
+        enforce_and_record_scan_cap(val_uuid, tier_str, user.email)
+
         # 2. Create new shared topic — no user_id, the subscription table owns ownership.
         # V5 (docs/core/architecture_v5.md §7): manual alarm-clock scheduling replaces
         # AYR-managed poll_interval_seconds. A new topic gets zero topic_schedule_times
@@ -335,6 +362,11 @@ def create_public_topic(request: Request, topic: AdminTopicCreate, user: User = 
         if not topic_record.get("is_public"):
             upd = db.table("topics").update({"is_public": True}).eq("id", topic_record["id"]).execute()
             topic_record = upd.data[0] if upd.data else {**topic_record, "is_public": True}
+        if not topic_record.get("topic_search_embedding"):
+            try:
+                _write_topic_search_embedding(db, topic_record)
+            except Exception as _search_emb_err:
+                logger.warning("Public-topic local search embedding failed (non-fatal): %s", _search_emb_err)
         logger.info(f"Admin {user.email}: topic '{normalized_query}' already exists, marked public.")
     else:
         _name, _search_prompt = _finish_topic_fields(normalized_query)
@@ -363,6 +395,11 @@ def create_public_topic(request: Request, topic: AdminTopicCreate, user: User = 
                 db.table("topics").update({"topic_embedding": _embedding}).eq("id", topic_record["id"]).execute()
             except Exception as _emb_err:
                 logger.warning("Topic embedding failed (non-fatal): %s", _emb_err)
+
+            try:
+                _write_topic_search_embedding(db, topic_record)
+            except Exception as _search_emb_err:
+                logger.warning("Public-topic local search embedding failed (non-fatal): %s", _search_emb_err)
 
             _first_task_id = None
             try:
@@ -732,6 +769,19 @@ def trigger_scan(request: Request, topic_id: str, user: User = Depends(get_curre
             raise
         except Exception as e:
             logger.warning("Speed limit check skipped due to error: %s", e)
+
+    # --- Spend guardrails: global daily ceiling + this user's daily scan cap ---
+    from truebrief.billing.spend_guard import (
+        enforce_and_record_scan_cap,
+        enforce_global_spend_ceiling,
+    )
+    enforce_global_spend_ceiling(db, user.email)
+    if not is_admin(user.email):
+        _tier_res = (
+            db.table("user_subscriptions").select("tier").eq("user_id", val_uuid).execute()
+        )
+        _tier_str = _tier_res.data[0]["tier"] if _tier_res.data else "free"
+        enforce_and_record_scan_cap(val_uuid, _tier_str, user.email)
 
     from truebrief.tasks.pipeline_task import enqueue_pipeline
     task = enqueue_pipeline(topic_id=topic_id, raw_query=raw_query)
@@ -1140,21 +1190,30 @@ class SharedTopicResult(BaseModel):
 
 
 def _with_subscriber_counts(db, topics: list[dict]) -> List[dict]:
-    """Attach a real subscriber_count (topic_subscriptions rows) to each topic dict."""
-    out = []
-    for t in topics:
-        count_res = (
-            db.table("topic_subscriptions")
-            .select("user_id", count="exact")
-            .eq("topic_id", t["id"])
-            .execute()
-        )
-        out.append({
+    """Attach subscriber counts using one database round trip, not one per topic.
+
+    This helper is on the public-topic search path.  Five serial count requests
+    used to add several seconds after the semantic embedding had already finished.
+    """
+    if not topics:
+        return []
+
+    topic_ids = [t["id"] for t in topics]
+    subscriptions = (
+        db.table("topic_subscriptions")
+        .select("topic_id")
+        .in_("topic_id", topic_ids)
+        .execute()
+    )
+    counts = Counter(row["topic_id"] for row in (subscriptions.data or []))
+    return [
+        {
             "id": t["id"],
             "name": t.get("name") or t["raw_query"],
-            "subscriber_count": count_res.count or 0,
-        })
-    return out
+            "subscriber_count": counts[t["id"]],
+        }
+        for t in topics
+    ]
 
 
 @router.get("/shared-topics", response_model=List[SharedTopicResult])
@@ -1181,12 +1240,12 @@ def search_shared_topics(q: str = "", user: Optional[User] = Depends(get_optiona
         .or_(f"raw_query.ilike.%{q}%,name.ilike.%{q}%").limit(8).execute()
     ilike_rows = {r["id"]: r for r in (ilike_res.data or [])}
 
-    # --- Semantic layer (embedding cosine similarity — catches misspellings + intent) ---
+    # --- Semantic layer — local, purpose-built autocomplete vectors. This must not
+    # use topic_embedding: that column belongs to the configurable pipeline model.
     sem_ordered_ids: list[str] = []
     if len(q) >= 3:
         try:
-            _llm = LLMClient()
-            q_embedding = _llm.embed(q)
+            q_embedding = LLMClient().embed_local(q)
             sem_res = db.rpc(
                 "match_public_topics",
                 {"query_embedding": q_embedding, "match_count": 5},
@@ -1227,20 +1286,15 @@ def backfill_topic_embeddings(force: bool = False, user: User = Depends(get_curr
     ids = [t["id"] for t in topics_to_embed]
     if not ids:
         return {"backfilled": 0, "skipped": 0, "errors": []}
-    emb_res = db.table("topics").select("id, topic_embedding").in_("id", ids).execute()
-    has_embedding = {r["id"] for r in (emb_res.data or []) if r.get("topic_embedding") is not None}
-    llm = LLMClient()
+    emb_res = db.table("topics").select("id, topic_search_embedding").in_("id", ids).execute()
+    has_embedding = {r["id"] for r in (emb_res.data or []) if r.get("topic_search_embedding") is not None}
     backfilled, errors = 0, []
     for t in topics_to_embed:
         skip_existing = not force and t["id"] in has_embedding
         if skip_existing:
             continue
         try:
-            # Embed "Name: raw_query" so short user queries match the topic name well,
-            # not just keywords buried in the long description.
-            embed_text = f"{t['name']}: {t['raw_query']}" if t.get("name") else t["raw_query"]
-            embedding = llm.embed(embed_text)
-            db.table("topics").update({"topic_embedding": embedding}).eq("id", t["id"]).execute()
+            _write_topic_search_embedding(db, t)
             backfilled += 1
             logger.info("Backfilled embedding for topic %s (%s)", t["id"], t.get("name"))
         except Exception as e:

@@ -119,7 +119,6 @@ export default function NewTopicPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [nudge, setNudge] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,12 +189,6 @@ export default function NewTopicPage() {
     distance: 100,          // match must be near the start of the string
   }), [allPublicTopics]);
 
-  // Debounce the query for semantic API search (300ms)
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query), 150);
-    return () => clearTimeout(t);
-  }, [query]);
-
   // Auto-resize textarea
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -205,21 +198,38 @@ export default function NewTopicPage() {
   }, []);
   useEffect(() => { autoResize(); }, [query, autoResize]);
 
-  // Semantic search via backend embedding (fires after debounce, 3+ chars)
+  // Semantic search refines the instant local results.  Do not debounce this into a
+  // separate UI state: doing so previously left the popular-topic state on screen
+  // while the user was typing, then waited again for the embedding request.
   const { data: semanticTopics = [] } = useQuery<SharedTopic[]>({
-    queryKey: ['shared-topics', debouncedQuery],
+    queryKey: ['shared-topics', query],
     queryFn: async () => {
-      const r = await api.get(`/shared-topics?q=${encodeURIComponent(debouncedQuery)}`);
+      const r = await api.get(`/shared-topics?q=${encodeURIComponent(query)}`);
       return r.data;
     },
-    enabled: debouncedQuery.length >= 2,
+    enabled: query.trim().length >= 2,
     staleTime: 10_000,
   });
 
-  // Fuse local results — instant, no debounce needed
+  // Fuse local results — instant, no network or debounce needed.
   const fuseResults = useMemo((): SharedTopic[] => {
-    if (query.length < 3) return [];
-    return fuse.search(query).map(r => r.item);
+    const normalized = query.trim();
+    if (normalized.length < 2) return [];
+
+    // Fuse is intentionally conservative for typo matching. Include direct and
+    // word-prefix matches first so e.g. "technology" immediately finds topics
+    // containing "tech" while the semantic ranking is still loading.
+    const lower = normalized.toLowerCase();
+    const direct = allPublicTopics.filter(topic => topic.name.toLowerCase().includes(lower));
+    const seen = new Set(direct.map(topic => topic.id));
+    const prefixRelated = allPublicTopics.filter(topic =>
+      !seen.has(topic.id) && topic.name.toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .some(word => word.length >= 3 && lower.startsWith(word))
+    );
+    prefixRelated.forEach(topic => seen.add(topic.id));
+    return [...direct, ...prefixRelated, ...fuse.search(normalized).map(result => result.item)
+      .filter(topic => !seen.has(topic.id))];
   }, [fuse, query]);
 
   const handleSubmit = async () => {
@@ -281,7 +291,6 @@ export default function NewTopicPage() {
 
   const fillAndFocus = (text: string) => {
     setQuery(text);
-    setDebouncedQuery(text);
     setError(null);
     setErrorStatus(null);
     setNudge(false);
@@ -297,24 +306,30 @@ export default function NewTopicPage() {
   };
 
   // Pill source priority:
-  // 1. Empty / too short → popular public topics sorted by subscriber_count
-  // 2. Typing (3+ chars) → Fuse local results immediately, replaced by semantic results
-  //    when the debounced API call returns (semantic = embedding-ranked, better intent)
+  // 1. Empty → top public topics.
+  // 2. Typing → instant local substring/fuzzy results, followed by semantic matches
+  //    when the server response arrives. Never fall back to static popular pills
+  //    while a search is in progress.
   const pills = useMemo(() => {
     const popular = (fallback = false) => [...allPublicTopics]
       .sort((a, b) => b.subscriber_count - a.subscriber_count)
       .slice(0, 5)
       .map(t => ({ id: t.id, label: t.name, fill: t.name, isShared: true, isPopular: true, isFallback: fallback as boolean }));
 
-    if (query.length < 2) return popular(false);
-    // While debounce is still in flight, show popular silently — don't trust Fuse
-    // for semantic meaning (it's character-level; "technologey" won't match tech topics).
-    if (debouncedQuery !== query) return popular(false);
-    // Debounce has settled — use semantic results from the backend embedding search.
-    if (semanticTopics.length > 0) return semanticTopics.slice(0, 5).map(t => ({ id: t.id, label: t.name, fill: t.name, isShared: true, isPopular: false, isFallback: false }));
-    // Semantic returned nothing → show popular as labelled fallback.
-    return popular(true);
-  }, [query, debouncedQuery, allPublicTopics, semanticTopics, fuseResults]);
+    if (!query.trim()) return popular(false);
+
+    // Semantic results are higher quality, but retain unmatched instant results so
+    // a slow embedding call never makes the suggestions disappear or regress.
+    const seen = new Set<string>();
+    return [...semanticTopics, ...fuseResults]
+      .filter(topic => {
+        if (seen.has(topic.id)) return false;
+        seen.add(topic.id);
+        return true;
+      })
+      .slice(0, 5)
+      .map(topic => ({ id: topic.id, label: topic.name, fill: topic.name, isShared: true, isPopular: false, isFallback: false }));
+  }, [query, allPublicTopics, semanticTopics, fuseResults]);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px 44px' }}>

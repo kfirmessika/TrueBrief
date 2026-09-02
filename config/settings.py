@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     ENV: str = "development"        # "development" | "production"
     FOUNDER_EMAIL: str = ""         # If set, restricts /admin/* endpoints to this email
 
+    # --- Spend guardrails (billing/spend_guard.py) ---
+    # Global daily ceiling on LLM spend. Once today's llm_call_log total (UTC) crosses
+    # this, every non-admin scan trigger returns 503 until 00:00 UTC. 0 disables the
+    # breaker entirely. Tune to your real budget — the default is deliberately generous
+    # headroom over normal usage, tight enough to stop a runaway loop.
+    GLOBAL_DAILY_SPEND_CEILING_USD: float = 25.0
+
     # --- V3 Feature Flags (all False = V1 behaviour; flip in .env to enable V3 changes) ---
     # 1a.1 — harvester year guard: clamp event_date to [publish_date−1y, today]
     V3_DATE_GUARD: bool = False
