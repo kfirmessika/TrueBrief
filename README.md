@@ -1,7 +1,12 @@
 # TrueBrief
 
 [![Open Web App](https://img.shields.io/badge/Open%20Web%20App-2563EB?style=for-the-badge&logo=google-chrome&logoColor=white)](https://truebrief.up.railway.app)
-[![Download Android APK](https://img.shields.io/badge/Download%20Android%20APK-16A34A?style=for-the-badge&logo=android&logoColor=white)](https://github.com/kfirmessika/TrueBrief/raw/main/docs/truebrief.apk)
+[![Download Android APK](https://img.shields.io/badge/Download%20Android%20APK-16A34A?style=for-the-badge&logo=android&logoColor=white)](https://github.com/kfirmessika/TrueBrief/releases/latest/download/truebrief.apk)
+
+> **Installing the Android APK:** it is self-signed and not on the Play Store, so after
+> downloading, open the file and allow your browser/Files app to "install unknown apps"
+> when prompted (Settings → Apps → your browser → Install unknown apps). Accept the
+> Play Protect "install anyway" dialog.
 
 A noise-free news intelligence platform.
 
