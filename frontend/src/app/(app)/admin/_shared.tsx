@@ -14,7 +14,7 @@ import Link from 'next/link';
 // instead of the internal snake_case name. Anything not listed here still renders —
 // this is cosmetic, not a whitelist.
 export const STAGE_LABELS: Record<string, string> = {
-  gemini_search: 'Search (Gemini)',
+  gemini_search: 'Grounded search',
   gemini_extract: 'Extraction',
   arbiter: 'Dedup / Judge',
   briefer: 'Brief writing',

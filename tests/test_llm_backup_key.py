@@ -162,6 +162,32 @@ class TestBackupKeyFallback:
         # Should NOT say "Both … quota-exhausted" — it's a different error
         assert "both" not in str(exc_info.value).lower() or "quota" not in str(exc_info.value).lower()
 
+    def test_groq_last_resort_also_fails_flags_red_with_groq_provider(self):
+        """Both Gemini keys AND the Groq last-resort fail -- the single highest-value
+        alert in this chain: nothing at all is left to serve this call."""
+        client = _make_client(primary_key="pk", backup_key="bk")
+        client._settings.GROQ_API_KEY = "gsk_test"
+
+        primary_gemini = MagicMock()
+        backup_gemini = MagicMock()
+        client._gemini_client = primary_gemini
+        client._gemini_client_backup = backup_gemini
+
+        def always_quota(model, prompt, json_mode, system_prompt, client=None):
+            raise _quota_error()
+
+        with patch.object(
+            client.__class__, "_call_gemini_instrumented", side_effect=always_quota
+        ), patch.object(client.__class__, "_call_groq_instrumented", side_effect=RuntimeError("groq down")), \
+           patch.object(client.__class__, "_log_call"), \
+           patch.object(client.__class__, "_flag_quota") as flag:
+            from truebrief.llm.client import LLMError
+            with pytest.raises(LLMError, match="Both Gemini API keys are quota-exhausted"):
+                client.call("test_step", "hello")
+
+        seen = [(c.args[0], c.kwargs.get("provider")) for c in flag.call_args_list]
+        assert ("red", "groq") in seen
+
     def test_get_gemini_client_backup_returns_none_when_key_missing(self):
         client = _make_client(primary_key="pk", backup_key="")
         assert client._get_gemini_client_backup() is None

@@ -12,9 +12,10 @@ interface QuotaAlert {
   severity: 'yellow' | 'red';
   step_name: string;
   model: string;
-  key_type: 'primary' | 'backup';
+  key_type: 'primary' | 'backup' | 'rpm' | 'single';
   error_detail: string | null;
   notified: boolean;
+  provider?: string;
 }
 
 interface QuotaAlertsResponse {
@@ -77,7 +78,7 @@ function QuotaAlertsBanner() {
   return (
     <section style={{ marginBottom: 28 }}>
       <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
-        Gemini Quota Alerts <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12 }}>(last 48h)</span>
+        Provider Alerts <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12 }}>(last 48h)</span>
       </h2>
 
       {reds.length > 0 && (
@@ -91,7 +92,7 @@ function QuotaAlertsBanner() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <AlertCircle size={16} color="#DC2626" />
             <span style={{ fontSize: 13, fontWeight: 700, color: '#991B1B' }}>
-              {reds.length} critical — calls failing/degraded
+              {reds.length} critical — no working fallback left, calls failing/degraded
             </span>
           </div>
           {reds.slice(0, 10).map((a) => (
@@ -101,7 +102,8 @@ function QuotaAlertsBanner() {
             }}>
               <span style={{ fontFamily: 'monospace' }}>{new Date(a.created_at).toLocaleString()}</span>
               {' — '}
-              <strong>{stepLabel(a.step_name)}</strong> / {a.model} ({a.key_type} key)
+              <strong>{(a.provider ?? 'gemini').toUpperCase()}</strong> · {stepLabel(a.step_name)} / {a.model}
+              {a.key_type === 'primary' || a.key_type === 'backup' ? ` (${a.key_type} key)` : ''}
               {a.notified ? '' : ' — push not delivered'}
             </div>
           ))}
@@ -118,7 +120,7 @@ function QuotaAlertsBanner() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <AlertCircle size={16} color="#B45309" />
             <span style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
-              {yellows.length} warning — primary key exhausted, running on backup
+              {yellows.length} warning — a provider failed, fallback covered it
             </span>
           </div>
           {yellows.slice(0, 10).map((a) => (
@@ -128,7 +130,8 @@ function QuotaAlertsBanner() {
             }}>
               <span style={{ fontFamily: 'monospace' }}>{new Date(a.created_at).toLocaleString()}</span>
               {' — '}
-              {stepLabel(a.step_name)} / {a.model}
+              <strong>{(a.provider ?? 'gemini').toUpperCase()}</strong> · {stepLabel(a.step_name)} / {a.model}
+              {a.key_type === 'primary' || a.key_type === 'backup' ? ` (${a.key_type} key)` : ''}
             </div>
           ))}
         </div>
@@ -150,6 +153,7 @@ interface KeyStatusResponse {
   model_usage_today: Record<string, number>;
   rpd_limits: Record<string, number>;
   embed_provider: string;
+  search_provider: string;
 }
 
 function KeyStatusPanel() {
@@ -184,10 +188,14 @@ function KeyStatusPanel() {
 
   return (
     <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
+      <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
         Gemini quota signals
         <span style={{ fontWeight: 400, color: 'var(--color-text-tertiary)', fontSize: 12, marginLeft: 8 }}>recorded by TrueBrief · refreshes every 60s</span>
       </h2>
+      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+        Configured now — search: <strong style={{ color: 'var(--color-text-secondary)' }}>{data.search_provider}</strong>, embed: <strong style={{ color: 'var(--color-text-secondary)' }}>{data.embed_provider}</strong>.
+        {data.search_provider !== 'gemini' && ' Gemini can still show up below as an automatic grounding fallback.'}
+      </div>
 
       {/* Key status cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>

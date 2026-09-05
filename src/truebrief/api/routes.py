@@ -2012,11 +2012,13 @@ def get_admin_metrics(user: User = Depends(get_current_user)):
 @router.get("/admin/quota-alerts")
 def get_admin_quota_alerts(hours: int = 48, user: User = Depends(get_current_user)):
     """
-    Recent Gemini quota-exhaustion flag events (yellow = primary exhausted, on backup;
-    red = backup also failed / no backup / fell through to Groq — call is degraded or
-    failing). Persisted by truebrief.ledger.quota_alerts.flag_quota_event() at the exact
-    point llm/client.py catches a 429/RESOURCE_EXHAUSTED error. Push notifications to the
-    founder are best-effort (see `notified` per row); this endpoint is the durable record.
+    Recent provider-failure flag events, across every LLM/search/embedding provider, not
+    just Gemini (yellow = a provider failed and a fallback covered it; red = nothing was
+    left to fall back to and the call failed outright). `provider` on each row says which
+    one broke; Gemini's own primary/backup key rotation keeps its historical key_type
+    detail. Persisted by truebrief.ledger.quota_alerts.flag_quota_event() at the exact
+    point llm/client.py catches the failure. Push notifications to the founder are
+    best-effort (see `notified` per row); this endpoint is the durable record.
     """
     if not _is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required.")
@@ -2045,6 +2047,9 @@ def get_admin_key_status(user: User = Depends(get_current_user)):
     model_usage: today's call counts per model from llm_call_log (UTC day).
     rpd_limits: known free-tier RPD per model × 2 keys (effective limit with both keys).
     embed_provider: current EMBED_PROVIDER setting ("gemini" or "local").
+    search_provider: current SEARCH_PROVIDER setting ("gemini", "linkup" or "brave") — the
+      grounding fallback chain (see collector_search()) can still call Gemini even when
+      this isn't "gemini"; that shows up as a provider-tagged quota_alerts row, not here.
     """
     if not _is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required.")
@@ -2106,6 +2111,7 @@ def get_admin_key_status(user: User = Depends(get_current_user)):
     RPD_LIMITS: dict[str, int] = {}
 
     embed_provider = getattr(settings, "EMBED_PROVIDER", "gemini")
+    search_provider = getattr(settings, "SEARCH_PROVIDER", "gemini")
     backup_configured = bool(getattr(settings, "GOOGLE_API_KEY_BACKUP", ""))
 
     return {
@@ -2114,6 +2120,7 @@ def get_admin_key_status(user: User = Depends(get_current_user)):
         "model_usage_today": model_calls,
         "rpd_limits": RPD_LIMITS,
         "embed_provider": embed_provider,
+        "search_provider": search_provider,
     }
 
 

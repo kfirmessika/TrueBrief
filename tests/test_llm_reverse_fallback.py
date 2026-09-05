@@ -25,11 +25,17 @@ def test_groq_failure_falls_back_to_gemini():
     c = _client_with_groq_step()
     with patch.object(c, "_call_groq_instrumented", side_effect=RuntimeError("429 rate limit")), \
          patch.object(c, "_call_gemini_instrumented", return_value=('[{"id":1}]', 10, 5)) as gem, \
-         patch.object(c, "_log_call"):
+         patch.object(c, "_log_call"), \
+         patch.object(c, "_flag_quota") as flag:
         out = c.call(step_name="signal_scorer", prompt="p", json_mode=True)
     assert out == '[{"id":1}]'
     assert gem.called
     assert gem.call_args[0][0] == "gemini-3.1-flash-lite"
+    # Groq exhausted its retries -- worth an immediate yellow even though Gemini rescued it.
+    flag.assert_called_once()
+    args, kwargs = flag.call_args
+    assert args[0] == "yellow"
+    assert kwargs.get("provider") == "groq"
 
 
 def test_both_dead_still_raises():
@@ -37,9 +43,13 @@ def test_both_dead_still_raises():
     with patch.object(c, "_call_groq_instrumented", side_effect=RuntimeError("429")), \
          patch.object(c, "_call_gemini_instrumented", side_effect=RuntimeError("also dead")), \
          patch.object(c, "_log_call"), \
+         patch.object(c, "_flag_quota") as flag, \
          patch("time.sleep"):
         with pytest.raises(LLMError):
             c.call(step_name="signal_scorer", prompt="p", json_mode=True)
+    seen = [(call.args[0], call.kwargs.get("provider")) for call in flag.call_args_list]
+    assert ("yellow", "groq") in seen   # Groq exhausted retries, tried Gemini
+    assert ("red", "gemini") in seen    # Gemini reverse-fallback also failed -- nothing left
 
 
 def test_no_gemini_key_no_fallback_attempt():

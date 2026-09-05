@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 # MUST return exactly this many dimensions or similarity search silently breaks.
 EMBED_DIM = 768
 
+# Telemetry model labels for non-Gemini grounding providers, matching the strings
+# _grounded_linkup/_grounded_brave already log via _log_call — reused here so a
+# quota_alerts row's `model` field matches what cost-by-model reporting shows elsewhere.
+_GROUNDING_ALERT_MODEL = {"linkup": "linkup/sourcedAnswer", "brave": "brave/web-summary"}
+
 
 def _search_window(last_run_str: str, today_str: str, default_days: int = 7) -> tuple[str, str]:
     """Return (fromDate, toDate) as YYYY-MM-DD with fromDate STRICTLY before toDate.
@@ -266,6 +271,7 @@ class LLMClient:
                                         "Falling back to Groq %s for this call.",
                                         step_name, groq_model,
                                     )
+                                    self._flag_quota("yellow", step_name, groq_model, "single", exc, provider="groq")
                                     try:
                                         result, in_tok, out_tok = self._call_groq_instrumented(
                                             groq_model, prompt, json_mode, system_prompt
@@ -279,6 +285,7 @@ class LLMClient:
                                             "[LLM] Groq fallback also failed (step=%s): %s",
                                             step_name, gexc,
                                         )
+                                        self._flag_quota("red", step_name, groq_model, "single", gexc, provider="groq")
                                 logger.error(
                                     "[LLM] BOTH Gemini keys are quota-exhausted (step=%s). "
                                     "Primary: %s | Backup: %s.",
@@ -313,6 +320,7 @@ class LLMClient:
                             "Falling back to Gemini %s for this call.",
                             step_name, gem_model,
                         )
+                        self._flag_quota("yellow", step_name, model, "single", exc, provider="groq")
                         try:
                             result, in_tok, out_tok = self._call_gemini_instrumented(
                                 gem_model, prompt, json_mode, system_prompt
@@ -326,6 +334,7 @@ class LLMClient:
                                 "[LLM] Gemini reverse-fallback also failed (step=%s): %s",
                                 step_name, gemexc,
                             )
+                            self._flag_quota("red", step_name, gem_model, "single", gemexc, provider="gemini")
                     raise LLMError(f"Failed after {self.MAX_RETRIES} attempts: {exc}") from exc
         return ""
 
@@ -476,6 +485,14 @@ class LLMClient:
             except Exception as exc:
                 errors.append(f"{p}: {type(exc).__name__}: {str(exc)[:150]}")
                 logger.warning("[collector_search] grounding provider '%s' failed: %s", p, str(exc)[:200])
+                if p == configured and p != "gemini":
+                    # The provider you actually rely on just broke -- worth knowing
+                    # immediately even though a fallback may still save this run. Gemini
+                    # is excluded here: call_gemini_with_grounding() already self-reports
+                    # via its own primary/backup flagging above, so this would double-alert
+                    # if SEARCH_PROVIDER were ever set back to "gemini".
+                    model_label = _GROUNDING_ALERT_MODEL.get(p, f"{p}/grounding")
+                    self._flag_quota("yellow", "gemini_search", model_label, "single", exc, provider=p)
                 continue
             text = (result.text or "").strip()
             if not text:
@@ -503,6 +520,13 @@ class LLMClient:
             logger.info("[collector_search] all providers report nothing new for '%s'", topic_name)
             return no_news
 
+        # Every grounding provider errored or came back empty -- this topic's search step
+        # is failing outright, not just falling back. The single highest-value alert this
+        # feature adds: nothing covered for the founder's actually-configured provider.
+        self._flag_quota(
+            "red", "gemini_search", "all_grounding_providers", "single",
+            LLMError(" | ".join(errors)), provider=configured,
+        )
         raise LLMError(
             f"All grounding providers failed for '{topic_name}': " + " | ".join(errors)
         )
@@ -726,8 +750,14 @@ class LLMClient:
         provider = self._embed_provider()
         t0 = time.monotonic()
         if provider == "local":
-            result = self._get_local_embedder().embed(text)
             model = self._local_embed_model_label()
+            try:
+                result = self._get_local_embedder().embed(text)
+            except Exception as e:
+                logger.error(f"Local embedding failed: {e}")
+                # No cross-provider fallback exists here either -- total failure for the call.
+                self._flag_quota("red", "embedding", model, "single", e, provider="local")
+                raise LLMError(f"Local embedding failed: {e}") from e
         elif provider == "openai":
             model = getattr(self._settings, "OPENAI_EMBED_MODEL", "text-embedding-3-small")
             result = self._embed_openai(text, model=model)
@@ -779,8 +809,13 @@ class LLMClient:
         provider = self._embed_provider()
         t0 = time.monotonic()
         if provider == "local":
-            result = self._get_local_embedder().embed_batch(texts)
             model = self._local_embed_model_label()
+            try:
+                result = self._get_local_embedder().embed_batch(texts)
+            except Exception as e:
+                logger.error(f"Local batch embedding failed: {e}")
+                self._flag_quota("red", "embedding", model, "single", e, provider="local")
+                raise LLMError(f"Local batch embedding failed: {e}") from e
         elif provider == "openai":
             model = getattr(self._settings, "OPENAI_EMBED_MODEL", "text-embedding-3-small")
             result = self._embed_batch_openai(texts, model=model)
@@ -821,6 +856,9 @@ class LLMClient:
             return res.data[0].embedding
         except Exception as e:
             logger.error(f"OpenAI embedding failed: {e}")
+            # No cross-provider fallback exists for embeddings (unlike grounding) -- this
+            # is always a total failure for the call, never a "recovered via fallback" case.
+            self._flag_quota("red", "embedding", model_name, "single", e, provider="openai")
             raise LLMError(f"OpenAI embedding failed: {e}") from e
 
     def _embed_batch_openai(self, texts: List[str], model: str | None = None) -> List[List[float]]:
@@ -843,6 +881,7 @@ class LLMClient:
             return [item.embedding for item in sorted_data]
         except Exception as e:
             logger.error(f"OpenAI batch embedding failed: {e}")
+            self._flag_quota("red", "embedding", model_name, "single", e, provider="openai")
             raise LLMError(f"OpenAI batch embedding failed: {e}") from e
 
     # ------------------------------------------------------------------
@@ -1150,14 +1189,17 @@ class LLMClient:
         )
 
     @staticmethod
-    def _flag_quota(severity: str, step_name: str, model: str, key_type: str, error: Exception) -> None:
-        """Real-time quota-exhaustion alert: persist + push the founder. Never raises —
+    def _flag_quota(
+        severity: str, step_name: str, model: str, key_type: str, error: Exception,
+        provider: str = "gemini",
+    ) -> None:
+        """Real-time provider-failure alert: persist + push the founder. Never raises —
         wrapped so a broken alert path can never affect the LLM call it's reporting on.
         See ledger/quota_alerts.py for the full detection→persist→push design.
         """
         try:
             from truebrief.ledger.quota_alerts import flag_quota_event
-            flag_quota_event(severity, step_name, model, key_type, error)
+            flag_quota_event(severity, step_name, model, key_type, error, provider=provider)
         except Exception as exc:
             logger.debug("[LLM] Quota alert failed (non-fatal): %s", exc)
 

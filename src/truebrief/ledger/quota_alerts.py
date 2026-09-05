@@ -1,20 +1,26 @@
 """
 Quota Alert System — ledger/quota_alerts.py
 
-Real-time detection of Gemini API quota exhaustion, hooked directly into the two spots
-in llm/client.py where a 429/RESOURCE_EXHAUSTED error is caught (call() and
-call_gemini_with_grounding()). Built 2026-08-12 after a live incident where the primary
-key silently hit its daily grounding cap and the backup key permanently 404'd ("model no
-longer available") for the same model — nobody found out until a downstream symptom
-(empty briefs) was noticed by chance.
+Real-time detection of a pipeline provider failing, hooked directly into every
+multi-provider dispatch/fallback point in llm/client.py: the Gemini primary/backup/Groq
+chain in call() and call_gemini_with_grounding(), the Linkup/Brave/Gemini grounding
+fallback loop in collector_search(), and the OpenAI embedding path. Built 2026-08-12
+after a live incident where the Gemini primary key silently hit its daily grounding cap
+and the backup key permanently 404'd ("model no longer available") for the same model —
+nobody found out until a downstream symptom (empty briefs) was noticed by chance.
+Generalized 2026-09-05 beyond Gemini: once SEARCH_PROVIDER moved off "gemini", every
+other provider's failure in these same fallback chains was silently absorbed with only a
+logger.warning — a break in the actually-configured provider was invisible until every
+fallback also failed. `provider` (migration 038) says which provider the event is about;
+Gemini's own primary/backup key rotation keeps its existing, more specific key_type.
 
 Severity:
-    yellow — the PRIMARY key hit quota exhaustion and the code is about to fall back to
-             the backup key. Informational: the pipeline should still work.
-    red    — the BACKUP key ALSO failed on the same call (both keys quota-exhausted, the
-             backup errored for any other reason, or there's no backup key configured at
-             all) — this call is now failing entirely or falling through to an expensive
-             last-resort (e.g. Groq). Actionable: something needs the founder's attention.
+    yellow — a provider failed on this call and the code is about to try a fallback
+             (Gemini's own backup key, or a different provider entirely). Informational:
+             the pipeline should still work, but worth knowing what just broke.
+    red    — nothing was left to fall back to and this call failed outright (both Gemini
+             keys quota-exhausted, a fallback provider also errored, or there's no backup
+             configured at all). Actionable: something needs the founder's attention.
 
 Two responsibilities per flag event, both fire-and-forget (never raise, never block the
 LLM call whose failure they're reporting on):
@@ -36,8 +42,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_YELLOW_TITLE = "⚠️ Gemini quota warning"
-_RED_TITLE = "\U0001f534 Gemini quota critical"
+_YELLOW_TITLE = "⚠️ Provider warning"
+_RED_TITLE = "\U0001f534 Provider critical"
 
 
 def flag_quota_event(
@@ -46,13 +52,18 @@ def flag_quota_event(
     model: str,
     key_type: str,
     error: Exception,
+    provider: str = "gemini",
 ) -> None:
-    """Persist + push-notify a quota flag event. Never raises.
+    """Persist + push-notify a provider flag event. Never raises.
 
     Called synchronously at the exact point of detection in llm/client.py so the flag
     fires immediately (no batching, no delay) — but every step inside here is wrapped so
     a DB outage or a broken push subscription can never propagate back into the LLM call
     path this is reporting on.
+
+    provider defaults to "gemini" for backward compatibility with the original call sites
+    (Gemini's own primary/backup key rotation); pass the real provider name ("linkup",
+    "brave", "groq", "openai", ...) when flagging any other provider's failure.
     """
     if severity not in ("yellow", "red"):
         logger.debug("[QUOTA-ALERT] Ignoring unknown severity %r", severity)
@@ -72,18 +83,18 @@ def flag_quota_event(
         # in a single insert — but persistence below is unconditional either way, so the
         # audit trail exists even if this raises.
         try:
-            notified = _notify_founder(db, severity, step_name, model, error_detail)
+            notified = _notify_founder(db, severity, step_name, model, error_detail, provider, key_type)
         except Exception as exc:
             logger.error("[QUOTA-ALERT] Failed to push-notify founder (step=%s): %s", step_name, exc)
 
         try:
-            _persist(db, severity, step_name, model, key_type, error_detail, notified=notified)
+            _persist(db, severity, step_name, model, key_type, error_detail, notified=notified, provider=provider)
         except Exception as exc:
             logger.error("[QUOTA-ALERT] Failed to persist flag event (step=%s): %s", step_name, exc)
 
     logger.warning(
-        "[QUOTA-ALERT] severity=%s step=%s model=%s key=%s notified=%s",
-        severity, step_name, model, key_type, notified,
+        "[QUOTA-ALERT] severity=%s provider=%s step=%s model=%s key=%s notified=%s",
+        severity, provider, step_name, model, key_type, notified,
     )
 
 
@@ -101,7 +112,8 @@ def _clip(s: str, limit: int = 1500) -> str:
 
 
 def _persist(
-    db, severity: str, step_name: str, model: str, key_type: str, error_detail: str, notified: bool
+    db, severity: str, step_name: str, model: str, key_type: str, error_detail: str, notified: bool,
+    provider: str = "gemini",
 ) -> None:
     db.table("quota_alerts").insert({
         "severity": severity,
@@ -110,6 +122,7 @@ def _persist(
         "key_type": key_type,
         "error_detail": error_detail,
         "notified": notified,
+        "provider": provider,
     }).execute()
 
 
@@ -133,7 +146,10 @@ def _founder_user_id(db) -> Optional[str]:
     return rows[0]["id"] if rows else None
 
 
-def _notify_founder(db, severity: str, step_name: str, model: str, error_detail: str) -> bool:
+def _notify_founder(
+    db, severity: str, step_name: str, model: str, error_detail: str,
+    provider: str = "gemini", key_type: str = "",
+) -> bool:
     """Push a real-time notification to every active subscription the founder has.
 
     Returns True if at least one push was delivered successfully.
@@ -155,12 +171,16 @@ def _notify_founder(db, severity: str, step_name: str, model: str, error_detail:
         logger.warning("[QUOTA-ALERT] Founder has no active push subscription — flag persisted but not pushed.")
         return False
 
+    # "gemini primary key" / "gemini backup key" keeps the original, specific wording for
+    # Gemini's own dual-key rotation; any other provider (or key_type="single") just names
+    # the provider — Linkup/Brave/Groq/OpenAI have no primary/backup concept.
+    where = f"{provider} {key_type} key" if key_type in ("primary", "backup") else provider
     if severity == "red":
         title = _RED_TITLE
-        body = f"Both keys exhausted for {step_name}/{model} — calls are failing/degraded."
+        body = f"{where} failed for {step_name}/{model} — no working fallback left, call is failing/degraded."
     else:
         title = _YELLOW_TITLE
-        body = f"Primary key exhausted for {step_name}/{model}, now on backup."
+        body = f"{where} failed for {step_name}/{model} — a fallback covered it, call still succeeded."
 
     from truebrief.push.client import send_push
 
@@ -194,7 +214,7 @@ def recent_alerts(hours: int = 48, limit: int = 100) -> list:
         db = _get_db()
         res = (
             db.table("quota_alerts")
-            .select("id, created_at, severity, step_name, model, key_type, error_detail, notified")
+            .select("id, created_at, severity, step_name, model, key_type, error_detail, notified, provider")
             .gte("created_at", _hours_ago_iso(hours))
             .order("created_at", desc=True)
             .limit(limit)

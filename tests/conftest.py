@@ -55,3 +55,22 @@ def _isolate_global_singletons():
         _cs.LLM_CONFIG = _ORIG_LLM_CONFIG
         if _ORIG_PROVIDER_REGISTRY is not None:
             _cs.PROVIDER_REGISTRY = _ORIG_PROVIDER_REGISTRY
+
+
+@pytest.fixture(autouse=True)
+def _no_real_quota_alerts(monkeypatch):
+    """Never let a unit test reach the real Supabase project or send a real push.
+
+    Settings load from the real local .env (pydantic BaseSettings env_file), so a
+    live SUPABASE_URL/SUPABASE_KEY is present during `pytest tests/` on a dev machine.
+    flag_quota_event() is synchronous and fire-and-forget, and many llm/client.py tests
+    deliberately trigger the real error branches that call it (backup-key exhaustion,
+    Groq fallback, reverse fallback, collector_search's provider loop). Without this,
+    an unmocked call would insert a real row into the live quota_alerts table and could
+    push-notify the founder's real device from a test run. tests/test_quota_alerts.py
+    overrides this locally (via patch.object) where it needs to exercise the real
+    persist/notify path against a fake db.
+    """
+    import truebrief.ledger.quota_alerts as _qa
+
+    monkeypatch.setattr(_qa, "_get_db", lambda: None)

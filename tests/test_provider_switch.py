@@ -14,7 +14,7 @@ Covers:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -214,6 +214,86 @@ def test_brave_query_is_short_keywords_not_the_long_question():
     assert len(kw) < 300 and kw.endswith("news")           # Brave q param is length-limited
     assert "since 2026-09-01 09:14 UTC" in q                # Linkup gets the precise lower bound
     assert "present moment" in q                            # upper bound left open on purpose
+
+
+# ── 10. provider-failure alerting (quota_alerts generalization) ─────────────
+
+def test_collector_search_flags_yellow_when_configured_provider_errors():
+    """Linkup (the configured provider) errors, Brave recovers -- worth an immediate
+    yellow flag naming Linkup, even though the run itself still succeeds."""
+    c = _client({"gemini_search": {"provider": "linkup", "model": "x"}}, LINKUP_API_KEY="lk", BRAVE_API_KEY="brv")
+    good = GroundedResult(text="from brave " * 30, chunks=[], supports=[])
+    with patch.object(LLMClient, "_grounded_linkup", side_effect=LLMError("Linkup 400")), \
+         patch.object(LLMClient, "_grounded_brave", return_value=good), \
+         patch.object(LLMClient, "_flag_quota") as flag:
+        out = c.collector_search("Iran War", last_run_str="2026-08-31", today_str="2026-08-31")
+    assert out is good
+    flag.assert_called_once()
+    args, kwargs = flag.call_args
+    assert args[0] == "yellow"
+    assert kwargs.get("provider") == "linkup"
+
+
+def test_collector_search_does_not_double_flag_gemini_fallback():
+    """Gemini failing as an unused fallback (not the configured provider) must not fire
+    a second, generic flag here -- call_gemini_with_grounding already self-reports its
+    own primary/backup quota events, so this would double-alert on the same failure."""
+    c = _client({"gemini_search": {"provider": "linkup", "model": "x"}}, LINKUP_API_KEY="lk", BRAVE_API_KEY="")
+    quiet = GroundedResult(text="No newsworthy developments about this topic were reported.", chunks=[], supports=[])
+    with patch.object(LLMClient, "_grounded_linkup", return_value=quiet), \
+         patch.object(LLMClient, "call_gemini_with_grounding", side_effect=LLMError("both keys dead")), \
+         patch.object(LLMClient, "_flag_quota") as flag:
+        out = c.collector_search("Iran War", last_run_str="2026-08-31", today_str="2026-08-31")
+    from truebrief.llm.client import _looks_like_no_news
+    assert _looks_like_no_news(out.text)
+    flag.assert_not_called()
+
+
+def test_collector_search_flags_red_when_every_provider_fails():
+    """Nothing covers the run at all -- the single highest-value alert this feature
+    adds: an immediate, actionable 'the whole search step failed' signal."""
+    c = _client({"gemini_search": {"provider": "linkup", "model": "x"}}, LINKUP_API_KEY="lk", BRAVE_API_KEY="brv")
+    with patch.object(LLMClient, "_grounded_linkup", side_effect=LLMError("Linkup down")), \
+         patch.object(LLMClient, "_grounded_brave", side_effect=LLMError("Brave down")), \
+         patch.object(LLMClient, "call_gemini_with_grounding", side_effect=LLMError("Gemini dead")), \
+         patch.object(LLMClient, "_flag_quota") as flag:
+        with pytest.raises(LLMError, match="All grounding providers failed"):
+            c.collector_search("Iran War", last_run_str="2026-08-31", today_str="2026-08-31")
+    severities = [call.args[0] for call in flag.call_args_list]
+    assert "yellow" in severities   # linkup (configured) failing gets its own immediate flag
+    assert "red" in severities      # plus the final "nothing worked at all" flag
+    red_calls = [call for call in flag.call_args_list if call.args[0] == "red"]
+    assert any(call.kwargs.get("provider") == "linkup" for call in red_calls)
+
+
+def test_local_embed_failure_flags_red():
+    """A broken on-disk local model is still a total failure for the call -- same
+    treatment as any other embedding provider, just tagged provider='local'."""
+    c = _client({"embedding": {"provider": "local", "model": "x"}}, EMBED_PROVIDER="local")
+    broken_embedder = MagicMock()
+    broken_embedder.embed.side_effect = RuntimeError("model file corrupted")
+    with patch.object(LLMClient, "_get_local_embedder", return_value=broken_embedder), \
+         patch.object(LLMClient, "_flag_quota") as flag:
+        with pytest.raises(LLMError):
+            c.embed("some fact text")
+    flag.assert_called_once()
+    args, kwargs = flag.call_args
+    assert args[0] == "red"
+    assert kwargs.get("provider") == "local"
+
+
+def test_openai_embed_failure_flags_red():
+    """Embedding has no cross-provider fallback -- any failure is total for the call."""
+    c = _client({"embedding": {"provider": "openai", "model": "text-embedding-3-small"}}, EMBED_PROVIDER="openai")
+    with patch.object(LLMClient, "_get_openai_client", return_value=MagicMock()), \
+         patch.object(LLMClient, "_call_with_timeout", side_effect=LLMError("OpenAI 500")), \
+         patch.object(LLMClient, "_flag_quota") as flag:
+        with pytest.raises(LLMError):
+            c.embed("some fact text")
+    flag.assert_called_once()
+    args, kwargs = flag.call_args
+    assert args[0] == "red"
+    assert kwargs.get("provider") == "openai"
 
 
 # ── 9. config completeness ───────────────────────────────────────────────────
